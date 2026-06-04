@@ -1,7 +1,6 @@
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../config/prisma.js';
-import { ApiError } from '../utils/ApiError.js';
 import { getAsteriskGateway } from '../asterisk/index.js';
 
 export async function listLogs(req: Request, res: Response) {
@@ -152,9 +151,32 @@ const noteSchema = z.object({ note: z.string().min(1) });
 
 export async function addNote(req: Request, res: Response) {
   const { note } = noteSchema.parse(req.body);
-  const call = await prisma.call.findUnique({ where: { id: req.params.id } });
-  if (!call) throw ApiError.notFound('Call not found');
-  await prisma.call.update({ where: { id: req.params.id }, data: { note } });
-  await prisma.callEvent.create({ data: { callId: call.id, type: 'note', detail: note, actor: req.user?.username } });
-  res.json({ success: true });
+  const liveId = req.params.id;
+
+  const call = await prisma.call.findUnique({ where: { id: liveId } });
+
+  if (call) {
+    await prisma.call.update({ where: { id: call.id }, data: { note } });
+    await prisma.callEvent.create({
+      data: {
+        callId: call.id,
+        type: 'note',
+        detail: note,
+        actor: req.user?.username,
+      },
+    });
+
+    return res.json({ success: true, storedAs: 'call', id: call.id });
+  }
+
+  await prisma.note.create({
+    data: {
+      refType: 'live_call',
+      refId: liveId,
+      body: note,
+      authorId: req.user?.id,
+    },
+  });
+
+  res.json({ success: true, storedAs: 'live_call', id: liveId });
 }
