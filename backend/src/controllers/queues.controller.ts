@@ -31,8 +31,22 @@ function serialize(q: {
 }
 
 export async function list(_req: Request, res: Response) {
-  const rows = await prisma.queue.findMany({ include: { members: true }, orderBy: { createdAt: 'asc' } });
-  res.json(rows.map(serialize));
+  const rows = await prisma.queue.findMany({
+    include: { members: true },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const seen = new Set<string>();
+  const unique = [];
+
+  for (const row of rows) {
+    const key = row.number || row.name;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(row);
+  }
+
+  res.json(unique.reverse().map(serialize));
 }
 
 export async function create(req: Request, res: Response) {

@@ -31,17 +31,17 @@ export type AgentInput = Omit<Agent, 'id' | 'performance' | 'createdAt'> & {
 
 function toApi(input: Partial<AgentInput>) {
   return {
-    name: input.name,
-    email: input.email,
-    status: input.status,
+    name: input.name || '',
+    email: input.email || '',
+    status: input.status || 'offline',
     departmentId: input.departmentId || null,
-    extension: input.extension,
-    sipUsername: input.sipUsername,
-    sipPassword: input.sipPassword,
-    workFrom: input.workingHours?.from,
-    workTo: input.workingHours?.to,
-    workDays: input.workingHours?.days,
-    queueIds: input.queues,
+    extension: input.extension || '',
+    sipUsername: input.sipUsername || input.extension || '',
+    sipPassword: input.sipPassword || '',
+    workFrom: input.workingHours?.from || '09:00',
+    workTo: input.workingHours?.to || '17:00',
+    workDays: input.workingHours?.days || [0, 1, 2, 3, 4],
+    queueIds: Array.isArray(input.queues) ? input.queues.filter(Boolean) : [],
   };
 }
 

@@ -49,6 +49,15 @@ async function validDepartmentId(id?: string | null) {
   return row ? id : null;
 }
 
+async function validQueueIds(ids?: string[]) {
+  if (!ids?.length) return [];
+  const rows = await prisma.queue.findMany({
+    where: { id: { in: ids } },
+    select: { id: true },
+  });
+  return rows.map((x) => x.id);
+}
+
 function fetchOne(id: string) {
   return prisma.agent.findUnique({
     where: { id },
@@ -67,6 +76,7 @@ export async function list(_req: Request, res: Response) {
 export async function create(req: Request, res: Response) {
   const data = schema.parse(req.body);
   const departmentId = await validDepartmentId(data.departmentId);
+  const queueIds = await validQueueIds(data.queueIds);
   const agent = await prisma.agent.create({
     data: {
       name: data.name,
@@ -79,7 +89,7 @@ export async function create(req: Request, res: Response) {
       extension: data.extension
         ? { create: { number: data.extension, sipUsername: data.sipUsername ?? data.extension, sipPassword: data.sipPassword ?? '' } }
         : undefined,
-      queueMembers: data.queueIds ? { create: data.queueIds.map((queueId) => ({ queueId })) } : undefined,
+      queueMembers: queueIds.length ? { create: queueIds.map((queueId) => ({ queueId })) } : undefined,
     },
     include: { extension: true, department: true, queueMembers: true },
   });
@@ -89,6 +99,7 @@ export async function create(req: Request, res: Response) {
 export async function update(req: Request, res: Response) {
   const data = schema.partial().parse(req.body);
   const departmentId = data.departmentId === undefined ? undefined : await validDepartmentId(data.departmentId);
+  const queueIds = data.queueIds === undefined ? undefined : await validQueueIds(data.queueIds);
   const existing = await fetchOne(req.params.id);
   if (!existing) throw ApiError.notFound('Agent not found');
 
@@ -118,9 +129,13 @@ export async function update(req: Request, res: Response) {
     });
   }
 
-  if (data.queueIds) {
+  if (queueIds !== undefined) {
     await prisma.queueMember.deleteMany({ where: { agentId: req.params.id } });
-    await prisma.queueMember.createMany({ data: data.queueIds.map((queueId) => ({ queueId, agentId: req.params.id })) });
+    if (queueIds.length) {
+      await prisma.queueMember.createMany({
+        data: queueIds.map((queueId) => ({ queueId, agentId: req.params.id })),
+      });
+    }
   }
 
   res.json(serialize(await fetchOne(req.params.id)));
