@@ -28,6 +28,7 @@ function serialize(a: Awaited<ReturnType<typeof fetchOne>>) {
     department: a.department,
     extension: a.extension?.number ?? '',
     sipUsername: a.extension?.sipUsername ?? '',
+    sipPassword: a.extension?.sipPassword ?? '',
     workingHours: { from: a.workFrom, to: a.workTo, days: a.workDays as number[] },
     queues: a.queueMembers.map((m) => m.queueId),
     performance: {
@@ -38,6 +39,7 @@ function serialize(a: Awaited<ReturnType<typeof fetchOne>>) {
       satisfaction: a.satisfaction,
       occupancy: a.occupancy,
     },
+    createdAt: a.createdAt,
   };
 }
 
