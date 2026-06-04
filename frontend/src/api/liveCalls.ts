@@ -35,13 +35,15 @@ type BackendLiveCall = {
   line?: string | null;
   startedAt: string;
   durationSec: number;
+  callerName?: string | null;
+  subscriberId?: string | null;
 };
 
 function mapCall(c: BackendLiveCall): LiveCall {
   return {
     id: String(c.id),
     callerNumber: c.callerNumber || 'Unknown',
-    callerName: c.destinationNumber ? `إلى ${c.destinationNumber}` : undefined,
+    callerName: c.callerName || (c.destinationNumber ? `إلى ${c.destinationNumber}` : undefined),
     simLineId: c.line || 'ASTERISK',
     queueId: c.queue || undefined,
     agentId: c.agentExtension || undefined,
@@ -50,6 +52,7 @@ function mapCall(c: BackendLiveCall): LiveCall {
     startedAt: c.startedAt || new Date().toISOString(),
     durationSec: Number(c.durationSec || 0),
     onHold: false,
+    subscriberId: c.subscriberId || undefined,
   };
 }
 

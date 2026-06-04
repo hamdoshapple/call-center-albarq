@@ -50,7 +50,7 @@ services:
       AMI_PORT: 5038
       AMI_USER: albarq
       AMI_PASSWORD: AlbarqAmi12345
-      SEED_ON_START: "true"
+      SEED_ON_START: "false"
     ports:
       - "4000:4000"
 

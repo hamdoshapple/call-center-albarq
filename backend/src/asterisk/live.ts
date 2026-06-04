@@ -361,11 +361,11 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
       seen.add(uniqueId);
 
       const existing = this.calls.get(uniqueId);
-      const conciseCaller = bestCallerNumber(p[10], p[8]);
+      const conciseCaller = bestCallerNumber(p[7], p[8], p[10]);
       const callerNumber =
         isRealPhone(existing?.callerNumber)
           ? existing!.callerNumber
-          : bestCallerNumber(existing?.callerNumber, conciseCaller);
+          : bestCallerNumber(conciseCaller, existing?.callerNumber);
       const destinationNumber = p[2] || existing?.destinationNumber || 'unknown';
       const durationSec = Number(p[12] || 0) || existing?.durationSec || 0;
       const agentMatch = channel.match(/PJSIP\/(\d+)/);

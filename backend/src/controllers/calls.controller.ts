@@ -34,23 +34,59 @@ export async function listLogs(req: Request, res: Response) {
 }
 
 export async function getLive(_req: Request, res: Response) {
-  // Live calls come from the Asterisk gateway (mock simulator in demo mode),
-  // not the CDR table. The same data also streams over Socket.IO.
   const gw = getAsteriskGateway();
   const calls = await gw.getLiveCalls();
+
+  const normalizePhone = (v: string) => {
+    const digits = String(v || '').replace(/\D/g, '');
+    if (digits.startsWith('964')) return `0${digits.slice(3)}`;
+    return digits;
+  };
+
+  const phones = [...new Set(calls.map((c) => normalizePhone(c.callerNumber)).filter(Boolean))];
+
+  const variants = [...new Set(
+    phones.flatMap((p) => [
+      p,
+      p.replace(/^0/, '964'),
+      `+${p.replace(/^0/, '964')}`,
+    ])
+  )];
+
+  const subscribers = variants.length
+    ? await prisma.subscriber.findMany({
+        where: { phone: { in: variants } },
+        select: { id: true, name: true, phone: true },
+      })
+    : [];
+
+  console.log('[LIVE SUB LOOKUP]', {
+    callPhones: calls.map((c) => c.callerNumber),
+    normalizedPhones: phones,
+    variants,
+    subscribersFound: subscribers,
+  });
+
+  const subByPhone = new Map(subscribers.map((s) => [normalizePhone(s.phone), s]));
+
   res.json(
-    calls.map((c) => ({
-      id: c.uniqueId,
-      callerNumber: c.callerNumber,
-      destinationNumber: c.destinationNumber,
-      direction: c.direction,
-      status: c.status,
-      agentExtension: c.agentExtension ?? null,
-      queue: c.queue ?? null,
-      line: c.line ?? null,
-      startedAt: c.startedAt,
-      durationSec: c.durationSec,
-    }))
+    calls.map((c) => {
+      const sub = subByPhone.get(normalizePhone(c.callerNumber));
+      return {
+        id: c.uniqueId,
+        callerNumber: c.callerNumber,
+        callerName: sub?.name ?? null,
+        subscriberId: sub?.id ?? null,
+        destinationNumber: c.destinationNumber,
+        direction: c.direction,
+        status: c.status,
+        agentExtension: c.agentExtension ?? null,
+        queue: c.queue ?? null,
+        line: c.line ?? null,
+        startedAt: c.startedAt,
+        durationSec: c.durationSec,
+      };
+    })
   );
 }
 
