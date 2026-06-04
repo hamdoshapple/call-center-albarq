@@ -38,8 +38,35 @@ export async function getOne(req: Request, res: Response) {
 }
 
 export async function getTickets(req: Request, res: Response) {
-  const rows = await prisma.ticket.findMany({ where: { subscriberId: req.params.id }, orderBy: { createdAt: 'desc' } });
-  res.json(rows);
+  const rows = await prisma.ticket.findMany({
+    where: { subscriberId: req.params.id },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  const notes = rows.length
+    ? await prisma.note.findMany({
+        where: {
+          refType: 'ticket',
+          refId: { in: rows.map((t) => t.id) },
+        },
+        orderBy: { createdAt: 'desc' },
+      })
+    : [];
+
+  const notesByTicket = new Map<string, typeof notes>();
+
+  for (const note of notes) {
+    const list = notesByTicket.get(note.refId) ?? [];
+    list.push(note);
+    notesByTicket.set(note.refId, list);
+  }
+
+  res.json(
+    rows.map((ticket) => ({
+      ...ticket,
+      notes: notesByTicket.get(ticket.id) ?? [],
+    }))
+  );
 }
 
 export async function create(req: Request, res: Response) {

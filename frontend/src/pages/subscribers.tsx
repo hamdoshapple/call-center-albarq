@@ -220,7 +220,7 @@ export function SubscribersPage() {
   );
 }
 
-function SubscriberProfile({ subscriber: s, tickets, onBack, onEdit }: { subscriber: Subscriber; tickets: { id: string; subject: string; status: string }[]; onBack: () => void; onEdit: () => void }) {
+function SubscriberProfile({ subscriber: s, tickets, onBack, onEdit }: { subscriber: Subscriber; tickets: any[]; onBack: () => void; onEdit: () => void }) {
   const { t } = useTranslation();
   const { lang } = useLanguage();
 
@@ -270,19 +270,52 @@ function SubscriberProfile({ subscriber: s, tickets, onBack, onEdit }: { subscri
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><TicketIcon className="h-4 w-4" />{t('subscribers.last_ticket')}</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TicketIcon className="h-4 w-4" />
+              التذاكر
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                {tickets.length}
+              </span>
+            </CardTitle>
+          </CardHeader>
+
+          <CardContent className="space-y-3">
             {tickets.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t('common.no_data')}</p>
             ) : (
-              tickets.map((ticket) => (
-                <div key={ticket.id} className="space-y-1 rounded-lg border p-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium">{ticket.subject}</p>
-                    <StatusBadge status={ticket.status} />
+              tickets.map((ticket) => {
+                const details = ticket.notes?.[0]?.body;
+                return (
+                  <div key={ticket.id} className="space-y-3 rounded-lg border p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="whitespace-pre-wrap text-sm font-medium">{ticket.subject}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {ticket.createdAt ? new Date(ticket.createdAt).toLocaleString('ar-IQ') : '—'}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <StatusBadge status={ticket.status} />
+                        <Badge variant={ticket.priority === 'urgent' || ticket.priority === 'high' ? 'destructive' : 'secondary'}>
+                          {ticket.priority === 'urgent' ? 'عاجلة' :
+                           ticket.priority === 'high' ? 'عالية' :
+                           ticket.priority === 'low' ? 'منخفضة' : 'متوسطة'}
+                        </Badge>
+                      </div>
+                    </div>
+
+                    {details && (
+                      <div className="rounded-lg bg-muted/50 p-3">
+                        <p className="mb-2 text-xs font-semibold text-muted-foreground">تفاصيل الاتصال</p>
+                        <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-6 text-muted-foreground">
+                          {details}
+                        </pre>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </CardContent>
         </Card>
