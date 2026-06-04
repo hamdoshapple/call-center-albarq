@@ -14,9 +14,6 @@ export function getDashboardStats() {
     const live = store.liveCalls;
     const active = live.filter((c) => c.status === 'active').length;
     const waiting = live.filter((c) => c.status === 'waiting' || c.status === 'ringing').length;
-    const today = store.callLogs.filter(
-      (l) => new Date(l.startedAt).toDateString() === new Date().toDateString()
-    );
     const answered = store.callLogs.filter((l) => l.disposition === 'answered');
     const missed = store.callLogs.filter(
       (l) => l.disposition === 'missed' || l.disposition === 'no_answer' || l.disposition === 'abandoned'
@@ -38,7 +35,7 @@ export function getDashboardStats() {
       avgWaitTime: avgWait,
       avgCallDuration: Math.round(totalTalk / Math.max(1, answered.length)),
       serviceLevel: 84,
-      answerRate: Math.round((answered.length / Math.max(1, today.length || store.callLogs.length)) * 100),
+      answerRate: Math.round((answered.length / Math.max(1, answered.length + missed.length)) * 100),
     };
   });
 }
