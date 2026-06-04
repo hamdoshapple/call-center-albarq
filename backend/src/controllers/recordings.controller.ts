@@ -4,19 +4,42 @@ import path from 'node:path';
 import { prisma } from '../config/prisma.js';
 import { ApiError } from '../utils/ApiError.js';
 
+async function recordingBasePath() {
+  const setting = await prisma.setting.findUnique({ where: { key: 'asterisk' } });
+  return (
+    ((setting?.value as any)?.recordingPath as string | undefined) ||
+    '/var/spool/asterisk/monitor'
+  );
+}
+
 export async function list(req: Request, res: Response) {
-  const { search, agentId, from } = req.query as Record<string, string | undefined>;
+  const { search, agentId, from, to, includeMissing } = req.query as Record<string, string | undefined>;
+  const basePath = await recordingBasePath();
+
   const rows = await prisma.recording.findMany({
     where: {
       callerNumber: search ? { contains: search } : undefined,
-      agentId: agentId || undefined,
-      recordedAt: from ? { gte: new Date(from) } : undefined,
+      agentId: req.user?.role === 'agent' ? req.user.agentId : (agentId || undefined),
+      recordedAt:
+        from || to
+          ? {
+              gte: from ? new Date(from) : undefined,
+              lte: to ? new Date(`${to}T23:59:59.999Z`) : undefined,
+            }
+          : undefined,
     },
     include: { agent: { select: { id: true, name: true } } },
     orderBy: { recordedAt: 'desc' },
     take: 200,
   });
-  res.json(rows);
+
+  const mapped = rows.map((r) => {
+    const safeName = path.basename(r.fileName);
+    const exists = fs.existsSync(path.join(basePath, safeName));
+    return { ...r, fileExists: exists, url: exists ? `/api/recordings/${r.id}/audio` : null };
+  });
+
+  res.json(includeMissing === '1' ? mapped : mapped.filter((r) => r.fileExists));
 }
 
 export async function getOne(req: Request, res: Response) {
@@ -44,10 +67,7 @@ export async function streamAudio(req: Request, res: Response) {
     return res.redirect(row.url);
   }
 
-  const setting = await prisma.setting.findUnique({ where: { key: 'asterisk' } });
-  const recordingPath =
-    ((setting?.value as any)?.recordingPath as string | undefined) ||
-    '/var/spool/asterisk/monitor';
+  const recordingPath = await recordingBasePath();
 
   const safeName = path.basename(row.fileName);
   const filePath = path.join(recordingPath, safeName);

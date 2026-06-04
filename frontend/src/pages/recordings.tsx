@@ -81,7 +81,28 @@ export function RecordingsPage() {
                     <p className="text-xs text-muted-foreground">{agentName(r.agentId)}</p>
                   </div>
                   <div className="flex gap-1">
-                    <Button size="icon-sm" variant="ghost" title={t('common.download')} onClick={() => toast({ title: t('common.download'), description: r.fileName })}>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      title={t('common.download')}
+                      onClick={async () => {
+                        const token = localStorage.getItem('cc_token') || '';
+                        const res = await fetch(r.url, { headers: { Authorization: `Bearer ${token}` } });
+                        if (!res.ok) {
+                          toast({ title: t('common.error'), description: r.fileName, variant: 'destructive' });
+                          return;
+                        }
+                        const blob = await res.blob();
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = r.fileName;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        URL.revokeObjectURL(url);
+                      }}
+                    >
                       <Download className="h-4 w-4" />
                     </Button>
                     {canDelete && (
