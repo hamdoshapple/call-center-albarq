@@ -66,16 +66,16 @@ function mapCallLog(r: BackendCallLog): CallLog {
     callerNumber: r.callerNumber,
     destinationNumber: r.destinationNumber,
     direction: r.direction,
-    disposition: r.disposition || 'no_answer',
+    disposition: (r.disposition ?? 'no_answer') as CallLog['disposition'],
     agentId: r.agentId || undefined,
     queueId: r.queueId || undefined,
     startedAt: r.startedAt,
-    answeredAt: r.answeredAt || undefined,
-    endedAt: r.endedAt || undefined,
+    answeredAt: r.answeredAt ?? '',
+    endedAt: r.endedAt ?? '',
     durationSec: Number(r.durationSec || 0),
     talkTimeSec: Number(r.talkTimeSec || 0),
     waitTimeSec: Number(r.waitTimeSec || 0),
-    recordingId: r.recording?.id,
+    ...(r.recording?.id ? { recordingId: r.recording.id } : {}),
   };
 }
 
