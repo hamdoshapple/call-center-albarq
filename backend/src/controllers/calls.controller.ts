@@ -73,6 +73,41 @@ export async function getLive(_req: Request, res: Response) {
 
   const subByPhone = new Map(subscribers.map((s) => [normalizePhone(s.phone), s]));
 
+  const subscriberIds = subscribers.map((s) => s.id);
+
+  const [ticketGroups, callGroups, lastTickets, lastCalls] = subscriberIds.length
+    ? await Promise.all([
+        prisma.ticket.groupBy({
+          by: ['subscriberId'],
+          where: { subscriberId: { in: subscriberIds } },
+          _count: { _all: true },
+        }),
+        prisma.call.groupBy({
+          by: ['subscriberId'],
+          where: { subscriberId: { in: subscriberIds } },
+          _count: { _all: true },
+        }),
+        prisma.ticket.findMany({
+          where: { subscriberId: { in: subscriberIds } },
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+        }),
+        prisma.call.findMany({
+          where: { subscriberId: { in: subscriberIds } },
+          orderBy: { startedAt: 'desc' },
+          take: 20,
+        }),
+      ])
+    : [[], [], [], []];
+
+  const ticketCount = new Map(ticketGroups.map((x) => [x.subscriberId, x._count._all]));
+  const callCount = new Map(callGroups.map((x) => [x.subscriberId, x._count._all]));
+  const lastTicketBySub = new Map();
+  const lastCallBySub = new Map();
+
+  for (const t of lastTickets) if (!lastTicketBySub.has(t.subscriberId)) lastTicketBySub.set(t.subscriberId, t);
+  for (const c of lastCalls) if (c.subscriberId && !lastCallBySub.has(c.subscriberId)) lastCallBySub.set(c.subscriberId, c);
+
   res.json(
     calls.map((c) => {
       const sub = subByPhone.get(normalizePhone(c.callerNumber));
@@ -81,6 +116,25 @@ export async function getLive(_req: Request, res: Response) {
         callerNumber: c.callerNumber,
         callerName: sub?.name ?? null,
         subscriberId: sub?.id ?? null,
+        subscriber: sub ? {
+          id: sub.id,
+          name: sub.name,
+          phone: sub.phone,
+          pppoeUsername: sub.pppoeUsername,
+          status: sub.status,
+          package: sub.package,
+          speed: sub.speed,
+          expiration: sub.expiration,
+          debt: sub.debt,
+          address: sub.address,
+        } : null,
+        crm: sub ? {
+          ticketsCount: ticketCount.get(sub.id) ?? 0,
+          callsCount: callCount.get(sub.id) ?? 0,
+          lastTicket: lastTicketBySub.get(sub.id) ?? null,
+          lastCall: lastCallBySub.get(sub.id) ?? null,
+          hasHighDebt: Number(sub.debt || 0) >= 50000,
+        } : null,
         subscriber: sub ? {
           id: sub.id,
           name: sub.name,

@@ -169,6 +169,7 @@ export interface LiveCall {
   onHold: boolean;
   subscriberId?: string;
   subscriber?: Subscriber;
+  crm?: any;
   note?: string;
 }
 

@@ -164,6 +164,24 @@ export function LiveCallsPage() {
                         <Calendar className="h-4 w-4 text-muted-foreground" />
                         <span>{incomingCall.subscriber.expiration ? new Date(incomingCall.subscriber.expiration).toLocaleDateString('ar-IQ') : '—'}</span>
                       </div>
+                      <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
+                        <StickyNote className="h-4 w-4 text-primary" />
+                        <span>التذاكر: {incomingCall.crm?.ticketsCount ?? 0}</span>
+                      </div>
+                      <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
+                        <PhoneCall className="h-4 w-4 text-primary" />
+                        <span>المكالمات: {incomingCall.crm?.callsCount ?? 0}</span>
+                      </div>
+                      {incomingCall.crm?.lastTicket && (
+                        <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2 sm:col-span-2">
+                          <span>آخر تذكرة: {incomingCall.crm.lastTicket.subject}</span>
+                        </div>
+                      )}
+                      {incomingCall.crm?.hasHighDebt && (
+                        <div className="rounded-lg bg-destructive/10 px-3 py-2 text-destructive sm:col-span-2">
+                          تنبيه: هذا المشترك عليه دين عالي
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <p className="mt-2 text-sm text-muted-foreground">المتصل غير موجود في سجل المشتركين</p>

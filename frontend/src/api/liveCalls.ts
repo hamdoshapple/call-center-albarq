@@ -38,6 +38,7 @@ type BackendLiveCall = {
   callerName?: string | null;
   subscriberId?: string | null;
   subscriber?: any | null;
+  crm?: any | null;
 };
 
 function mapCall(c: BackendLiveCall): LiveCall {
@@ -55,6 +56,7 @@ function mapCall(c: BackendLiveCall): LiveCall {
     onHold: false,
     subscriberId: c.subscriberId || undefined,
     subscriber: c.subscriber || undefined,
+    crm: c.crm || undefined,
   };
 }
 
