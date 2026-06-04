@@ -47,9 +47,14 @@ export async function login(req: Request, res: Response) {
 export async function me(req: Request, res: Response) {
   const user = await prisma.user.findUnique({
     where: { id: req.user!.id },
-    include: { role: { include: { permissions: true } } },
+    include: {
+      role: { include: { permissions: true } },
+      agent: { include: { extension: true } },
+    },
   });
+
   if (!user) throw ApiError.notFound('User not found');
+
   res.json({
     id: user.id,
     username: user.username,
@@ -57,6 +62,8 @@ export async function me(req: Request, res: Response) {
     email: user.email,
     role: user.role.key,
     roleName: user.role.name,
+    agentId: user.agent?.id ?? null,
+    extension: user.agent?.extension?.number ?? null,
     permissions: permsOf(user.role),
   });
 }
