@@ -6,23 +6,37 @@ import { getAsteriskGateway } from '../asterisk/index.js';
 export async function listLogs(req: Request, res: Response) {
   const { search, direction, disposition, agentId, queueId, from, to } = req.query as Record<string, string | undefined>;
   const page = Math.max(1, Number(req.query.page ?? 1));
-  const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize ?? 25)));
+  const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize ?? 100)));
+
+  const isAgent = req.user?.role === 'agent';
 
   const where = {
-    OR: search ? [{ callerNumber: { contains: search } }, { destinationNumber: { contains: search } }] : undefined,
+    OR: search ? [
+      { callerNumber: { contains: search } },
+      { destinationNumber: { contains: search } },
+    ] : undefined,
     direction: direction || undefined,
     disposition: disposition || undefined,
-    agentId: agentId || undefined,
+    agentId: isAgent ? req.user?.agentId : (agentId || undefined),
     queueId: queueId || undefined,
     startedAt:
-      from || to ? { gte: from ? new Date(from) : undefined, lte: to ? new Date(to) : undefined } : undefined,
+      from || to
+        ? {
+            gte: from ? new Date(from) : undefined,
+            lte: to ? new Date(to) : undefined,
+          }
+        : undefined,
   };
 
   const [total, rows] = await Promise.all([
     prisma.call.count({ where }),
     prisma.call.findMany({
       where,
-      include: { agent: { select: { id: true, name: true } }, queue: { select: { id: true, name: true } }, recording: { select: { id: true } } },
+      include: {
+        agent: { select: { id: true, name: true } },
+        queue: { select: { id: true, name: true } },
+        recording: { select: { id: true } },
+      },
       orderBy: { startedAt: 'desc' },
       skip: (page - 1) * pageSize,
       take: pageSize,
@@ -75,7 +89,6 @@ export async function getLive(req: Request, res: Response) {
     : [];
 
   const subByPhone = new Map(subscribers.map((s) => [normalizePhone(s.phone), s]));
-
   const subscriberIds = subscribers.map((s) => s.id);
 
   const [ticketGroups, callGroups, lastTickets, lastCalls] = subscriberIds.length
