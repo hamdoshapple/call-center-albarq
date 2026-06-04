@@ -86,9 +86,9 @@ export async function createTicket(req: Request, res: Response) {
   const data = ticketSchema.parse(req.body);
   const c = data.call;
 
-  const subject = [
-    data.subject,
-    '',
+  const safeSubject = data.subject.slice(0, 180);
+
+  const details = [
     '--- تفاصيل الاتصال ---',
     `المشترك: ${subscriber.name}`,
     `الهاتف: ${subscriber.phone}`,
@@ -102,16 +102,25 @@ export async function createTicket(req: Request, res: Response) {
     c ? `الخط: ${c.line ?? '—'}` : '',
     c ? `وقت الاتصال: ${c.startedAt ?? new Date().toISOString()}` : '',
     c ? `حالة الاتصال: ${c.status ?? '—'}` : '',
-  ].filter(Boolean).join('\\n');
+  ].filter(Boolean).join('\n');
 
   const ticket = await prisma.ticket.create({
     data: {
       subscriberId: subscriber.id,
-      subject,
+      subject: safeSubject,
       priority: data.priority ?? 'medium',
       status: 'open',
     },
   });
 
-  res.status(201).json(ticket);
+  await prisma.note.create({
+    data: {
+      refType: 'ticket',
+      refId: ticket.id,
+      body: details,
+      authorId: req.user?.id,
+    },
+  });
+
+  res.status(201).json({ ...ticket, details });
 }
