@@ -70,6 +70,8 @@ router.get('/subscribers', perm('subscribers'), h(subscribers.search));
 router.get('/subscribers/:id', perm('subscribers'), h(subscribers.getOne));
 router.get('/subscribers/:id/tickets', perm('subscribers'), h(subscribers.getTickets));
 router.post('/subscribers/:id/tickets', perm('subscribers', 'edit'), h(subscribers.createTicket));
+router.put('/subscribers/:id/tickets/:ticketId/status', perm('subscribers', 'edit'), h(subscribers.updateTicketStatus));
+router.post('/subscribers/:id/tickets/:ticketId/comments', perm('subscribers', 'edit'), h(subscribers.addTicketComment));
 router.post('/subscribers', perm('subscribers', 'create'), h(subscribers.create));
 router.put('/subscribers/:id', perm('subscribers', 'edit'), h(subscribers.update));
 

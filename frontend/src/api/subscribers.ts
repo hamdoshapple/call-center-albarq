@@ -97,3 +97,27 @@ export async function createSubscriberTicket(
     body: JSON.stringify(input),
   });
 }
+
+
+export async function updateSubscriberTicketStatus(
+  subscriberId: string,
+  ticketId: string,
+  status: 'open' | 'pending' | 'resolved' | 'closed'
+) {
+  return api<any>(`/subscribers/${subscriberId}/tickets/${ticketId}/status`, {
+    method: 'PUT',
+    body: JSON.stringify({ status }),
+  });
+}
+
+
+export async function addSubscriberTicketComment(
+  subscriberId: string,
+  ticketId: string,
+  body: string
+) {
+  return api<any>(`/subscribers/${subscriberId}/tickets/${ticketId}/comments`, {
+    method: 'POST',
+    body: JSON.stringify({ body }),
+  });
+}

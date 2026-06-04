@@ -221,6 +221,24 @@ export function SubscribersPage() {
 }
 
 function SubscriberProfile({ subscriber: s, tickets, onBack, onEdit }: { subscriber: Subscriber; tickets: any[]; onBack: () => void; onEdit: () => void }) {
+  const qc = useQueryClient();
+  const [openTicketId, setOpenTicketId] = useState<string | null>(null);
+  const [commentText, setCommentText] = useState<Record<string, string>>({});
+
+  const changeTicketStatus = useMutation({
+    mutationFn: ({ ticketId, status }: { ticketId: string; status: 'open' | 'pending' | 'resolved' | 'closed' }) =>
+      subscribersApi.updateSubscriberTicketStatus(s.id, ticketId, status),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['subscriber-tickets', s.id] }),
+  });
+
+  const addTicketComment = useMutation({
+    mutationFn: ({ ticketId, body }: { ticketId: string; body: string }) =>
+      subscribersApi.addSubscriberTicketComment(s.id, ticketId, body),
+    onSuccess: (_data, vars) => {
+      setCommentText((old) => ({ ...old, [vars.ticketId]: '' }));
+      qc.invalidateQueries({ queryKey: ['subscriber-tickets', s.id] });
+    },
+  });
   const { t } = useTranslation();
   const { lang } = useLanguage();
 
@@ -281,21 +299,34 @@ function SubscriberProfile({ subscriber: s, tickets, onBack, onEdit }: { subscri
           </CardHeader>
 
           <CardContent className="space-y-3">
+            <div className="grid grid-cols-4 gap-2 text-center text-xs">
+              <div className="rounded-lg bg-muted p-2">الكل<br />{tickets.length}</div>
+              <div className="rounded-lg bg-green-500/10 p-2">مفتوحة<br />{tickets.filter((x) => x.status === 'open').length}</div>
+              <div className="rounded-lg bg-yellow-500/10 p-2">متابعة<br />{tickets.filter((x) => x.status === 'pending').length}</div>
+              <div className="rounded-lg bg-slate-500/10 p-2">مغلقة<br />{tickets.filter((x) => x.status === 'closed').length}</div>
+            </div>
+
             {tickets.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t('common.no_data')}</p>
             ) : (
               tickets.map((ticket) => {
-                const details = ticket.notes?.[0]?.body;
+                const opened = openTicketId === ticket.id;
+
                 return (
-                  <div key={ticket.id} className="space-y-3 rounded-lg border p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="whitespace-pre-wrap text-sm font-medium">{ticket.subject}</p>
+                  <div key={ticket.id} className="overflow-hidden rounded-xl border bg-card">
+                    <button
+                      type="button"
+                      onClick={() => setOpenTicketId(opened ? null : ticket.id)}
+                      className="flex w-full items-start justify-between gap-3 p-3 text-start hover:bg-muted/40"
+                    >
+                      <div className="min-w-0">
+                        <p className="line-clamp-2 text-sm font-semibold">{ticket.subject}</p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           {ticket.createdAt ? new Date(ticket.createdAt).toLocaleString('ar-IQ') : '—'}
                         </p>
                       </div>
-                      <div className="flex flex-col items-end gap-1">
+
+                      <div className="flex shrink-0 flex-col items-end gap-1">
                         <StatusBadge status={ticket.status} />
                         <Badge variant={ticket.priority === 'urgent' || ticket.priority === 'high' ? 'destructive' : 'secondary'}>
                           {ticket.priority === 'urgent' ? 'عاجلة' :
@@ -303,14 +334,97 @@ function SubscriberProfile({ subscriber: s, tickets, onBack, onEdit }: { subscri
                            ticket.priority === 'low' ? 'منخفضة' : 'متوسطة'}
                         </Badge>
                       </div>
-                    </div>
+                    </button>
 
-                    {details && (
-                      <div className="rounded-lg bg-muted/50 p-3">
-                        <p className="mb-2 text-xs font-semibold text-muted-foreground">تفاصيل الاتصال</p>
-                        <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-6 text-muted-foreground">
-                          {details}
-                        </pre>
+                    {opened && (
+                      <div className="space-y-3 border-t p-3">
+                        <div className="space-y-3">
+                          <p className="text-xs font-semibold text-muted-foreground">سجل التذكرة الكامل</p>
+
+                          {(ticket.notes ?? []).length === 0 ? (
+                            <p className="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground">
+                              لا توجد تفاصيل أو تعليقات بعد.
+                            </p>
+                          ) : (
+                            <div className="space-y-2">
+                              {(ticket.notes ?? []).map((note: any) => (
+                                <div key={note.id} className="rounded-lg bg-muted/50 p-3">
+                                  <div className="mb-1 flex items-center justify-between gap-2">
+                                    <span className="text-xs font-semibold">
+                                      {note.body?.startsWith('--- تفاصيل الاتصال ---') ? 'تفاصيل الاتصال' :
+                                       note.body?.startsWith('تم تغيير حالة') ? 'تغيير حالة' : 'تعليق'}
+                                    </span>
+                                    <span className="text-[11px] text-muted-foreground">
+                                      {note.createdAt ? new Date(note.createdAt).toLocaleString('ar-IQ') : ''}
+                                    </span>
+                                  </div>
+                                  <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-6 text-muted-foreground">
+                                    {note.body}
+                                  </pre>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="space-y-2 rounded-lg border p-3">
+                            <Label>إضافة تعليق</Label>
+                            <Textarea
+                              rows={3}
+                              value={commentText[ticket.id] ?? ''}
+                              onChange={(e) => setCommentText((old) => ({ ...old, [ticket.id]: e.target.value }))}
+                              placeholder="اكتب تعليق أو إجراء تم على التذكرة..."
+                            />
+                            <div className="flex justify-end">
+                              <Button
+                                size="sm"
+                                disabled={!commentText[ticket.id]?.trim() || addTicketComment.isPending}
+                                onClick={() => addTicketComment.mutate({ ticketId: ticket.id, body: commentText[ticket.id] })}
+                              >
+                                إضافة تعليق
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          {ticket.status !== 'closed' ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => changeTicketStatus.mutate({ ticketId: ticket.id, status: 'closed' })}
+                            >
+                              إغلاق التذكرة
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => changeTicketStatus.mutate({ ticketId: ticket.id, status: 'open' })}
+                            >
+                              إعادة فتح
+                            </Button>
+                          )}
+
+                          {ticket.status !== 'pending' && ticket.status !== 'closed' && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => changeTicketStatus.mutate({ ticketId: ticket.id, status: 'pending' })}
+                            >
+                              متابعة
+                            </Button>
+                          )}
+
+                          {ticket.status !== 'resolved' && ticket.status !== 'closed' && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => changeTicketStatus.mutate({ ticketId: ticket.id, status: 'resolved' })}
+                            >
+                              تم الحل
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>

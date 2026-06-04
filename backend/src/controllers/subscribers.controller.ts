@@ -151,3 +151,66 @@ export async function createTicket(req: Request, res: Response) {
 
   res.status(201).json({ ...ticket, details });
 }
+
+
+const ticketStatusSchema = z.object({
+  status: z.enum(['open', 'pending', 'resolved', 'closed']),
+});
+
+export async function updateTicketStatus(req: Request, res: Response) {
+  const data = ticketStatusSchema.parse(req.body);
+
+  const ticket = await prisma.ticket.findFirst({
+    where: {
+      id: req.params.ticketId,
+      subscriberId: req.params.id,
+    },
+  });
+
+  if (!ticket) throw ApiError.notFound('Ticket not found');
+
+  const updated = await prisma.ticket.update({
+    where: { id: ticket.id },
+    data: { status: data.status },
+  });
+
+  await prisma.note.create({
+    data: {
+      refType: 'ticket',
+      refId: ticket.id,
+      body: `تم تغيير حالة التذكرة إلى: ${data.status}`,
+      authorId: req.user?.id,
+    },
+  });
+
+  res.json(updated);
+}
+
+
+const ticketCommentSchema = z.object({
+  body: z.string().min(1),
+});
+
+export async function addTicketComment(req: Request, res: Response) {
+  const data = ticketCommentSchema.parse(req.body);
+
+  const ticket = await prisma.ticket.findFirst({
+    where: {
+      id: req.params.ticketId,
+      subscriberId: req.params.id,
+    },
+  });
+
+  if (!ticket) throw ApiError.notFound('Ticket not found');
+
+  const note = await prisma.note.create({
+    data: {
+      refType: 'ticket',
+      refId: ticket.id,
+      body: data.body,
+      authorId: req.user?.id,
+    },
+  });
+
+  res.status(201).json(note);
+}
