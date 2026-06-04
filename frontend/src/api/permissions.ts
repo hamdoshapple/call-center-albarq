@@ -1,31 +1,33 @@
 import type { ModuleKey, PermissionAction, Role, RolePermissions } from '@/types';
-import { mock } from './client';
-import { store } from './store';
+
+const API_BASE = '/api';
+const token = () => localStorage.getItem('cc_token') || '';
+
+async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}`, ...(options.headers || {}) },
+  });
+  if (!res.ok) throw new Error(await res.text() || `API error ${res.status}`);
+  return res.json() as Promise<T>;
+}
 
 export function getPermissions() {
-  return mock(() => JSON.parse(JSON.stringify(store.permissions)) as RolePermissions);
+  return api<RolePermissions>('/permissions');
 }
 
-export function setPermission(
-  role: Role,
-  module: ModuleKey,
-  actions: PermissionAction[]
-) {
-  store.permissions[role][module] = actions;
-  return mock(() => JSON.parse(JSON.stringify(store.permissions)) as RolePermissions);
+export function setPermission(role: Role, module: ModuleKey, actions: PermissionAction[]) {
+  return api<RolePermissions>('/permissions', {
+    method: 'PUT',
+    body: JSON.stringify({ role, module, actions }),
+  });
 }
 
-export function togglePermission(
-  role: Role,
-  module: ModuleKey,
-  action: PermissionAction,
-  enabled: boolean
-) {
-  const current = new Set(store.permissions[role][module]);
-  if (enabled) current.add(action);
-  else current.delete(action);
-  // Removing "view" removes the whole module access.
-  if (!current.has('view')) current.clear();
-  store.permissions[role][module] = Array.from(current);
-  return mock(() => JSON.parse(JSON.stringify(store.permissions)) as RolePermissions);
+export async function togglePermission(role: Role, module: ModuleKey, action: PermissionAction, enabled: boolean) {
+  const current = await getPermissions();
+  const set = new Set(current?.[role]?.[module] || []);
+  if (enabled) set.add(action);
+  else set.delete(action);
+  if (!set.has('view')) set.clear();
+  return setPermission(role, module, Array.from(set));
 }

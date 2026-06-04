@@ -1,6 +1,15 @@
-import { mock } from './client';
-import { store } from './store';
-import { peakHours } from '@/data/dashboard';
+import type { CallLog } from '@/types';
+
+const API_BASE = '/api';
+const token = () => localStorage.getItem('cc_token') || '';
+
+async function api<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+  });
+  if (!res.ok) throw new Error(await res.text() || `API error ${res.status}`);
+  return res.json() as Promise<T>;
+}
 
 export interface AgentPerformanceRow {
   agentId: string;
@@ -24,46 +33,41 @@ export interface QueuePerformanceRow {
 }
 
 export function getAgentPerformance() {
-  return mock<AgentPerformanceRow[]>(() =>
-    store.agents.map((a) => ({
-      agentId: a.id,
-      name: a.name,
-      extension: a.extension,
-      callsHandled: a.performance.callsHandled,
-      callsMissed: a.performance.callsMissed,
-      avgHandleTime: a.performance.avgHandleTime,
-      satisfaction: a.performance.satisfaction,
-      occupancy: a.performance.occupancy,
-    }))
-  );
+  return api<AgentPerformanceRow[]>('/reports/agents');
 }
 
 export function getQueuePerformance() {
-  return mock<QueuePerformanceRow[]>(() =>
-    store.queues.map((q) => ({
-      queueId: q.id,
-      name: q.name,
-      number: q.number,
-      answered: q.stats.answered,
-      abandoned: q.stats.abandoned,
-      avgWait: q.stats.avgWait,
-      serviceLevel: q.stats.serviceLevel,
-    }))
-  );
+  return api<QueuePerformanceRow[]>('/reports/queues');
 }
 
 export function getPeakHoursReport() {
-  return mock(() => peakHours);
+  return api<any[]>('/reports/peak-hours');
 }
 
-export function getMissedCallsReport() {
-  return mock(() =>
-    store.callLogs
-      .filter((l) => l.disposition === 'missed' || l.disposition === 'no_answer' || l.disposition === 'abandoned')
-      .slice(0, 60)
-  );
+function mapCall(r: any): CallLog {
+  return {
+    id: String(r.id),
+    callerNumber: r.callerNumber || '',
+    destinationNumber: r.destinationNumber || '',
+    direction: r.direction || 'inbound',
+    disposition: r.disposition || 'no_answer',
+    agentId: r.agentId || '',
+    queueId: r.queueId || '',
+    startedAt: r.startedAt || new Date().toISOString(),
+    answeredAt: r.answeredAt ?? '',
+    endedAt: r.endedAt ?? '',
+    durationSec: Number(r.durationSec || 0),
+    talkTimeSec: Number(r.talkTimeSec || 0),
+    waitTimeSec: Number(r.waitTimeSec || 0),
+    recordingId: r.recording?.id || '',
+  } as CallLog;
+}
+
+export async function getMissedCallsReport() {
+  const rows = await api<any[]>('/reports/missed-calls');
+  return rows.map(mapCall);
 }
 
 export function getCallbacksReport() {
-  return mock(() => [...store.callbacks]);
+  return api<any[]>('/reports/callbacks');
 }

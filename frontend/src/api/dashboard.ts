@@ -1,57 +1,40 @@
 import type { DashboardStats } from '@/types';
-import { mock } from './client';
-import { store } from './store';
-import {
-  callsByDepartment,
-  dailySeries,
-  monthlySeries,
-  peakHours,
-  weeklySeries,
-} from '@/data/dashboard';
+
+const API_BASE = '/api';
+const token = () => localStorage.getItem('cc_token') || '';
+
+async function api<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+  });
+  if (!res.ok) throw new Error(await res.text() || `API error ${res.status}`);
+  return res.json() as Promise<T>;
+}
 
 export function getDashboardStats() {
-  return mock<DashboardStats>(() => {
-    const live = store.liveCalls;
-    const active = live.filter((c) => c.status === 'active').length;
-    const waiting = live.filter((c) => c.status === 'waiting' || c.status === 'ringing').length;
-    const answered = store.callLogs.filter((l) => l.disposition === 'answered');
-    const missed = store.callLogs.filter(
-      (l) => l.disposition === 'missed' || l.disposition === 'no_answer' || l.disposition === 'abandoned'
-    );
-    const onlineAgents = store.agents.filter((a) => a.status === 'online').length;
-    const busyAgents = store.agents.filter((a) => a.status === 'busy').length;
-    const avgWait = Math.round(
-      store.queues.reduce((s, q) => s + q.stats.avgWait, 0) / Math.max(1, store.queues.length)
-    );
-    const totalTalk = answered.reduce((s, l) => s + l.talkTimeSec, 0);
-    return {
-      callsToday: 525,
-      activeCalls: active,
-      answeredCalls: answered.length,
-      missedCalls: missed.length,
-      waitingCalls: waiting,
-      onlineAgents,
-      busyAgents,
-      avgWaitTime: avgWait,
-      avgCallDuration: Math.round(totalTalk / Math.max(1, answered.length)),
-      serviceLevel: 84,
-      answerRate: Math.round((answered.length / Math.max(1, answered.length + missed.length)) * 100),
-    };
-  });
+  return api<DashboardStats>('/dashboard/stats');
 }
 
-export function getCallSeries(range: 'daily' | 'weekly' | 'monthly') {
-  return mock(() => {
-    if (range === 'weekly') return weeklySeries;
-    if (range === 'monthly') return monthlySeries;
-    return dailySeries;
-  });
+export async function getCallSeries(_range: 'daily' | 'weekly' | 'monthly') {
+  const rows = await api<any[]>('/reports/peak-hours');
+  return rows.map((r) => ({
+    label: r.label,
+    calls: Number(r.calls || 0),
+    answered: Number(r.answered || r.calls || 0),
+    missed: Number(r.missed || 0),
+  }));
 }
 
-export function getCallsByDepartment() {
-  return mock(() => callsByDepartment);
+export async function getCallsByDepartment() {
+  const rows = await api<any[]>('/reports/queues');
+  return rows.map((r, idx) => ({
+    name: r.name || `Queue ${idx + 1}`,
+    calls: Number(r.answered || 0),
+    value: Number(r.answered || 0),
+    color: ['#0ea5e9', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6'][idx % 5],
+  }));
 }
 
 export function getPeakHours() {
-  return mock(() => peakHours);
+  return api<any[]>('/reports/peak-hours');
 }

@@ -1,28 +1,52 @@
 import type { TG400Line } from '@/types';
-import { uid } from '@/lib/utils';
-import { mock } from './client';
-import { store } from './store';
+
+const API_BASE = '/api';
+const token = () => localStorage.getItem('cc_token') || '';
+
+async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}`, ...(options.headers || {}) },
+  });
+  if (!res.ok) throw new Error(await res.text() || `API error ${res.status}`);
+  if (res.status === 204) return null as T;
+  return res.json() as Promise<T>;
+}
 
 export type LineInput = Omit<TG400Line, 'id'>;
 
-export function listLines() {
-  return mock(() => [...store.lines]);
+const mapLine = (l: any): TG400Line => ({
+  id: String(l.id),
+  slot: Number(l.slot || 0),
+  number: l.number || '',
+  carrier: l.carrier || '',
+  status: l.status || 'no_sim',
+  signal: Number(l.signal || 0),
+  purpose: l.purpose || '',
+  inboundRoute: l.inboundRoute || '-',
+  outboundRoute: l.outboundRoute || '-',
+  usage: l.usage || {
+    calls: Number(l.usageCalls || 0),
+    minutes: Number(l.usageMinutes || 0),
+    cost: Number(l.usageCost || 0),
+  },
+  balance: Number(l.balance || 0),
+});
+
+export async function listLines() {
+  const rows = await api<any[]>('/tg400');
+  return rows.map(mapLine);
 }
 
-export function createLine(input: LineInput) {
-  const line: TG400Line = { ...input, id: uid('l') };
-  store.lines.push(line);
-  return mock(line);
+export async function createLine(input: LineInput) {
+  return mapLine(await api<any>('/tg400', { method: 'POST', body: JSON.stringify(input) }));
 }
 
-export function updateLine(id: string, patch: Partial<LineInput>) {
-  const idx = store.lines.findIndex((l) => l.id === id);
-  if (idx === -1) return mock(null);
-  store.lines[idx] = { ...store.lines[idx], ...patch };
-  return mock(store.lines[idx]);
+export async function updateLine(id: string, patch: Partial<LineInput>) {
+  return mapLine(await api<any>(`/tg400/${id}`, { method: 'PUT', body: JSON.stringify(patch) }));
 }
 
-export function deleteLine(id: string) {
-  store.lines = store.lines.filter((l) => l.id !== id);
-  return mock({ success: true });
+export async function deleteLine(id: string) {
+  await api(`/tg400/${id}`, { method: 'DELETE' });
+  return { success: true };
 }

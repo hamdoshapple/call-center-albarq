@@ -1,32 +1,48 @@
 import type { IVRMenu } from '@/types';
-import { uid } from '@/lib/utils';
-import { mock } from './client';
-import { store } from './store';
+
+const API_BASE = '/api';
+const token = () => localStorage.getItem('cc_token') || '';
+
+async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}`, ...(options.headers || {}) },
+  });
+  if (!res.ok) throw new Error(await res.text() || `API error ${res.status}`);
+  if (res.status === 204) return null as T;
+  return res.json() as Promise<T>;
+}
 
 export type IVRInput = Omit<IVRMenu, 'id' | 'createdAt'>;
 
-export function listIVR() {
-  return mock(() => [...store.ivr]);
+const mapIVR = (m: any): IVRMenu => ({
+  ...m,
+  id: String(m.id),
+  name: m.name || '',
+  description: m.description || '',
+  options: Array.isArray(m.options) ? m.options : [],
+  createdAt: m.createdAt || new Date().toISOString(),
+});
+
+export async function listIVR() {
+  const rows = await api<any[]>('/ivr');
+  return rows.map(mapIVR);
 }
 
-export function getIVR(id: string) {
-  return mock(() => store.ivr.find((m) => m.id === id) ?? null);
+export async function getIVR(id: string) {
+  const rows = await listIVR();
+  return rows.find((m) => m.id === id) ?? null;
 }
 
-export function createIVR(input: IVRInput) {
-  const menu: IVRMenu = { ...input, id: uid('ivr'), createdAt: new Date().toISOString() };
-  store.ivr.unshift(menu);
-  return mock(menu);
+export async function createIVR(input: IVRInput) {
+  return mapIVR(await api<any>('/ivr', { method: 'POST', body: JSON.stringify(input) }));
 }
 
-export function updateIVR(id: string, patch: Partial<IVRInput>) {
-  const idx = store.ivr.findIndex((m) => m.id === id);
-  if (idx === -1) return mock(null);
-  store.ivr[idx] = { ...store.ivr[idx], ...patch };
-  return mock(store.ivr[idx]);
+export async function updateIVR(id: string, patch: Partial<IVRInput>) {
+  return mapIVR(await api<any>(`/ivr/${id}`, { method: 'PUT', body: JSON.stringify(patch) }));
 }
 
-export function deleteIVR(id: string) {
-  store.ivr = store.ivr.filter((m) => m.id !== id);
-  return mock({ success: true });
+export async function deleteIVR(id: string) {
+  await api(`/ivr/${id}`, { method: 'DELETE' });
+  return { success: true };
 }

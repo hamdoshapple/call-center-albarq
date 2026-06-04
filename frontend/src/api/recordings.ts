@@ -1,5 +1,17 @@
-import { mock } from './client';
-import { store } from './store';
+import type { Recording } from '@/types';
+
+const API_BASE = '/api';
+const token = () => localStorage.getItem('cc_token') || '';
+
+async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}`, ...(options.headers || {}) },
+  });
+  if (!res.ok) throw new Error(await res.text() || `API error ${res.status}`);
+  if (res.status === 204) return null as T;
+  return res.json() as Promise<T>;
+}
 
 export interface RecordingFilters {
   search?: string;
@@ -8,22 +20,36 @@ export interface RecordingFilters {
   to?: string;
 }
 
-export function listRecordings(filters: RecordingFilters = {}) {
-  return mock(() => {
-    let rows = [...store.recordings];
-    if (filters.search) rows = rows.filter((r) => r.callerNumber.includes(filters.search!.trim()));
-    if (filters.agentId) rows = rows.filter((r) => r.agentId === filters.agentId);
-    if (filters.from) rows = rows.filter((r) => r.recordedAt >= filters.from!);
-    if (filters.to) rows = rows.filter((r) => r.recordedAt <= filters.to! + 'T23:59:59Z');
-    return rows.sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
+function mapRecording(r: any): Recording {
+  return {
+    id: String(r.id),
+    callId: String(r.callId || ''),
+    callerNumber: r.callerNumber || '',
+    agentId: r.agentId || '',
+    fileName: r.fileName || '',
+    url: r.url || '',
+    durationSec: Number(r.durationSec || 0),
+    sizeKb: Number(r.sizeKb || 0),
+    recordedAt: r.recordedAt || new Date().toISOString(),
+  } as Recording;
+}
+
+export async function listRecordings(filters: RecordingFilters = {}) {
+  const qs = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && String(v).trim() !== '') qs.set(k, String(v));
   });
+
+  const rows = await api<any[]>(`/recordings?${qs.toString()}`);
+  return rows.map(mapRecording);
 }
 
-export function getRecording(id: string) {
-  return mock(() => store.recordings.find((r) => r.id === id) ?? null);
+export async function getRecording(id: string) {
+  const row = await api<any>(`/recordings/${id}`);
+  return row ? mapRecording(row) : null;
 }
 
-export function deleteRecording(id: string) {
-  store.recordings = store.recordings.filter((r) => r.id !== id);
-  return mock({ success: true });
+export async function deleteRecording(id: string) {
+  await api(`/recordings/${id}`, { method: 'DELETE' });
+  return { success: true };
 }

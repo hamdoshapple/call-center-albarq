@@ -1,14 +1,15 @@
 import type { AsteriskSettings } from '@/types';
-import { mock } from './client';
-import { store } from './store';
 
-export function getAsteriskSettings() {
-  return mock(() => ({ ...store.asterisk }));
-}
+const API_BASE = '/api';
+const token = () => localStorage.getItem('cc_token') || '';
 
-export function updateAsteriskSettings(patch: Partial<AsteriskSettings>) {
-  store.asterisk = { ...store.asterisk, ...patch };
-  return mock({ ...store.asterisk });
+async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}`, ...(options.headers || {}) },
+  });
+  if (!res.ok) throw new Error(await res.text() || `API error ${res.status}`);
+  return res.json() as Promise<T>;
 }
 
 export interface AsteriskConnection {
@@ -18,15 +19,23 @@ export interface AsteriskConnection {
   uptimeSec: number;
 }
 
-export function getConnectionStatus() {
-  return mock<AsteriskConnection>({
-    ami: 'connected',
-    ari: 'connected',
-    sip: 'registered',
-    uptimeSec: 824_530,
+export function getAsteriskSettings() {
+  return api<AsteriskSettings>('/asterisk/settings');
+}
+
+export function updateAsteriskSettings(patch: Partial<AsteriskSettings>) {
+  return api<AsteriskSettings>('/asterisk/settings', {
+    method: 'PUT',
+    body: JSON.stringify(patch),
   });
 }
 
+export function getConnectionStatus() {
+  return api<AsteriskConnection>('/asterisk/status');
+}
+
 export function reloadConfig() {
-  return mock({ success: true, reloadedAt: new Date().toISOString() });
+  return api<{ success: boolean; reloadedAt?: string }>('/asterisk/reload', {
+    method: 'POST',
+  });
 }

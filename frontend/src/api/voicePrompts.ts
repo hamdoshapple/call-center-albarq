@@ -1,28 +1,47 @@
 import type { VoicePrompt } from '@/types';
-import { uid } from '@/lib/utils';
-import { mock } from './client';
-import { store } from './store';
+
+const API_BASE = '/api';
+const token = () => localStorage.getItem('cc_token') || '';
+
+async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}`, ...(options.headers || {}) },
+  });
+  if (!res.ok) throw new Error(await res.text() || `API error ${res.status}`);
+  if (res.status === 204) return null as T;
+  return res.json() as Promise<T>;
+}
 
 export type VoicePromptInput = Omit<VoicePrompt, 'id' | 'uploadedAt'>;
 
-export function listPrompts() {
-  return mock(() => [...store.prompts]);
+const mapPrompt = (p: any): VoicePrompt => ({
+  ...p,
+  id: String(p.id),
+  name: p.name || '',
+  category: p.category || 'other',
+  fileName: p.fileName || '',
+  url: p.url || '',
+  duration: Number(p.duration ?? p.durationSec ?? 0),
+  language: p.language || 'ar',
+  sizeKb: Number(p.sizeKb || 0),
+  uploadedAt: p.uploadedAt || p.createdAt || new Date().toISOString(),
+});
+
+export async function listPrompts() {
+  const rows = await api<any[]>('/voice-prompts');
+  return rows.map(mapPrompt);
 }
 
-export function createPrompt(input: VoicePromptInput) {
-  const prompt: VoicePrompt = { ...input, id: uid('vp'), uploadedAt: new Date().toISOString() };
-  store.prompts.unshift(prompt);
-  return mock(prompt);
+export async function createPrompt(input: VoicePromptInput) {
+  return mapPrompt(await api<any>('/voice-prompts', { method: 'POST', body: JSON.stringify(input) }));
 }
 
-export function updatePrompt(id: string, patch: Partial<VoicePromptInput>) {
-  const idx = store.prompts.findIndex((p) => p.id === id);
-  if (idx === -1) return mock(null);
-  store.prompts[idx] = { ...store.prompts[idx], ...patch };
-  return mock(store.prompts[idx]);
+export async function updatePrompt(id: string, patch: Partial<VoicePromptInput>) {
+  return mapPrompt(await api<any>(`/voice-prompts/${id}`, { method: 'PUT', body: JSON.stringify(patch) }));
 }
 
-export function deletePrompt(id: string) {
-  store.prompts = store.prompts.filter((p) => p.id !== id);
-  return mock({ success: true });
+export async function deletePrompt(id: string) {
+  await api(`/voice-prompts/${id}`, { method: 'DELETE' });
+  return { success: true };
 }
