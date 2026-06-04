@@ -31,7 +31,7 @@ import type { IVRMenu, IVROption, IVRDestinationType } from '@/types';
 import type { IVRInput } from '@/api/ivr';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/components/ui/use-toast';
-import { uid } from '@/lib/utils';
+
 
 const DEST_TYPES: IVRDestinationType[] = ['queue', 'department', 'agent', 'ivr', 'voicemail', 'hangup', 'external'];
 const KEYS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '#'];
@@ -73,7 +73,7 @@ export function IVRPage() {
     setDialogOpen(false);
   };
 
-  const addOption = () => setForm((f) => ({ ...f, options: [...f.options, { id: uid('opt'), key: KEYS.find((k) => !f.options.some((o) => o.key === k)) ?? '0', label: '', destinationType: 'queue' }] }));
+  const addOption = () => setForm((f) => ({ ...f, options: [...f.options, { id: `opt-${crypto.randomUUID()}`, key: KEYS.find((k) => !f.options.some((o) => o.key === k)) ?? '0', label: '', destinationType: 'queue' }] }));
   const updateOption = (id: string, patch: Partial<IVROption>) => setForm((f) => ({ ...f, options: f.options.map((o) => (o.id === id ? { ...o, ...patch } : o)) }));
   const removeOption = (id: string) => setForm((f) => ({ ...f, options: f.options.filter((o) => o.id !== id) }));
 
