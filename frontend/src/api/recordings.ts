@@ -27,7 +27,7 @@ function mapRecording(r: any): Recording {
     callerNumber: r.callerNumber || '',
     agentId: r.agentId || '',
     fileName: r.fileName || '',
-    url: r.url || '',
+    url: `/api/recordings/${r.id}/audio`,
     durationSec: Number(r.durationSec || 0),
     sizeKb: Number(r.sizeKb || 0),
     recordedAt: r.recordedAt || new Date().toISOString(),

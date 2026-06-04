@@ -77,6 +77,7 @@ router.put('/subscribers/:id', perm('subscribers', 'edit'), h(subscribers.update
 
 // ---------- Recordings ----------
 router.get('/recordings', perm('recordings'), h(recordings.list));
+router.get('/recordings/:id/audio', perm('recordings'), h(recordings.streamAudio));
 router.get('/recordings/:id', perm('recordings'), h(recordings.getOne));
 router.delete('/recordings/:id', perm('recordings', 'delete'), h(recordings.remove));
 

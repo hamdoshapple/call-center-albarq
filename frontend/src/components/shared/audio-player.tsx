@@ -7,41 +7,70 @@ interface AudioPlayerProps {
   durationSec: number;
   label?: string;
   compact?: boolean;
+  src?: string;
 }
 
-/**
- * Mock audio player. There are no real recordings in demo mode, so playback is
- * simulated with a timer. When wiring a real backend, replace the simulation
- * with a native <audio> element pointed at the recording URL.
- */
-export function AudioPlayer({ durationSec, label, compact }: AudioPlayerProps) {
+export function AudioPlayer({ durationSec, label, compact, src }: AudioPlayerProps) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [objectUrl, setObjectUrl] = useState('');
   const [playing, setPlaying] = useState(false);
   const [pos, setPos] = useState(0);
-  const ref = useRef<number | null>(null);
 
   useEffect(() => {
-    if (playing) {
-      ref.current = window.setInterval(() => {
-        setPos((p) => {
-          if (p >= durationSec) {
-            setPlaying(false);
-            return durationSec;
-          }
-          return p + 1;
-        });
-      }, 1000);
-    }
-    return () => {
-      if (ref.current) window.clearInterval(ref.current);
-    };
-  }, [playing, durationSec]);
+    if (!src) return;
 
-  const toggle = () => {
-    if (pos >= durationSec) setPos(0);
-    setPlaying((p) => !p);
+    let revoked = '';
+    const token = localStorage.getItem('cc_token') || '';
+
+    fetch(src, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => {
+        if (!res.ok) throw new Error(`Audio error ${res.status}`);
+        return res.blob();
+      })
+      .then((blob) => {
+        const url = URL.createObjectURL(blob);
+        revoked = url;
+        setObjectUrl(url);
+      })
+      .catch(() => setObjectUrl(''));
+
+    return () => {
+      if (revoked) URL.revokeObjectURL(revoked);
+    };
+  }, [src]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const onTime = () => setPos(Math.floor(audio.currentTime || 0));
+    const onEnd = () => setPlaying(false);
+
+    audio.addEventListener('timeupdate', onTime);
+    audio.addEventListener('ended', onEnd);
+
+    return () => {
+      audio.removeEventListener('timeupdate', onTime);
+      audio.removeEventListener('ended', onEnd);
+    };
+  }, [objectUrl]);
+
+  const toggle = async () => {
+    const audio = audioRef.current;
+    if (!audio || !objectUrl) return;
+
+    if (playing) {
+      audio.pause();
+      setPlaying(false);
+    } else {
+      await audio.play();
+      setPlaying(true);
+    }
   };
 
   const reset = () => {
+    const audio = audioRef.current;
+    if (audio) audio.currentTime = 0;
     setPlaying(false);
     setPos(0);
   };
@@ -49,13 +78,9 @@ export function AudioPlayer({ durationSec, label, compact }: AudioPlayerProps) {
   const progress = durationSec ? (pos / durationSec) * 100 : 0;
 
   return (
-    <div
-      className={cn(
-        'flex items-center gap-3 rounded-lg border bg-card p-2',
-        compact ? 'min-w-[200px]' : 'w-full'
-      )}
-    >
-      <Button size="icon-sm" variant={playing ? 'default' : 'secondary'} onClick={toggle} className="rounded-full">
+    <div className={cn('flex items-center gap-3 rounded-lg border bg-card p-2', compact ? 'min-w-[200px]' : 'w-full')}>
+      <audio ref={audioRef} src={objectUrl || undefined} preload="metadata" />
+      <Button size="icon-sm" variant={playing ? 'default' : 'secondary'} onClick={toggle} disabled={!objectUrl} className="rounded-full">
         {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
       </Button>
       <div className="flex-1 space-y-1">

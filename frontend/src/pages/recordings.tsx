@@ -89,7 +89,7 @@ export function RecordingsPage() {
                     )}
                   </div>
                 </div>
-                <AudioPlayer durationSec={r.durationSec} />
+                <AudioPlayer durationSec={r.durationSec} src={r.url} label={r.fileName} />
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>{formatDateTime(r.recordedAt, lang)}</span>
                   <span>{(r.sizeKb / 1024).toFixed(1)} MB</span>
