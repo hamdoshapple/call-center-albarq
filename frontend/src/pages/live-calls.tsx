@@ -10,6 +10,9 @@ import {
   Play,
   PhoneOff,
   StickyNote,
+  Wifi,
+  Wallet,
+  Calendar,
   UserSearch,
   MoreVertical,
 } from 'lucide-react';
@@ -114,6 +117,8 @@ export function LiveCallsPage() {
     [calls]
   );
 
+  const incomingCall = calls.find((c) => c.status === 'ringing' || c.status === 'waiting') ?? calls[0];
+
   return (
     <div className="space-y-6">
       <PageHeader title={t('live_calls.title')} subtitle={t('live_calls.subtitle')} icon={<PhoneCall className="h-5 w-5" />} />
@@ -124,6 +129,67 @@ export function LiveCallsPage() {
         <StatCard label={t('status.ringing')} value={stats.ringing} icon={PhoneCall} tone="primary" />
         <StatCard label={t('live_calls.on_hold')} value={stats.onHold} icon={Pause} tone="muted" />
       </div>
+
+      {incomingCall && (
+        <Card className="border-primary/40 bg-primary/5 shadow-sm">
+          <CardContent className="p-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-start gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <PhoneCall className="h-6 w-6" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-lg font-bold">
+                      {incomingCall.callerName || incomingCall.subscriber?.name || incomingCall.callerNumber}
+                    </p>
+                    <StatusBadge status={incomingCall.status} pulse />
+                  </div>
+                  <p className="font-mono text-sm text-muted-foreground">{incomingCall.callerNumber}</p>
+                  {incomingCall.subscriber ? (
+                    <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
+                        <Wifi className="h-4 w-4 text-primary" />
+                        <span>{incomingCall.subscriber.pppoeUsername || '—'}</span>
+                      </div>
+                      <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
+                        <Badge variant="secondary">{incomingCall.subscriber.package || '—'}</Badge>
+                        <span>{incomingCall.subscriber.speed || ''}</span>
+                      </div>
+                      <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
+                        <Wallet className="h-4 w-4 text-destructive" />
+                        <span>{Number(incomingCall.subscriber.debt || 0).toLocaleString()} د.ع</span>
+                      </div>
+                      <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
+                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                        <span>{incomingCall.subscriber.expiration ? new Date(incomingCall.subscriber.expiration).toLocaleDateString('ar-IQ') : '—'}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm text-muted-foreground">المتصل غير موجود في سجل المشتركين</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {incomingCall.subscriberId && (
+                  <Button onClick={() => navigate(`/subscribers/${incomingCall.subscriberId}`)}>
+                    <UserSearch className="h-4 w-4" />
+                    فتح المشترك
+                  </Button>
+                )}
+                <Button variant="outline" onClick={() => { setNoteCall(incomingCall); setNoteText(incomingCall.note ?? ''); }}>
+                  <StickyNote className="h-4 w-4" />
+                  ملاحظة
+                </Button>
+                <Button variant="destructive" onClick={() => hangup.mutate(incomingCall.id)}>
+                  <PhoneOff className="h-4 w-4" />
+                  إنهاء
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="p-0">
