@@ -1,0 +1,63 @@
+# Call Center Albarq — full stack orchestration.
+# Services: MySQL, Redis, backend (Node/Express/Prisma), frontend (Vite build via nginx).
+# Public demo mode runs entirely on the in-process mock Asterisk simulator —
+# no real Asterisk/TG400 credentials required.
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: albarq-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: callcenter
+      MYSQL_USER: albarq
+      MYSQL_PASSWORD: albarqpass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ualbarq", "-palbarqpass"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: albarq-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  backend:
+    build: ./backend
+    container_name: albarq-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: "mysql://albarq:albarqpass@mysql:3306/callcenter"
+      JWT_SECRET: demo-secret-change-in-production
+      JWT_EXPIRES_IN: 7d
+      CORS_ORIGIN: "*"
+      DEMO_MODE: "true"
+      ASTERISK_MODE: mock
+      SEED_ON_START: "true"
+    ports:
+      - "4000:4000"
+
+  frontend:
+    build: ./frontend
+    container_name: albarq-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+volumes:
+  mysql_data:

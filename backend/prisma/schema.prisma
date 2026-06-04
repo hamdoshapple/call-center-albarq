@@ -1,0 +1,378 @@
+// Call Center Albarq - Prisma schema (MySQL)
+// Covers all modules: auth/RBAC, agents, departments, queues, IVR,
+// voice prompts, TG400 lines, calls/CDR, recordings, subscribers,
+// notes, tickets, callbacks, settings, audit logs, notifications.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ===================== Auth / RBAC =====================
+model Role {
+  id          String       @id @default(cuid())
+  key         String       @unique // super_admin, manager, supervisor, agent, accountant, support
+  name        String
+  nameEn      String
+  description String?      @db.Text
+  users       User[]
+  permissions Permission[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Permission {
+  id        String   @id @default(cuid())
+  roleId    String
+  module    String // dashboard, live_calls, agents, ...
+  actions   Json // ["view","create","edit","delete"]
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([roleId, module])
+  @@index([roleId])
+}
+
+model User {
+  id           String    @id @default(cuid())
+  username     String    @unique
+  email        String?   @unique
+  passwordHash String
+  fullName     String
+  roleId       String
+  role         Role      @relation(fields: [roleId], references: [id])
+  active       Boolean   @default(true)
+  agent        Agent?
+  lastLogin    DateTime?
+  notes        Note[]
+  auditLogs    AuditLog[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([roleId])
+}
+
+// ===================== Departments / Agents =====================
+model Department {
+  id          String   @id @default(cuid())
+  name        String
+  nameEn      String
+  description String?  @db.Text
+  color       String   @default("#0ea5e9")
+  agents      Agent[]
+  queues      Queue[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Agent {
+  id            String        @id @default(cuid())
+  userId        String?       @unique
+  user          User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name          String
+  email         String?
+  status        String        @default("offline") // online, offline, busy, paused
+  departmentId  String?
+  department    Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  extension     Extension?
+  workFrom      String        @default("09:00")
+  workTo        String        @default("17:00")
+  workDays      Json          @default("[0,1,2,3,4]")
+  callsHandled  Int           @default(0)
+  callsMissed   Int           @default(0)
+  avgHandleTime Int           @default(0)
+  totalTalkTime Int           @default(0)
+  satisfaction  Int           @default(0)
+  occupancy     Int           @default(0)
+  queueMembers  QueueMember[]
+  calls         Call[]
+  recordings    Recording[]
+  callbacks     Callback[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([departmentId])
+}
+
+model Extension {
+  id          String   @id @default(cuid())
+  number      String   @unique
+  sipUsername String   @unique
+  sipPassword String
+  agentId     String?  @unique
+  agent       Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  context     String   @default("from-internal")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ===================== Queues =====================
+model Queue {
+  id            String        @id @default(cuid())
+  name          String
+  number        String        @unique
+  strategy      String        @default("ringall") // ringall, linear, leastrecent, roundrobin
+  maxWaitTime   Int           @default(120)
+  musicOnHold   String        @default("default")
+  announcement  String?
+  missedBehavior String       @default("voicemail") // voicemail, callback, overflow, hangup
+  departmentId  String?
+  department    Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  members       QueueMember[]
+  calls         Call[]
+  waiting       Int           @default(0)
+  answered      Int           @default(0)
+  abandoned     Int           @default(0)
+  avgWait       Int           @default(0)
+  serviceLevel  Int           @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([departmentId])
+}
+
+model QueueMember {
+  id       String @id @default(cuid())
+  queueId  String
+  agentId  String
+  penalty  Int    @default(0)
+  queue    Queue  @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  agent    Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([queueId, agentId])
+  @@index([agentId])
+}
+
+// ===================== IVR =====================
+model IvrMenu {
+  id                 String      @id @default(cuid())
+  name               String
+  description        String?     @db.Text
+  greetingPromptId   String?
+  greetingPrompt     VoicePrompt? @relation(fields: [greetingPromptId], references: [id], onDelete: SetNull)
+  timeout            Int         @default(10)
+  timeoutDestination String      @default("hangup")
+  invalidDestination String      @default("repeat")
+  repeatOnInvalid    Boolean     @default(true)
+  maxRepeats         Int         @default(3)
+  active             Boolean     @default(true)
+  options            IvrOption[]
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  @@index([greetingPromptId])
+}
+
+model IvrOption {
+  id               String  @id @default(cuid())
+  menuId           String
+  menu             IvrMenu @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  key              String // 0-9, *, #
+  label            String
+  destinationType  String // queue, department, agent, ivr, hangup, voicemail, external
+  destinationId    String?
+  destinationValue String?
+
+  @@unique([menuId, key])
+  @@index([menuId])
+}
+
+// ===================== Voice Prompts =====================
+model VoicePrompt {
+  id         String    @id @default(cuid())
+  name       String
+  category   String // welcome, waiting, closed_hours, busy, ivr, announcement, other
+  fileName   String
+  url        String
+  duration   Int       @default(0)
+  language   String    @default("ar")
+  sizeKb     Int       @default(0)
+  ivrMenus   IvrMenu[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+// ===================== TG400 / GSM Lines =====================
+model Tg400Line {
+  id            String   @id @default(cuid())
+  slot          Int      @unique
+  number        String
+  carrier       String?
+  status        String   @default("no_sim") // active, inactive, no_sim, error
+  signal        Int      @default(0)
+  purpose       String?
+  inboundRoute  String   @default("-")
+  outboundRoute String   @default("-")
+  usageCalls    Int      @default(0)
+  usageMinutes  Int      @default(0)
+  usageCost     Float    @default(0)
+  balance       Float    @default(0)
+  calls         Call[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ===================== Calls / CDR =====================
+model Call {
+  id               String      @id @default(cuid())
+  uniqueId         String?     @unique // Asterisk channel uniqueid
+  callerNumber     String
+  destinationNumber String
+  direction        String // inbound, outbound, internal
+  status           String      @default("ringing") // ringing, waiting, active, ended, missed, failed
+  disposition      String? // answered, missed, busy, failed, no_answer, abandoned
+  agentId          String?
+  agent            Agent?      @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  queueId          String?
+  queue            Queue?      @relation(fields: [queueId], references: [id], onDelete: SetNull)
+  lineId           String?
+  line             Tg400Line?  @relation(fields: [lineId], references: [id], onDelete: SetNull)
+  subscriberId     String?
+  subscriber       Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+  startedAt        DateTime    @default(now())
+  answeredAt       DateTime?
+  endedAt          DateTime?
+  durationSec      Int         @default(0)
+  talkTimeSec      Int         @default(0)
+  waitTimeSec      Int         @default(0)
+  note             String?     @db.Text
+  events           CallEvent[]
+  recording        Recording?
+  createdAt        DateTime    @default(now())
+
+  @@index([agentId])
+  @@index([queueId])
+  @@index([startedAt])
+  @@index([disposition])
+}
+
+model CallEvent {
+  id        String   @id @default(cuid())
+  callId    String
+  call      Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+  type      String // created, ringing, answered, hold, unhold, transfer, note, hangup
+  detail    String?  @db.Text
+  actor     String?
+  timestamp DateTime @default(now())
+
+  @@index([callId])
+}
+
+model Recording {
+  id          String   @id @default(cuid())
+  callId      String   @unique
+  call        Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+  callerNumber String
+  agentId     String?
+  agent       Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  fileName    String
+  url         String
+  durationSec Int      @default(0)
+  sizeKb      Int      @default(0)
+  recordedAt  DateTime @default(now())
+
+  @@index([agentId])
+}
+
+// ===================== Subscribers / Tickets / Callbacks =====================
+model Subscriber {
+  id             String   @id @default(cuid())
+  name           String
+  phone          String   @unique
+  pppoeUsername  String?
+  status         String   @default("active") // active, expired, suspended, disabled
+  package        String?
+  speed          String?
+  expiration     DateTime?
+  debt           Float    @default(0)
+  lastActivation DateTime?
+  address        String?
+  notes          String?  @db.Text
+  tickets        Ticket[]
+  calls          Call[]
+  callbacks      Callback[]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Ticket {
+  id           String     @id @default(cuid())
+  subscriberId String
+  subscriber   Subscriber @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+  subject      String
+  status       String     @default("open") // open, pending, resolved, closed
+  priority     String     @default("medium") // low, medium, high, urgent
+  agentId      String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([subscriberId])
+}
+
+model Callback {
+  id           String     @id @default(cuid())
+  callerNumber String
+  subscriberId String?
+  subscriber   Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+  requestedAt  DateTime   @default(now())
+  scheduledFor DateTime
+  status       String     @default("pending") // pending, completed, failed
+  agentId      String?
+  agent        Agent?     @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  reason       String?    @db.Text
+
+  @@index([agentId])
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  refType   String // call, subscriber, agent
+  refId     String
+  body      String   @db.Text
+  authorId  String?
+  author    User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([refType, refId])
+}
+
+// ===================== Settings / Audit / Notifications =====================
+model Setting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value Json
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String?
+  detail    Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String // call, system, agent, subscriber, alert
+  title     String
+  message   String   @db.Text
+  read      Boolean  @default(false)
+  userId    String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([read])
+}
