@@ -168,6 +168,7 @@ export interface LiveCall {
   durationSec: number;
   onHold: boolean;
   subscriberId?: string;
+  subscriber?: Subscriber;
   note?: string;
 }
 

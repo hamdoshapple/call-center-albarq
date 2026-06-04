@@ -56,16 +56,20 @@ export async function getLive(_req: Request, res: Response) {
   const subscribers = variants.length
     ? await prisma.subscriber.findMany({
         where: { phone: { in: variants } },
-        select: { id: true, name: true, phone: true },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          pppoeUsername: true,
+          status: true,
+          package: true,
+          speed: true,
+          expiration: true,
+          debt: true,
+          address: true,
+        },
       })
     : [];
-
-  console.log('[LIVE SUB LOOKUP]', {
-    callPhones: calls.map((c) => c.callerNumber),
-    normalizedPhones: phones,
-    variants,
-    subscribersFound: subscribers,
-  });
 
   const subByPhone = new Map(subscribers.map((s) => [normalizePhone(s.phone), s]));
 
@@ -77,6 +81,18 @@ export async function getLive(_req: Request, res: Response) {
         callerNumber: c.callerNumber,
         callerName: sub?.name ?? null,
         subscriberId: sub?.id ?? null,
+        subscriber: sub ? {
+          id: sub.id,
+          name: sub.name,
+          phone: sub.phone,
+          pppoeUsername: sub.pppoeUsername,
+          status: sub.status,
+          package: sub.package,
+          speed: sub.speed,
+          expiration: sub.expiration,
+          debt: sub.debt,
+          address: sub.address,
+        } : null,
         destinationNumber: c.destinationNumber,
         direction: c.direction,
         status: c.status,

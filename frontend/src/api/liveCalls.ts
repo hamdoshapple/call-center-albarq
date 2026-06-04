@@ -37,6 +37,7 @@ type BackendLiveCall = {
   durationSec: number;
   callerName?: string | null;
   subscriberId?: string | null;
+  subscriber?: any | null;
 };
 
 function mapCall(c: BackendLiveCall): LiveCall {
@@ -53,6 +54,7 @@ function mapCall(c: BackendLiveCall): LiveCall {
     durationSec: Number(c.durationSec || 0),
     onHold: false,
     subscriberId: c.subscriberId || undefined,
+    subscriber: c.subscriber || undefined,
   };
 }
 
