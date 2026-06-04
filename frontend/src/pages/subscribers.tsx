@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   UserSearch,
   Search,
@@ -13,6 +13,8 @@ import {
   Ticket as TicketIcon,
   User,
   ArrowLeft,
+  Plus,
+  Pencil,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { StatusBadge } from '@/components/shared/status-badge';
@@ -22,30 +24,153 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { subscribersApi } from '@/api';
-import type { Subscriber } from '@/types';
+import type { Subscriber, SubscriberStatus } from '@/types';
 import { useLanguage } from '@/hooks/use-language';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { useToast } from '@/components/ui/use-toast';
+
+const emptyForm: Omit<Subscriber, 'id'> = {
+  name: '',
+  phone: '',
+  pppoeUsername: '',
+  status: 'active',
+  package: '',
+  speed: '',
+  expiration: new Date().toISOString().slice(0, 10),
+  debt: 0,
+  lastActivation: new Date().toISOString(),
+  address: '',
+  notes: '',
+};
 
 export function SubscribersPage() {
   const { t } = useTranslation();
-  const { lang } = useLanguage();
   const { id } = useParams();
   const navigate = useNavigate();
+  const qc = useQueryClient();
+  const { toast } = useToast();
 
   const [query, setQuery] = useState('');
-  const { data: results, isLoading } = useQuery({ queryKey: ['subscribers', query], queryFn: () => subscribersApi.searchSubscribers(query) });
-  const { data: selected } = useQuery({ queryKey: ['subscriber', id], queryFn: () => subscribersApi.getSubscriber(id!), enabled: !!id });
-  const { data: tickets = [] } = useQuery({ queryKey: ['subscriber-tickets', id], queryFn: () => subscribersApi.getSubscriberTickets(id!), enabled: !!id });
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<Subscriber | null>(null);
+  const [form, setForm] = useState<Omit<Subscriber, 'id'>>(emptyForm);
+
+  const { data: results, isLoading } = useQuery({
+    queryKey: ['subscribers', query],
+    queryFn: () => subscribersApi.searchSubscribers(query),
+  });
+
+  const { data: selected } = useQuery({
+    queryKey: ['subscriber', id],
+    queryFn: () => subscribersApi.getSubscriber(id!),
+    enabled: !!id,
+  });
+
+  const { data: tickets = [] } = useQuery({
+    queryKey: ['subscriber-tickets', id],
+    queryFn: () => subscribersApi.getSubscriberTickets(id!),
+    enabled: !!id,
+  });
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['subscribers'] });
+    qc.invalidateQueries({ queryKey: ['subscriber'] });
+  };
+
+  const createMutation = useMutation({
+    mutationFn: subscribersApi.createSubscriber,
+    onSuccess: () => {
+      toast({ title: 'تمت إضافة المشترك بنجاح' });
+      setFormOpen(false);
+      refresh();
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<Subscriber> }) =>
+      subscribersApi.updateSubscriber(id, data),
+    onSuccess: () => {
+      toast({ title: 'تم تعديل بيانات المشترك بنجاح' });
+      setFormOpen(false);
+      refresh();
+    },
+  });
+
+  const openCreate = () => {
+    setEditing(null);
+    setForm(emptyForm);
+    setFormOpen(true);
+  };
+
+  const openEdit = (s: Subscriber) => {
+    setEditing(s);
+    setForm({
+      name: s.name,
+      phone: s.phone,
+      pppoeUsername: s.pppoeUsername,
+      status: s.status,
+      package: s.package,
+      speed: s.speed,
+      expiration: s.expiration ? s.expiration.slice(0, 10) : new Date().toISOString().slice(0, 10),
+      debt: Number(s.debt || 0),
+      lastActivation: s.lastActivation || new Date().toISOString(),
+      address: s.address,
+      notes: s.notes || '',
+    });
+    setFormOpen(true);
+  };
+
+  const submit = () => {
+    const payload = {
+      ...form,
+      debt: Number(form.debt || 0),
+      expiration: form.expiration ? new Date(form.expiration).toISOString() : undefined,
+    };
+
+    if (editing) updateMutation.mutate({ id: editing.id, data: payload });
+    else createMutation.mutate(payload);
+  };
 
   if (id) {
     if (!selected) return <Loader />;
-    return <SubscriberProfile subscriber={selected} tickets={tickets} onBack={() => navigate('/subscribers')} />;
+    return (
+      <>
+        <SubscriberProfile subscriber={selected} tickets={tickets} onBack={() => navigate('/subscribers')} onEdit={() => openEdit(selected)} />
+        <SubscriberFormDialog open={formOpen} onOpenChange={setFormOpen} form={form} setForm={setForm} editing={editing} onSubmit={submit} loading={createMutation.isPending || updateMutation.isPending} />
+      </>
+    );
   }
 
   return (
     <div className="space-y-6">
-      <PageHeader title={t('subscribers.title')} subtitle={t('subscribers.subtitle')} icon={<UserSearch className="h-5 w-5" />} />
+      <PageHeader
+        title={t('subscribers.title')}
+        subtitle={t('subscribers.subtitle')}
+        icon={<UserSearch className="h-5 w-5" />}
+        action={
+          <Button onClick={openCreate}>
+            <Plus className="h-4 w-4" />
+            إضافة مشترك
+          </Button>
+        }
+      />
 
       <Card>
         <CardContent className="p-3">
@@ -63,32 +188,39 @@ export function SubscribersPage() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {(results ?? []).map((s) => (
-            <Card key={s.id} className="cursor-pointer transition hover:border-primary hover:shadow-md" onClick={() => navigate(`/subscribers/${s.id}`)}>
+            <Card key={s.id} className="transition hover:border-primary hover:shadow-md">
               <CardContent className="space-y-3 p-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex cursor-pointer items-center gap-3" onClick={() => navigate(`/subscribers/${s.id}`)}>
                     <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary"><User className="h-5 w-5" /></div>
                     <div>
                       <p className="font-semibold">{s.name}</p>
                       <p className="text-sm text-muted-foreground tabular-nums">{s.phone}</p>
                     </div>
                   </div>
-                  <StatusBadge status={s.status} />
+                  <div className="flex items-center gap-1">
+                    <StatusBadge status={s.status} />
+                    <Button size="icon-sm" variant="ghost" onClick={() => openEdit(s)}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <Badge variant="secondary">{s.package}</Badge>
-                  {s.debt > 0 && <span className="text-destructive font-medium">{formatCurrency(s.debt, lang)}</span>}
+                  {s.debt > 0 && <span className="text-destructive font-medium">{formatCurrency(s.debt, 'ar')}</span>}
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      <SubscriberFormDialog open={formOpen} onOpenChange={setFormOpen} form={form} setForm={setForm} editing={editing} onSubmit={submit} loading={createMutation.isPending || updateMutation.isPending} />
     </div>
   );
 }
 
-function SubscriberProfile({ subscriber: s, tickets, onBack }: { subscriber: Subscriber; tickets: { id: string; subject: string; status: string }[]; onBack: () => void }) {
+function SubscriberProfile({ subscriber: s, tickets, onBack, onEdit }: { subscriber: Subscriber; tickets: { id: string; subject: string; status: string }[]; onBack: () => void; onEdit: () => void }) {
   const { t } = useTranslation();
   const { lang } = useLanguage();
 
@@ -104,9 +236,15 @@ function SubscriberProfile({ subscriber: s, tickets, onBack }: { subscriber: Sub
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Button variant="outline" size="icon" onClick={onBack}><ArrowLeft className="h-4 w-4 rtl:rotate-180" /></Button>
-        <PageHeader title={s.name} subtitle={t('subscribers.profile')} icon={<User className="h-5 w-5" />} />
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="icon" onClick={onBack}><ArrowLeft className="h-4 w-4 rtl:rotate-180" /></Button>
+          <PageHeader title={s.name} subtitle={t('subscribers.profile')} icon={<User className="h-5 w-5" />} />
+        </div>
+        <Button onClick={onEdit}>
+          <Pencil className="h-4 w-4" />
+          تعديل
+        </Button>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -149,6 +287,106 @@ function SubscriberProfile({ subscriber: s, tickets, onBack }: { subscriber: Sub
           </CardContent>
         </Card>
       </div>
+    </div>
+  );
+}
+
+function SubscriberFormDialog({
+  open,
+  onOpenChange,
+  form,
+  setForm,
+  editing,
+  onSubmit,
+  loading,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  form: Omit<Subscriber, 'id'>;
+  setForm: (v: Omit<Subscriber, 'id'>) => void;
+  editing: Subscriber | null;
+  onSubmit: () => void;
+  loading: boolean;
+}) {
+  const set = (key: keyof Omit<Subscriber, 'id'>, value: any) => setForm({ ...form, [key]: value });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{editing ? 'تعديل مشترك' : 'إضافة مشترك جديد'}</DialogTitle>
+        </DialogHeader>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="الاسم">
+            <Input value={form.name} onChange={(e) => set('name', e.target.value)} />
+          </Field>
+
+          <Field label="الهاتف">
+            <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} />
+          </Field>
+
+          <Field label="يوزر PPPoE">
+            <Input value={form.pppoeUsername} onChange={(e) => set('pppoeUsername', e.target.value)} />
+          </Field>
+
+          <Field label="الحالة">
+            <Select value={form.status} onValueChange={(v) => set('status', v as SubscriberStatus)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">نشط</SelectItem>
+                <SelectItem value="expired">منتهي</SelectItem>
+                <SelectItem value="suspended">معلق</SelectItem>
+                <SelectItem value="disabled">معطل</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field label="الباقة">
+            <Input value={form.package} onChange={(e) => set('package', e.target.value)} placeholder="مثلاً 40 Mbps" />
+          </Field>
+
+          <Field label="السرعة">
+            <Input value={form.speed} onChange={(e) => set('speed', e.target.value)} placeholder="مثلاً 20 Mbps" />
+          </Field>
+
+          <Field label="تاريخ الانتهاء">
+            <Input type="date" value={form.expiration?.slice(0, 10)} onChange={(e) => set('expiration', e.target.value)} />
+          </Field>
+
+          <Field label="الدين">
+            <Input type="number" value={form.debt} onChange={(e) => set('debt', Number(e.target.value || 0))} />
+          </Field>
+
+          <div className="sm:col-span-2">
+            <Field label="العنوان">
+              <Input value={form.address} onChange={(e) => set('address', e.target.value)} />
+            </Field>
+          </div>
+
+          <div className="sm:col-span-2">
+            <Field label="ملاحظات">
+              <Textarea rows={3} value={form.notes} onChange={(e) => set('notes', e.target.value)} />
+            </Field>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>إلغاء</Button>
+          <Button disabled={loading || !form.name || !form.phone} onClick={onSubmit}>
+            {loading ? 'جارٍ الحفظ...' : 'حفظ'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      {children}
     </div>
   );
 }
