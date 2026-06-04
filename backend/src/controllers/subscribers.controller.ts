@@ -38,8 +38,19 @@ export async function getOne(req: Request, res: Response) {
 }
 
 export async function getTickets(req: Request, res: Response) {
+  const where =
+    req.user?.role === 'agent' && req.user?.agentId
+      ? {
+          subscriberId: req.params.id,
+          OR: [
+            { agentId: req.user.agentId },
+            { agentId: null },
+          ],
+        }
+      : { subscriberId: req.params.id };
+
   const rows = await prisma.ticket.findMany({
-    where: { subscriberId: req.params.id },
+    where,
     orderBy: { createdAt: 'desc' },
   });
 
