@@ -347,7 +347,13 @@ function SubscriberProfile({ subscriber: s, tickets, onBack, onEdit }: { subscri
                             </p>
                           ) : (
                             <div className="space-y-2">
-                              {(ticket.notes ?? []).map((note: any) => (
+                              {[...(ticket.notes ?? [])]
+                                .sort(
+                                  (a: any, b: any) =>
+                                    new Date(b.createdAt).getTime() -
+                                    new Date(a.createdAt).getTime()
+                                )
+                                .map((note: any) => (
                                 <div key={note.id} className="rounded-lg bg-muted/50 p-3">
                                   <div className="mb-1 flex items-center justify-between gap-2">
                                     <span className="text-xs font-semibold">
