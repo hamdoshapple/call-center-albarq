@@ -1,46 +1,84 @@
 import type { Subscriber } from '@/types';
-import { uid } from '@/lib/utils';
-import { mock } from './client';
-import { store } from './store';
 
-export function listSubscribers() {
-  return mock(() => [...store.subscribers]);
+const API_BASE = '/api';
+
+function token() {
+  return localStorage.getItem('cc_token') || '';
 }
 
-export function searchSubscribers(query: string) {
-  return mock(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [...store.subscribers];
-    return store.subscribers.filter(
-      (s) =>
-        s.phone.includes(q) ||
-        s.name.toLowerCase().includes(q) ||
-        s.pppoeUsername.toLowerCase().includes(q)
-    );
+async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token()}`,
+      ...(options.headers || {}),
+    },
   });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `API error ${res.status}`);
+  }
+
+  return res.json() as Promise<T>;
 }
 
-export function getSubscriber(id: string) {
-  return mock(() => store.subscribers.find((s) => s.id === id) ?? null);
+function mapSubscriber(s: any): Subscriber {
+  return {
+    id: String(s.id),
+    name: s.name || s.fullName || '—',
+    phone: s.phone || '',
+    pppoeUsername: s.pppoeUsername || '',
+    status: s.status || 'active',
+    package: s.package || s.packageName || '—',
+    speed: s.speed || '—',
+    expiration: s.expiration || new Date().toISOString(),
+    debt: Number(s.debt || 0),
+    lastActivation: s.lastActivation || s.createdAt || new Date().toISOString(),
+    lastTicketId: s.lastTicketId || undefined,
+    address: s.address || '—',
+    notes: s.notes || '',
+  };
 }
 
-export function getSubscriberByPhone(phone: string) {
-  return mock(() => store.subscribers.find((s) => s.phone === phone) ?? null);
+export async function listSubscribers(): Promise<Subscriber[]> {
+  const rows = await api<any[]>('/subscribers');
+  return rows.map(mapSubscriber);
 }
 
-export function getSubscriberTickets(subscriberId: string) {
-  return mock(() => store.tickets.filter((t) => t.subscriberId === subscriberId));
+export async function searchSubscribers(query: string): Promise<Subscriber[]> {
+  const q = encodeURIComponent(query || '');
+  const rows = await api<any[]>(`/subscribers?q=${q}`);
+  return rows.map(mapSubscriber);
 }
 
-export function updateSubscriber(id: string, patch: Partial<Subscriber>) {
-  const idx = store.subscribers.findIndex((s) => s.id === id);
-  if (idx === -1) return mock(null);
-  store.subscribers[idx] = { ...store.subscribers[idx], ...patch };
-  return mock(store.subscribers[idx]);
+export async function getSubscriber(id: string): Promise<Subscriber | null> {
+  const row = await api<any>(`/subscribers/${id}`);
+  return row ? mapSubscriber(row) : null;
 }
 
-export function createSubscriber(input: Omit<Subscriber, 'id'>) {
-  const sub: Subscriber = { ...input, id: uid('s') };
-  store.subscribers.unshift(sub);
-  return mock(sub);
+export async function getSubscriberByPhone(phone: string): Promise<Subscriber | null> {
+  const rows = await searchSubscribers(phone);
+  return rows.find((s) => s.phone === phone) ?? null;
+}
+
+export async function getSubscriberTickets(subscriberId: string) {
+  return api<any[]>(`/subscribers/${subscriberId}/tickets`);
+}
+
+export async function updateSubscriber(id: string, patch: Partial<Subscriber>) {
+  const row = await api<any>(`/subscribers/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  });
+  return mapSubscriber(row);
+}
+
+export async function createSubscriber(input: Omit<Subscriber, 'id'>) {
+  const row = await api<any>('/subscribers', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return mapSubscriber(row);
 }
