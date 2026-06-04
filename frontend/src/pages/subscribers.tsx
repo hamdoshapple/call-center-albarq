@@ -141,7 +141,7 @@ export function SubscribersPage() {
     const payload = {
       ...form,
       debt: Number(form.debt || 0),
-      expiration: form.expiration ? new Date(form.expiration).toISOString() : undefined,
+      expiration: form.expiration ? new Date(form.expiration).toISOString() : new Date().toISOString(),
     };
 
     if (editing) updateMutation.mutate({ id: editing.id, data: payload });
@@ -164,7 +164,7 @@ export function SubscribersPage() {
         title={t('subscribers.title')}
         subtitle={t('subscribers.subtitle')}
         icon={<UserSearch className="h-5 w-5" />}
-        action={
+        actions={
           <Button onClick={openCreate}>
             <Plus className="h-4 w-4" />
             إضافة مشترك

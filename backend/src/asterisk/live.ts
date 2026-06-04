@@ -28,6 +28,31 @@ function callStatusFromState(state?: string): AsteriskLiveCall['status'] {
   return 'active';
 }
 
+
+function isRealPhone(v?: string): boolean {
+  return !!(v || '').match(/07\d{9,10}|\+?964\d{10}/);
+}
+
+function bestCallerNumber(...values: Array<string | undefined>): string {
+  for (const raw of values) {
+    const v = (raw || '').trim();
+    if (!v || v === '<unknown>' || v === 'unknown') continue;
+
+    const quoted = v.match(/"([^"]+)"/)?.[1];
+    const candidate = quoted || v;
+
+    const phone = candidate.match(/07\d{9,10}|\+?964\d{10}/)?.[0];
+    if (phone) return phone;
+  }
+
+  for (const raw of values) {
+    const v = (raw || '').trim();
+    if (v && v !== '<unknown>' && v !== 'unknown') return v;
+  }
+
+  return 'Unknown';
+}
+
 export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway {
   readonly mode = 'live' as const;
 
@@ -228,17 +253,30 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
   }
 
   private upsertCall(ev: AmiEvent) {
+    if (ev.Event === 'Newchannel' || ev.Event === 'Newstate') {
+      console.log('[AMI CALLER]', {
+        Event: ev.Event,
+        Channel: ev.Channel,
+        CallerIDName: ev.CallerIDName,
+        CallerIDNum: ev.CallerIDNum,
+        CallerID: ev.CallerID,
+        ConnectedLineName: ev.ConnectedLineName,
+        ConnectedLineNum: ev.ConnectedLineNum,
+      });
+    }
     const uniqueId = ev.Uniqueid || ev.UniqueID || ev.Linkedid || ev.Channel;
     if (!uniqueId) return;
 
     const existing = this.calls.get(uniqueId);
     const channel = ev.Channel || existing?.channel || '';
 
-    const callerNumber =
-      ev.CallerIDNum ||
-      ev.CallerID ||
-      existing?.callerNumber ||
-      'Unknown';
+    const callerNumber = bestCallerNumber(
+      ev.CallerIDName,
+      ev.ConnectedLineName,
+      ev.CallerIDNum,
+      ev.CallerID,
+      existing?.callerNumber
+    );
 
     const destinationNumber =
       ev.Exten ||
@@ -323,7 +361,11 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
       seen.add(uniqueId);
 
       const existing = this.calls.get(uniqueId);
-      const callerNumber = p[8] || p[10] || existing?.callerNumber || 'Unknown';
+      const conciseCaller = bestCallerNumber(p[10], p[8]);
+      const callerNumber =
+        isRealPhone(existing?.callerNumber)
+          ? existing!.callerNumber
+          : bestCallerNumber(existing?.callerNumber, conciseCaller);
       const destinationNumber = p[2] || existing?.destinationNumber || 'unknown';
       const durationSec = Number(p[12] || 0) || existing?.durationSec || 0;
       const agentMatch = channel.match(/PJSIP\/(\d+)/);
