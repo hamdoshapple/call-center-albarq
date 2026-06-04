@@ -221,6 +221,11 @@ export function SubscribersPage() {
 }
 
 
+
+function noteAuthorName(note: any) {
+  return note?.author?.fullName || note?.author?.username || note?.author?.email || 'النظام';
+}
+
 function formatTicketTime(value?: string) {
   if (!value) return '';
   const d = new Date(value);
@@ -364,10 +369,15 @@ function SubscriberProfile({ subscriber: s, tickets, onBack, onEdit }: { subscri
                                 .map((note: any) => (
                                 <div key={note.id} className="rounded-lg bg-muted/50 p-3">
                                   <div className="mb-1 flex items-center justify-between gap-2">
-                                    <span className="text-xs font-semibold">
-                                      {note.body?.startsWith('--- تفاصيل الاتصال ---') ? 'تفاصيل الاتصال' :
-                                       note.body?.startsWith('تم تغيير حالة') ? 'تغيير حالة' : 'تعليق'}
-                                    </span>
+                                    <div>
+                                      <span className="text-xs font-semibold">
+                                        {note.body?.startsWith('--- تفاصيل الاتصال ---') ? 'تفاصيل الاتصال' :
+                                         note.body?.startsWith('تم تغيير حالة') ? 'تغيير حالة' : 'تعليق'}
+                                      </span>
+                                      <p className="text-[11px] text-muted-foreground">
+                                        بواسطة: {noteAuthorName(note)}
+                                      </p>
+                                    </div>
                                     <span dir="ltr" className="font-mono text-[11px] text-muted-foreground">
                                       {note.createdAt
   ? new Date(note.createdAt).toLocaleString('en-GB', {

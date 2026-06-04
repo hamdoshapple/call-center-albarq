@@ -49,7 +49,17 @@ export async function getTickets(req: Request, res: Response) {
           refType: 'ticket',
           refId: { in: rows.map((t) => t.id) },
         },
-        orderBy: { createdAt: 'desc' },
+        include: {
+          author: {
+            select: {
+              id: true,
+              username: true,
+              fullName: true,
+              email: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
       })
     : [];
 
