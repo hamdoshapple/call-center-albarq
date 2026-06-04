@@ -65,7 +65,7 @@ export async function getTickets(req: Request, res: Response) {
     rows.map((ticket) => ({
       ...ticket,
       notes: (notesByTicket.get(ticket.id) ?? []).sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
       ),
     }))
   );

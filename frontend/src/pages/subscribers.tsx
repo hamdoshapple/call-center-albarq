@@ -220,6 +220,14 @@ export function SubscribersPage() {
   );
 }
 
+
+function formatTicketTime(value?: string) {
+  if (!value) return '';
+  const d = new Date(value);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 function SubscriberProfile({ subscriber: s, tickets, onBack, onEdit }: { subscriber: Subscriber; tickets: any[]; onBack: () => void; onEdit: () => void }) {
   const qc = useQueryClient();
   const [openTicketId, setOpenTicketId] = useState<string | null>(null);
@@ -322,7 +330,7 @@ function SubscriberProfile({ subscriber: s, tickets, onBack, onEdit }: { subscri
                       <div className="min-w-0">
                         <p className="line-clamp-2 text-sm font-semibold">{ticket.subject}</p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {ticket.createdAt ? new Date(ticket.createdAt).toLocaleString('ar-IQ') : '—'}
+                          {ticket.createdAt ? formatTicketTime(ticket.createdAt) : '—'}
                         </p>
                       </div>
 
@@ -350,8 +358,8 @@ function SubscriberProfile({ subscriber: s, tickets, onBack, onEdit }: { subscri
                               {[...(ticket.notes ?? [])]
                                 .sort(
                                   (a: any, b: any) =>
-                                    new Date(b.createdAt).getTime() -
-                                    new Date(a.createdAt).getTime()
+                                    new Date(a.createdAt).getTime() -
+                                    new Date(b.createdAt).getTime()
                                 )
                                 .map((note: any) => (
                                 <div key={note.id} className="rounded-lg bg-muted/50 p-3">
@@ -360,9 +368,9 @@ function SubscriberProfile({ subscriber: s, tickets, onBack, onEdit }: { subscri
                                       {note.body?.startsWith('--- تفاصيل الاتصال ---') ? 'تفاصيل الاتصال' :
                                        note.body?.startsWith('تم تغيير حالة') ? 'تغيير حالة' : 'تعليق'}
                                     </span>
-                                    <span className="text-[11px] text-muted-foreground">
+                                    <span dir="ltr" className="font-mono text-[11px] text-muted-foreground">
                                       {note.createdAt
-  ? new Date(note.createdAt).toLocaleString('ar-IQ', {
+  ? new Date(note.createdAt).toLocaleString('en-GB', {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
