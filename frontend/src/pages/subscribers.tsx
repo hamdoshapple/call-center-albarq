@@ -361,7 +361,17 @@ function SubscriberProfile({ subscriber: s, tickets, onBack, onEdit }: { subscri
                                        note.body?.startsWith('تم تغيير حالة') ? 'تغيير حالة' : 'تعليق'}
                                     </span>
                                     <span className="text-[11px] text-muted-foreground">
-                                      {note.createdAt ? new Date(note.createdAt).toLocaleString('ar-IQ') : ''}
+                                      {note.createdAt
+  ? new Date(note.createdAt).toLocaleString('ar-IQ', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    })
+  : ''}
                                     </span>
                                   </div>
                                   <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-6 text-muted-foreground">
