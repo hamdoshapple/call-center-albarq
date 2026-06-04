@@ -35,3 +35,7 @@ coverage/
 
 # prisma
 backend/prisma/*.db
+
+# backup files
+*.bak
+*.bak.*
