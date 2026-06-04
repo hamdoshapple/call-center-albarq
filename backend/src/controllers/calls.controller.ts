@@ -32,9 +32,13 @@ export async function listLogs(req: Request, res: Response) {
   res.json({ total, page, pageSize, rows });
 }
 
-export async function getLive(_req: Request, res: Response) {
+export async function getLive(req: Request, res: Response) {
   const gw = getAsteriskGateway();
-  const calls = await gw.getLiveCalls();
+  const allCalls = await gw.getLiveCalls();
+
+  const calls = req.user?.role === 'agent' && req.user?.extension
+    ? allCalls.filter((c) => c.agentExtension === req.user?.extension)
+    : allCalls;
 
   const normalizePhone = (v: string) => {
     const digits = String(v || '').replace(/\D/g, '');
