@@ -72,9 +72,9 @@ export function LiveCallsPage() {
   const { data: queues = [] } = useQuery({ queryKey: ['queues'], queryFn: queuesApi.listQueues });
   const { data: lines = [] } = useQuery({ queryKey: ['lines'], queryFn: tg400Api.listLines });
 
-  const agentName = (id?: string) => agents.find((a) => a.id === id)?.name ?? '—';
-  const queueName = (id?: string) => queues.find((q) => q.id === id)?.name ?? '—';
-  const lineNumber = (id?: string) => lines.find((l) => l.id === id)?.number ?? '—';
+  const agentName = (id?: string) => agents.find((a) => a.id === id || a.extension === id)?.name ?? id ?? '—';
+  const queueName = (id?: string) => queues.find((q) => q.id === id || q.number === id)?.name ?? id ?? '—';
+  const lineNumber = (id?: string) => lines.find((l) => l.id === id || l.number === id)?.number ?? id ?? '—';
 
   const refresh = () => qc.invalidateQueries({ queryKey: ['live-calls'] });
 

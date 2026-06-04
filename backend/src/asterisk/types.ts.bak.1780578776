@@ -2,7 +2,6 @@ import type { EventEmitter } from 'node:events';
 
 export interface AsteriskLiveCall {
   uniqueId: string;
-  channel?: string;
   callerNumber: string;
   destinationNumber: string;
   direction: 'inbound' | 'outbound' | 'internal';

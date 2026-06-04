@@ -93,3 +93,64 @@
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-muted-foreground/50;
 }
+
+/* Call Center Albarq fixed desktop sidebar */
+.cc-layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.cc-content {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cc-sidebar {
+  position: static;
+  height: 100vh;
+  transform: none !important;
+  transition: transform .2s ease;
+}
+
+.cc-sidebar-backdrop {
+  display: none;
+}
+
+.cc-menu-btn {
+  display: none !important;
+}
+
+/* Mobile drawer only */
+@media (max-width: 699px) {
+  .cc-sidebar {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    z-index: 40;
+    transform: translateX(100%) !important;
+  }
+
+  html[dir='ltr'] .cc-sidebar {
+    transform: translateX(-100%) !important;
+  }
+
+  .cc-sidebar.cc-sidebar-open {
+    transform: translateX(0) !important;
+  }
+
+  .cc-sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: rgb(0 0 0 / 0.5);
+  }
+
+  .cc-menu-btn {
+    display: inline-flex !important;
+  }
+}

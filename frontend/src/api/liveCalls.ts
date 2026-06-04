@@ -1,81 +1,108 @@
 import type { LiveCall, TransferRecord } from '@/types';
-import { uid } from '@/lib/utils';
-import { mock } from './client';
-import { store } from './store';
 
-export function listLiveCalls() {
-  return mock(() => tick());
+const API_BASE = '/api';
+
+function token() {
+  return localStorage.getItem('cc_token') || '';
 }
 
-/** Advance live-call timers; called on each poll to simulate real-time motion. */
-export function tick(): LiveCall[] {
-  const now = Date.now();
-  store.liveCalls = store.liveCalls.map((c) => {
-    if (c.status === 'ended' || c.status === 'missed') return c;
-    const durationSec = Math.max(0, Math.round((now - new Date(c.startedAt).getTime()) / 1000));
-    return { ...c, durationSec };
+async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token()}`,
+      ...(options.headers || {}),
+    },
   });
-  return [...store.liveCalls];
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `API error ${res.status}`);
+  }
+
+  return res.json() as Promise<T>;
 }
 
-function update(id: string, patch: Partial<LiveCall>) {
-  const idx = store.liveCalls.findIndex((c) => c.id === id);
-  if (idx === -1) return null;
-  store.liveCalls[idx] = { ...store.liveCalls[idx], ...patch };
-  return store.liveCalls[idx];
+type BackendLiveCall = {
+  id: string;
+  callerNumber: string;
+  destinationNumber: string;
+  direction: 'inbound' | 'outbound' | 'internal';
+  status: LiveCall['status'];
+  agentExtension?: string | null;
+  queue?: string | null;
+  line?: string | null;
+  startedAt: string;
+  durationSec: number;
+};
+
+function mapCall(c: BackendLiveCall): LiveCall {
+  return {
+    id: String(c.id),
+    callerNumber: c.callerNumber || 'Unknown',
+    callerName: c.destinationNumber ? `إلى ${c.destinationNumber}` : undefined,
+    simLineId: c.line || 'ASTERISK',
+    queueId: c.queue || undefined,
+    agentId: c.agentExtension || undefined,
+    status: c.status || 'active',
+    direction: c.direction || 'inbound',
+    startedAt: c.startedAt || new Date().toISOString(),
+    durationSec: Number(c.durationSec || 0),
+    onHold: false,
+  };
 }
 
-export function answerCall(id: string, agentId?: string) {
-  const call = store.liveCalls.find((c) => c.id === id);
-  return mock(() =>
-    update(id, {
-      status: 'active',
-      answeredAt: new Date().toISOString(),
-      agentId: agentId ?? call?.agentId,
-    })
-  );
+export async function listLiveCalls(): Promise<LiveCall[]> {
+  const rows = await api<BackendLiveCall[]>('/calls/live');
+  return rows.map(mapCall);
 }
 
-export function holdCall(id: string) {
-  return mock(() => update(id, { onHold: true }));
-}
-
-export function unholdCall(id: string) {
-  return mock(() => update(id, { onHold: false }));
-}
-
-export function hangupCall(id: string) {
-  return mock(() => {
-    update(id, { status: 'ended' });
-    setTimeout(() => {
-      store.liveCalls = store.liveCalls.filter((c) => c.id !== id);
-    }, 1500);
-    return store.liveCalls.find((c) => c.id === id) ?? null;
+export async function answerCall(id: string) {
+  return api('/asterisk/control/answer', {
+    method: 'POST',
+    body: JSON.stringify({ uniqueId: id }),
   });
 }
 
-export function addCallNote(id: string, note: string) {
-  return mock(() => update(id, { note }));
+export async function holdCall(id: string) {
+  return api('/asterisk/control/hold', {
+    method: 'POST',
+    body: JSON.stringify({ uniqueId: id }),
+  });
 }
 
-export function transferCall(
+export async function unholdCall(id: string) {
+  return api('/asterisk/control/unhold', {
+    method: 'POST',
+    body: JSON.stringify({ uniqueId: id }),
+  });
+}
+
+export async function hangupCall(id: string) {
+  return api('/asterisk/control/hangup', {
+    method: 'POST',
+    body: JSON.stringify({ uniqueId: id }),
+  });
+}
+
+export async function addCallNote(id: string, note: string) {
+  return api(`/calls/${id}/note`, {
+    method: 'POST',
+    body: JSON.stringify({ note }),
+  });
+}
+
+export async function transferCall(
   id: string,
   payload: { type: TransferRecord['type']; targetType: TransferRecord['targetType']; targetId: string; targetLabel: string }
 ) {
-  const call = store.liveCalls.find((c) => c.id === id);
-  const record: TransferRecord = {
-    id: uid('tr'),
-    callId: id,
-    callerNumber: call?.callerNumber ?? 'unknown',
-    fromAgentId: call?.agentId,
-    type: payload.type,
-    targetType: payload.targetType,
-    targetId: payload.targetId,
-    targetLabel: payload.targetLabel,
-    status: 'completed',
-    timestamp: new Date().toISOString(),
-  };
-  store.transfers.unshift(record);
-  if (payload.targetType === 'agent') update(id, { agentId: payload.targetId });
-  return mock(record);
+  return api('/asterisk/control/transfer', {
+    method: 'POST',
+    body: JSON.stringify({
+      uniqueId: id,
+      target: payload.targetId,
+      attended: payload.type === 'attended',
+    }),
+  });
 }

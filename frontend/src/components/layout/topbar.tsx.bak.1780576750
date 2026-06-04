@@ -61,7 +61,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
 
   return (
     <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur">
-      <Button variant="ghost" size="icon" className="cc-menu-btn" onClick={onMenu}>
+      <Button variant="ghost" size="icon" className="" onClick={onMenu}>
         <Menu className="h-5 w-5" />
       </Button>
 

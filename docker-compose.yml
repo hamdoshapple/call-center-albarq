@@ -44,8 +44,12 @@ services:
       JWT_SECRET: demo-secret-change-in-production
       JWT_EXPIRES_IN: 7d
       CORS_ORIGIN: "*"
-      DEMO_MODE: "true"
-      ASTERISK_MODE: mock
+      DEMO_MODE: "false"
+      ASTERISK_MODE: live
+      AMI_HOST: 172.17.0.1
+      AMI_PORT: 5038
+      AMI_USER: albarq
+      AMI_PASSWORD: AlbarqAmi12345
       SEED_ON_START: "true"
     ports:
       - "4000:4000"
