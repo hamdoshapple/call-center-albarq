@@ -13,9 +13,20 @@ const schema = z.object({
 export async function list(_req: Request, res: Response) {
   const rows = await prisma.department.findMany({
     include: { agents: { select: { id: true, name: true, status: true } } },
-    orderBy: { createdAt: 'asc' },
+    orderBy: { createdAt: 'desc' },
   });
-  res.json(rows);
+
+  const seen = new Set<string>();
+  const unique: typeof rows = [];
+
+  for (const row of rows) {
+    const key = row.nameEn || row.name;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(row);
+  }
+
+  res.json(unique.reverse());
 }
 
 export async function create(req: Request, res: Response) {

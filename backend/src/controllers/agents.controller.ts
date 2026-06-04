@@ -43,6 +43,12 @@ function serialize(a: Awaited<ReturnType<typeof fetchOne>>) {
   };
 }
 
+async function validDepartmentId(id?: string | null) {
+  if (!id) return null;
+  const row = await prisma.department.findUnique({ where: { id } });
+  return row ? id : null;
+}
+
 function fetchOne(id: string) {
   return prisma.agent.findUnique({
     where: { id },
@@ -60,12 +66,13 @@ export async function list(_req: Request, res: Response) {
 
 export async function create(req: Request, res: Response) {
   const data = schema.parse(req.body);
+  const departmentId = await validDepartmentId(data.departmentId);
   const agent = await prisma.agent.create({
     data: {
       name: data.name,
       email: data.email || null,
       status: data.status ?? 'offline',
-      departmentId: data.departmentId ?? null,
+      departmentId,
       workFrom: data.workFrom ?? '09:00',
       workTo: data.workTo ?? '17:00',
       workDays: data.workDays ?? [0, 1, 2, 3, 4],
@@ -81,6 +88,7 @@ export async function create(req: Request, res: Response) {
 
 export async function update(req: Request, res: Response) {
   const data = schema.partial().parse(req.body);
+  const departmentId = data.departmentId === undefined ? undefined : await validDepartmentId(data.departmentId);
   const existing = await fetchOne(req.params.id);
   if (!existing) throw ApiError.notFound('Agent not found');
 
@@ -90,7 +98,7 @@ export async function update(req: Request, res: Response) {
       name: data.name,
       email: data.email,
       status: data.status,
-      departmentId: data.departmentId === undefined ? undefined : data.departmentId,
+      departmentId,
       workFrom: data.workFrom,
       workTo: data.workTo,
       workDays: data.workDays,
