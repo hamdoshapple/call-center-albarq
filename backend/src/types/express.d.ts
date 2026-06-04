@@ -6,6 +6,8 @@ declare global {
       id: string;
       username: string;
       role: string; // role key
+      agentId?: string | null;
+      extension?: string | null;
       permissions: Record<string, string[]>; // module -> actions
     }
     interface Request {

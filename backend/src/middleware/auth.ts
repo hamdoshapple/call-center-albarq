@@ -15,7 +15,10 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
 
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
-      include: { role: { include: { permissions: true } } },
+      include: {
+        role: { include: { permissions: true } },
+        agent: { include: { extension: true } },
+      },
     });
     if (!user || !user.active) throw ApiError.unauthorized('Invalid or inactive user');
 
@@ -28,6 +31,8 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
       id: user.id,
       username: user.username,
       role: user.role.key,
+      agentId: user.agent?.id ?? null,
+      extension: user.agent?.extension?.number ?? null,
       permissions,
     };
     next();
