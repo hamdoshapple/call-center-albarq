@@ -146,6 +146,7 @@ export async function createTicket(req: Request, res: Response) {
   const ticket = await prisma.ticket.create({
     data: {
       subscriberId: subscriber.id,
+      agentId: req.user?.agentId ?? null,
       subject: safeSubject,
       priority: data.priority ?? 'medium',
       status: 'open',
@@ -183,7 +184,10 @@ export async function updateTicketStatus(req: Request, res: Response) {
 
   const updated = await prisma.ticket.update({
     where: { id: ticket.id },
-    data: { status: data.status },
+    data: {
+      status: data.status,
+      agentId: ticket.agentId ?? req.user?.agentId ?? null,
+    },
   });
 
   await prisma.note.create({
@@ -214,6 +218,13 @@ export async function addTicketComment(req: Request, res: Response) {
   });
 
   if (!ticket) throw ApiError.notFound('Ticket not found');
+
+  if (!ticket.agentId && req.user?.agentId) {
+    await prisma.ticket.update({
+      where: { id: ticket.id },
+      data: { agentId: req.user.agentId },
+    });
+  }
 
   const note = await prisma.note.create({
     data: {
