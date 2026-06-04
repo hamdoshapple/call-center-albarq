@@ -7,7 +7,6 @@ import type {
   IVRMenu,
   Note,
   Queue,
-  Recording,
   Subscriber,
   TG400Line,
   Ticket,

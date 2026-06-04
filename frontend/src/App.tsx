@@ -1,122 +1,56 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { AppLayout } from '@/layouts/app-layout';
+import { ProtectedRoute } from '@/routes/protected-route';
+import { LoginPage } from '@/pages/login';
+import { DashboardPage } from '@/pages/dashboard';
+import { LiveCallsPage } from '@/pages/live-calls';
+import { AgentsPage } from '@/pages/agents';
+import { DepartmentsPage } from '@/pages/departments';
+import { QueuesPage } from '@/pages/queues';
+import { IVRPage } from '@/pages/ivr';
+import { VoicePromptsPage } from '@/pages/voice-prompts';
+import { CallTransferPage } from '@/pages/call-transfer';
+import { CallLogsPage } from '@/pages/call-logs';
+import { RecordingsPage } from '@/pages/recordings';
+import { SubscribersPage } from '@/pages/subscribers';
+import { TG400Page } from '@/pages/tg400';
+import { AsteriskPage } from '@/pages/asterisk';
+import { ReportsPage } from '@/pages/reports';
+import { PermissionsPage } from '@/pages/permissions';
+import { CompanySettingsPage } from '@/pages/company-settings';
+import { NotFoundPage } from '@/pages/not-found';
 
-function App() {
-  const [count, setCount] = useState(0)
-
+export function App() {
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        element={
+          <ProtectedRoute>
+            <AppLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/live-calls" element={<ProtectedRoute module="live_calls"><LiveCallsPage /></ProtectedRoute>} />
+        <Route path="/call-transfer" element={<ProtectedRoute module="call_transfer"><CallTransferPage /></ProtectedRoute>} />
+        <Route path="/subscribers" element={<ProtectedRoute module="subscribers"><SubscribersPage /></ProtectedRoute>} />
+        <Route path="/subscribers/:id" element={<ProtectedRoute module="subscribers"><SubscribersPage /></ProtectedRoute>} />
+        <Route path="/agents" element={<ProtectedRoute module="agents"><AgentsPage /></ProtectedRoute>} />
+        <Route path="/departments" element={<ProtectedRoute module="departments"><DepartmentsPage /></ProtectedRoute>} />
+        <Route path="/queues" element={<ProtectedRoute module="queues"><QueuesPage /></ProtectedRoute>} />
+        <Route path="/reports" element={<ProtectedRoute module="reports"><ReportsPage /></ProtectedRoute>} />
+        <Route path="/ivr" element={<ProtectedRoute module="ivr"><IVRPage /></ProtectedRoute>} />
+        <Route path="/voice-prompts" element={<ProtectedRoute module="voice_prompts"><VoicePromptsPage /></ProtectedRoute>} />
+        <Route path="/call-logs" element={<ProtectedRoute module="call_logs"><CallLogsPage /></ProtectedRoute>} />
+        <Route path="/recordings" element={<ProtectedRoute module="recordings"><RecordingsPage /></ProtectedRoute>} />
+        <Route path="/tg400" element={<ProtectedRoute module="tg400"><TG400Page /></ProtectedRoute>} />
+        <Route path="/asterisk" element={<ProtectedRoute module="asterisk"><AsteriskPage /></ProtectedRoute>} />
+        <Route path="/permissions" element={<ProtectedRoute module="permissions"><PermissionsPage /></ProtectedRoute>} />
+        <Route path="/company-settings" element={<ProtectedRoute module="company_settings"><CompanySettingsPage /></ProtectedRoute>} />
+      </Route>
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<NotFoundPage />} />
+    </Routes>
+  );
 }
-
-export default App
