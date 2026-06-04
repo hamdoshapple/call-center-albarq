@@ -1,3 +1,4 @@
+import bcrypt from 'bcryptjs';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../config/prisma.js';
@@ -29,6 +30,8 @@ function serialize(a: Awaited<ReturnType<typeof fetchOne>>) {
     extension: a.extension?.number ?? '',
     sipUsername: a.extension?.sipUsername ?? '',
     sipPassword: a.extension?.sipPassword ?? '',
+    loginUsername: a.user?.username ?? a.extension?.sipUsername ?? '',
+    userId: a.userId ?? null,
     workingHours: { from: a.workFrom, to: a.workTo, days: a.workDays as number[] },
     queues: a.queueMembers.map((m) => m.queueId),
     performance: {
@@ -41,6 +44,51 @@ function serialize(a: Awaited<ReturnType<typeof fetchOne>>) {
     },
     createdAt: a.createdAt,
   };
+}
+
+async function ensureAgentRole() {
+  let role = await prisma.role.findUnique({ where: { key: 'agent' } });
+
+  if (!role) {
+    role = await prisma.role.create({
+      data: {
+        key: 'agent',
+        name: 'موظف',
+        nameEn: 'Agent',
+        description: 'Call center agent',
+      },
+    });
+  }
+
+  const permissions = [
+    { module: 'dashboard', actions: ['view'] },
+    { module: 'live_calls', actions: ['view', 'edit'] },
+    { module: 'subscribers', actions: ['view', 'edit'] },
+    { module: 'call_logs', actions: ['view'] },
+    { module: 'recordings', actions: ['view'] },
+  ];
+
+  for (const p of permissions) {
+    await prisma.permission.upsert({
+      where: { roleId_module: { roleId: role.id, module: p.module } },
+      update: { actions: p.actions },
+      create: { roleId: role.id, module: p.module, actions: p.actions },
+    });
+  }
+
+  return role;
+}
+
+async function uniqueUsername(base: string) {
+  const clean = (base || 'agent').trim().replace(/\s+/g, '_');
+  let username = clean;
+  let i = 1;
+
+  while (await prisma.user.findUnique({ where: { username } })) {
+    username = `${clean}_${i++}`;
+  }
+
+  return username;
 }
 
 async function validDepartmentId(id?: string | null) {
@@ -61,13 +109,13 @@ async function validQueueIds(ids?: string[]) {
 function fetchOne(id: string) {
   return prisma.agent.findUnique({
     where: { id },
-    include: { extension: true, department: true, queueMembers: true },
+    include: { extension: true, department: true, queueMembers: true, user: true },
   });
 }
 
 export async function list(_req: Request, res: Response) {
   const rows = await prisma.agent.findMany({
-    include: { extension: true, department: true, queueMembers: true },
+    include: { extension: true, department: true, queueMembers: true, user: true },
     orderBy: { createdAt: 'asc' },
   });
   res.json(rows.map(serialize));
@@ -77,23 +125,52 @@ export async function create(req: Request, res: Response) {
   const data = schema.parse(req.body);
   const departmentId = await validDepartmentId(data.departmentId);
   const queueIds = await validQueueIds(data.queueIds);
+
+  const role = await ensureAgentRole();
+  const username = await uniqueUsername(data.sipUsername || data.extension || data.name);
+  const rawPassword = data.sipPassword || data.extension || '12345678';
+  const passwordHash = await bcrypt.hash(rawPassword, 10);
+
+  const user = await prisma.user.create({
+    data: {
+      username,
+      email: data.email || null,
+      fullName: data.name,
+      passwordHash,
+      roleId: role.id,
+      active: true,
+    },
+  });
+
   const agent = await prisma.agent.create({
     data: {
       name: data.name,
       email: data.email || null,
       status: data.status ?? 'offline',
       departmentId,
+      userId: user.id,
       workFrom: data.workFrom ?? '09:00',
       workTo: data.workTo ?? '17:00',
       workDays: data.workDays ?? [0, 1, 2, 3, 4],
       extension: data.extension
-        ? { create: { number: data.extension, sipUsername: data.sipUsername ?? data.extension, sipPassword: data.sipPassword ?? '' } }
+        ? {
+            create: {
+              number: data.extension,
+              sipUsername: data.sipUsername ?? data.extension,
+              sipPassword: rawPassword,
+            },
+          }
         : undefined,
       queueMembers: queueIds.length ? { create: queueIds.map((queueId) => ({ queueId })) } : undefined,
     },
-    include: { extension: true, department: true, queueMembers: true },
+    include: { extension: true, department: true, queueMembers: true, user: true },
   });
-  res.status(201).json(serialize(agent));
+
+  res.status(201).json({
+    ...serialize(agent),
+    loginUsername: username,
+    loginPassword: rawPassword,
+  });
 }
 
 export async function update(req: Request, res: Response) {
@@ -103,7 +180,7 @@ export async function update(req: Request, res: Response) {
   const existing = await fetchOne(req.params.id);
   if (!existing) throw ApiError.notFound('Agent not found');
 
-  await prisma.agent.update({
+  const updatedAgent = await prisma.agent.update({
     where: { id: req.params.id },
     data: {
       name: data.name,
@@ -114,7 +191,23 @@ export async function update(req: Request, res: Response) {
       workTo: data.workTo,
       workDays: data.workDays,
     },
+    include: { user: true },
   });
+
+  if (updatedAgent.userId) {
+    const userPatch: any = {};
+    if (data.name) userPatch.fullName = data.name;
+    if (data.email !== undefined) userPatch.email = data.email || null;
+    if (data.sipUsername) userPatch.username = data.sipUsername;
+    if (data.sipPassword) userPatch.passwordHash = await bcrypt.hash(data.sipPassword, 10);
+
+    if (Object.keys(userPatch).length) {
+      await prisma.user.update({
+        where: { id: updatedAgent.userId },
+        data: userPatch,
+      });
+    }
+  }
 
   if (data.extension || data.sipUsername || data.sipPassword) {
     await prisma.extension.upsert({
