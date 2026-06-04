@@ -60,3 +60,58 @@ export async function update(req: Request, res: Response) {
   });
   res.json(row);
 }
+
+
+const ticketSchema = z.object({
+  subject: z.string().min(1),
+  priority: z.enum(['low', 'medium', 'high', 'urgent']).optional(),
+  call: z.object({
+    callerNumber: z.string().optional(),
+    callerName: z.string().optional().nullable(),
+    startedAt: z.string().optional(),
+    agentExtension: z.string().optional().nullable(),
+    line: z.string().optional().nullable(),
+    destinationNumber: z.string().optional(),
+    status: z.string().optional(),
+  }).optional(),
+});
+
+export async function createTicket(req: Request, res: Response) {
+  const subscriber = await prisma.subscriber.findUnique({
+    where: { id: req.params.id },
+  });
+
+  if (!subscriber) throw ApiError.notFound('Subscriber not found');
+
+  const data = ticketSchema.parse(req.body);
+  const c = data.call;
+
+  const subject = [
+    data.subject,
+    '',
+    '--- تفاصيل الاتصال ---',
+    `المشترك: ${subscriber.name}`,
+    `الهاتف: ${subscriber.phone}`,
+    `يوزر PPPoE: ${subscriber.pppoeUsername ?? '—'}`,
+    `الباقة: ${subscriber.package ?? '—'} / ${subscriber.speed ?? '—'}`,
+    `الدين: ${subscriber.debt ?? 0}`,
+    `حالة الاشتراك: ${subscriber.status}`,
+    c ? `رقم المتصل: ${c.callerNumber ?? '—'}` : '',
+    c ? `الوجهة: ${c.destinationNumber ?? '—'}` : '',
+    c ? `الموظف/الامتداد: ${c.agentExtension ?? '—'}` : '',
+    c ? `الخط: ${c.line ?? '—'}` : '',
+    c ? `وقت الاتصال: ${c.startedAt ?? new Date().toISOString()}` : '',
+    c ? `حالة الاتصال: ${c.status ?? '—'}` : '',
+  ].filter(Boolean).join('\\n');
+
+  const ticket = await prisma.ticket.create({
+    data: {
+      subscriberId: subscriber.id,
+      subject,
+      priority: data.priority ?? 'medium',
+      status: 'open',
+    },
+  });
+
+  res.status(201).json(ticket);
+}

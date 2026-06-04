@@ -82,3 +82,18 @@ export async function createSubscriber(input: Omit<Subscriber, 'id'>) {
   });
   return mapSubscriber(row);
 }
+
+
+export async function createSubscriberTicket(
+  subscriberId: string,
+  input: {
+    subject: string;
+    priority?: 'low' | 'medium' | 'high' | 'urgent';
+    call?: any;
+  }
+) {
+  return api<any>(`/subscribers/${subscriberId}/tickets`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}

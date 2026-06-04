@@ -69,6 +69,7 @@ router.delete('/tg400/:id', perm('tg400', 'delete'), h(tg400.remove));
 router.get('/subscribers', perm('subscribers'), h(subscribers.search));
 router.get('/subscribers/:id', perm('subscribers'), h(subscribers.getOne));
 router.get('/subscribers/:id/tickets', perm('subscribers'), h(subscribers.getTickets));
+router.post('/subscribers/:id/tickets', perm('subscribers', 'edit'), h(subscribers.createTicket));
 router.post('/subscribers', perm('subscribers', 'create'), h(subscribers.create));
 router.put('/subscribers/:id', perm('subscribers', 'edit'), h(subscribers.update));
 

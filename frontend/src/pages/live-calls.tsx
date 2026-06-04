@@ -15,6 +15,7 @@ import {
   Calendar,
   UserSearch,
   MoreVertical,
+  TicketPlus,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { StatCard } from '@/components/shared/stat-card';
@@ -55,7 +56,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { liveCallsApi, agentsApi, queuesApi, tg400Api } from '@/api';
+import { liveCallsApi, agentsApi, queuesApi, tg400Api, subscribersApi } from '@/api';
 import type { LiveCall, TransferRecord } from '@/types';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDuration } from '@/lib/utils';
@@ -106,6 +107,35 @@ export function LiveCallsPage() {
   });
 
   const [transferCall, setTransferCall] = useState<LiveCall | null>(null);
+  const [ticketCall, setTicketCall] = useState<LiveCall | null>(null);
+  const [ticketSubject, setTicketSubject] = useState('');
+  const [ticketPriority, setTicketPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
+
+  const createTicket = useMutation({
+    mutationFn: () => {
+      if (!ticketCall?.subscriberId) throw new Error('Subscriber not found');
+      return subscribersApi.createSubscriberTicket(ticketCall.subscriberId, {
+        subject: ticketSubject,
+        priority: ticketPriority,
+        call: {
+          callerNumber: ticketCall.callerNumber,
+          callerName: ticketCall.callerName,
+          startedAt: ticketCall.startedAt,
+          agentExtension: ticketCall.agentId,
+          line: ticketCall.simLineId,
+          destinationNumber: ticketCall.callerName,
+          status: ticketCall.status,
+        },
+      });
+    },
+    onSuccess: () => {
+      toast({ title: 'تم إنشاء التذكرة بنجاح' });
+      setTicketCall(null);
+      setTicketSubject('');
+      setTicketPriority('medium');
+      qc.invalidateQueries({ queryKey: ['subscriber-tickets'] });
+    },
+  });
 
   const stats = useMemo(
     () => ({
@@ -195,6 +225,12 @@ export function LiveCallsPage() {
                     فتح المشترك
                   </Button>
                 )}
+                {incomingCall.subscriberId && (
+                  <Button variant="outline" onClick={() => { setTicketCall(incomingCall); setTicketSubject(''); }}>
+                    <TicketPlus className="h-4 w-4" />
+                    إنشاء تذكرة
+                  </Button>
+                )}
                 <Button variant="outline" onClick={() => { setNoteCall(incomingCall); setNoteText(incomingCall.note ?? ''); }}>
                   <StickyNote className="h-4 w-4" />
                   ملاحظة
@@ -278,10 +314,16 @@ export function LiveCallsPage() {
                                 {t('live_calls.add_note')}
                               </DropdownMenuItem>
                               {call.subscriberId && (
-                                <DropdownMenuItem onClick={() => navigate(`/subscribers/${call.subscriberId}`)}>
-                                  <UserSearch className="h-4 w-4" />
-                                  {t('live_calls.open_subscriber')}
-                                </DropdownMenuItem>
+                                <>
+                                  <DropdownMenuItem onClick={() => navigate(`/subscribers/${call.subscriberId}`)}>
+                                    <UserSearch className="h-4 w-4" />
+                                    {t('live_calls.open_subscriber')}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => { setTicketCall(call); setTicketSubject(''); }}>
+                                    <TicketPlus className="h-4 w-4" />
+                                    إنشاء تذكرة
+                                  </DropdownMenuItem>
+                                </>
                               )}
                               <DropdownMenuSeparator />
                               <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => hangup.mutate(call.id)}>
@@ -315,6 +357,57 @@ export function LiveCallsPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setNoteCall(null)}>{t('common.cancel')}</Button>
             <Button onClick={() => noteCall && addNote.mutate({ id: noteCall.id, note: noteText })}>{t('common.save')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Ticket dialog */}
+      <Dialog open={!!ticketCall} onOpenChange={(o) => !o && setTicketCall(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>إنشاء تذكرة من المكالمة</DialogTitle>
+            <DialogDescription>
+              {ticketCall?.callerName || ticketCall?.callerNumber}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+              <div>الرقم: {ticketCall?.callerNumber}</div>
+              <div>الخط: {ticketCall?.simLineId}</div>
+              <div>الموظف: {ticketCall?.agentId || '—'}</div>
+              <div>وقت الاتصال: {ticketCall?.startedAt ? new Date(ticketCall.startedAt).toLocaleString('ar-IQ') : '—'}</div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>الأولوية</Label>
+              <Select value={ticketPriority} onValueChange={(v) => setTicketPriority(v as any)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">منخفضة</SelectItem>
+                  <SelectItem value="medium">متوسطة</SelectItem>
+                  <SelectItem value="high">عالية</SelectItem>
+                  <SelectItem value="urgent">عاجلة</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>المشكلة</Label>
+              <Textarea
+                rows={5}
+                value={ticketSubject}
+                onChange={(e) => setTicketSubject(e.target.value)}
+                placeholder="اكتب مشكلة المشترك..."
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTicketCall(null)}>إلغاء</Button>
+            <Button disabled={!ticketSubject.trim() || createTicket.isPending} onClick={() => createTicket.mutate()}>
+              {createTicket.isPending ? 'جارٍ الإنشاء...' : 'إنشاء تذكرة'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
