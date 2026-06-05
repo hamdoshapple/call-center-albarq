@@ -1,6 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { Play, Pause, Volume2, RotateCcw } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { formatDuration, cn } from '@/lib/utils';
 
 interface AudioPlayerProps {
@@ -12,92 +10,53 @@ interface AudioPlayerProps {
 
 export function AudioPlayer({ durationSec, label, compact, src }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [objectUrl, setObjectUrl] = useState('');
-  const [playing, setPlaying] = useState(false);
-  const [pos, setPos] = useState(0);
+  const [blobUrl, setBlobUrl] = useState('');
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!src) return;
 
-    let revoked = '';
+    let objectUrl = '';
     const token = localStorage.getItem('cc_token') || '';
 
-    fetch(src, { headers: { Authorization: `Bearer ${token}` } })
-      .then((res) => {
-        if (!res.ok) throw new Error(`Audio error ${res.status}`);
+    setError('');
+    setBlobUrl('');
+
+    fetch(src, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(await res.text());
         return res.blob();
       })
       .then((blob) => {
-        const url = URL.createObjectURL(blob);
-        revoked = url;
-        setObjectUrl(url);
+        objectUrl = URL.createObjectURL(blob);
+        setBlobUrl(objectUrl);
       })
-      .catch(() => setObjectUrl(''));
+      .catch((e) => {
+        setError(e?.message || 'Audio load error');
+      });
 
     return () => {
-      if (revoked) URL.revokeObjectURL(revoked);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [src]);
 
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const onTime = () => setPos(Math.floor(audio.currentTime || 0));
-    const onEnd = () => setPlaying(false);
-
-    audio.addEventListener('timeupdate', onTime);
-    audio.addEventListener('ended', onEnd);
-
-    return () => {
-      audio.removeEventListener('timeupdate', onTime);
-      audio.removeEventListener('ended', onEnd);
-    };
-  }, [objectUrl]);
-
-  const toggle = async () => {
-    const audio = audioRef.current;
-    if (!audio || !objectUrl) return;
-
-    if (playing) {
-      audio.pause();
-      setPlaying(false);
-    } else {
-      await audio.play();
-      setPlaying(true);
-    }
-  };
-
-  const reset = () => {
-    const audio = audioRef.current;
-    if (audio) audio.currentTime = 0;
-    setPlaying(false);
-    setPos(0);
-  };
-
-  const progress = durationSec ? (pos / durationSec) * 100 : 0;
-
   return (
-    <div className={cn('flex items-center gap-3 rounded-lg border bg-card p-2', compact ? 'min-w-[200px]' : 'w-full')}>
-      <audio ref={audioRef} src={objectUrl || undefined} preload="metadata" />
-      <Button size="icon-sm" variant={playing ? 'default' : 'secondary'} onClick={toggle} disabled={!objectUrl} className="rounded-full">
-        {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-      </Button>
-      <div className="flex-1 space-y-1">
-        {label && !compact && <p className="text-xs font-medium truncate">{label}</p>}
-        <div className="flex items-center gap-2">
-          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progress}%` }} />
-          </div>
-          <span className="text-xs tabular-nums text-muted-foreground whitespace-nowrap">
-            {formatDuration(pos)} / {formatDuration(durationSec)}
-          </span>
-        </div>
+    <div className={cn('rounded-lg border bg-card p-2', compact ? 'min-w-[200px]' : 'w-full')}>
+      {label && !compact && <p className="mb-2 truncate text-xs font-medium">{label}</p>}
+
+      {error ? (
+        <div className="text-xs text-destructive">فشل تحميل التسجيل</div>
+      ) : blobUrl ? (
+        <audio ref={audioRef} className="w-full" controls preload="metadata" src={blobUrl} />
+      ) : (
+        <div className="text-xs text-muted-foreground">جارٍ تحميل التسجيل...</div>
+      )}
+
+      <div className="mt-1 text-xs text-muted-foreground">
+        {formatDuration(durationSec)}
       </div>
-      <Button size="icon-sm" variant="ghost" onClick={reset} title="reset">
-        <RotateCcw className="h-3.5 w-3.5" />
-      </Button>
-      {!compact && <Volume2 className="h-4 w-4 text-muted-foreground" />}
     </div>
   );
 }

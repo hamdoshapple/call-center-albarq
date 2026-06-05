@@ -11,7 +11,18 @@ import { errorHandler, notFound } from './middleware/error.js';
 export function createApp() {
   const app = express();
 
-  app.use(helmet());
+  app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      mediaSrc: ["'self'", "blob:", "data:"],
+      connectSrc: ["'self'", "blob:", "data:"],
+      imgSrc: ["'self'", "data:", "blob:"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+    },
+  },
+}));
   app.use(cors({ origin: env.corsOrigin }));
   app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ extended: true }));
