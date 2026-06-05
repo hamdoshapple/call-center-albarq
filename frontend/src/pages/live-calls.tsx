@@ -445,7 +445,7 @@ function TransferDialog({
   onDone: () => void;
 }) {
   const { t } = useTranslation();
-  const [type, setType] = useState<TransferRecord['type']>('blind');
+  const [type, setType] = useState<TransferRecord['type']>('blind'); // real implemented mode only
   const [targetType, setTargetType] = useState<TransferRecord['targetType']>('agent');
   const [targetId, setTargetId] = useState('');
   const [external, setExternal] = useState('');
@@ -483,7 +483,6 @@ function TransferDialog({
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="blind">{t('call_transfer.blind')}</SelectItem>
-                <SelectItem value="attended">{t('call_transfer.attended')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
