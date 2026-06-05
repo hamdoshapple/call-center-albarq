@@ -135,12 +135,46 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
     });
   }
 
-  async hold(_uniqueId: string): Promise<void> {
-    throw new Error('Hold not implemented yet');
+  private async findCallChannel(uniqueId: string): Promise<string> {
+    await this.refreshChannels();
+
+    const call =
+      this.calls.get(uniqueId) ||
+      [...this.calls.values()].find((c) => c.channel === uniqueId || c.uniqueId === uniqueId);
+
+    const fallbackCall = call || [...this.calls.values()][0];
+
+    if (!fallbackCall?.channel) {
+      throw new Error(`Channel not found: ${uniqueId}`);
+    }
+
+    return fallbackCall.channel;
   }
 
-  async unhold(_uniqueId: string): Promise<void> {
-    throw new Error('Unhold not implemented yet');
+  async hold(uniqueId: string): Promise<void> {
+    const channel = await this.findCallChannel(uniqueId);
+
+    const resp = await this.action({
+      Action: 'Hold',
+      Channel: channel,
+    });
+
+    if (!/success/i.test(resp.Response || '')) {
+      throw new Error(resp.Message || 'Hold failed');
+    }
+  }
+
+  async unhold(uniqueId: string): Promise<void> {
+    const channel = await this.findCallChannel(uniqueId);
+
+    const resp = await this.action({
+      Action: 'Unhold',
+      Channel: channel,
+    });
+
+    if (!/success/i.test(resp.Response || '')) {
+      throw new Error(resp.Message || 'Unhold failed');
+    }
   }
 
   async transfer(uniqueId: string, target: string): Promise<void> {

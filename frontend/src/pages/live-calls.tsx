@@ -236,6 +236,17 @@ export function LiveCallsPage() {
                   <StickyNote className="h-4 w-4" />
                   ملاحظة
                 </Button>
+                <Button variant="outline" onClick={() => setTransferCall(incomingCall)}>
+                  <PhoneForwarded className="h-4 w-4" />
+                  تحويل
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => hold.mutate(incomingCall.id)}
+                >
+                  <Pause className="h-4 w-4" />
+                  تعليق
+                </Button>
                 <Button variant="destructive" onClick={() => hangup.mutate(incomingCall.id)}>
                   <PhoneOff className="h-4 w-4" />
                   إنهاء
