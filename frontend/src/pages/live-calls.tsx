@@ -416,8 +416,8 @@ export function LiveCallsPage() {
       <TransferDialog
         call={transferCall}
         onClose={() => setTransferCall(null)}
-        agents={agents.map((a) => ({ id: a.id, label: `${a.name} (${a.extension})` }))}
-        queues={queues.map((q) => ({ id: q.id, label: `${q.name} (${q.number})` }))}
+        agents={agents.map((a) => ({ id: a.extension || a.id, label: `${a.name} (${a.extension})` }))}
+        queues={queues.map((q) => ({ id: q.number || q.id, label: `${q.name} (${q.number})` }))}
         onDone={() => {
           toast({ title: t('live_calls.transfer'), description: t('status.completed') });
           setTransferCall(null);

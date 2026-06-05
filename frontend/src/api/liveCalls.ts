@@ -110,6 +110,9 @@ export async function transferCall(
       uniqueId: id,
       target: payload.targetId,
       attended: payload.type === 'attended',
+      transferType: payload.type,
+      targetType: payload.targetType,
+      targetLabel: payload.targetLabel,
     }),
   });
 }

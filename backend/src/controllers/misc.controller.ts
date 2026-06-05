@@ -94,6 +94,17 @@ export async function markNotificationRead(req: Request, res: Response) {
 export async function listTransfers(_req: Request, res: Response) {
   const rows = await prisma.callEvent.findMany({
     where: { type: 'transfer' },
+    include: {
+      call: {
+        select: {
+          id: true,
+          callerNumber: true,
+          destinationNumber: true,
+          agentId: true,
+          startedAt: true,
+        },
+      },
+    },
     orderBy: { timestamp: 'desc' },
     take: 100,
   });

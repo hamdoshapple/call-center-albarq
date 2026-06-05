@@ -40,7 +40,15 @@ export async function reload(_req: Request, res: Response) {
   res.json(await gw.reloadConfig());
 }
 
-const controlSchema = z.object({ uniqueId: z.string().min(1), target: z.string().optional(), attended: z.boolean().optional() });
+const controlSchema = z.object({
+  uniqueId: z.string().min(1),
+  target: z.string().optional(),
+  attended: z.boolean().optional(),
+  targetType: z.string().optional(),
+  targetLabel: z.string().optional(),
+  transferType: z.string().optional(),
+  callerNumber: z.string().optional(),
+});
 
 export async function control(req: Request, res: Response) {
   const gw = getAsteriskGateway();
@@ -52,7 +60,95 @@ export async function control(req: Request, res: Response) {
     case 'hangup': await gw.hangup(body.uniqueId!); break;
     case 'hold': await gw.hold(body.uniqueId!); break;
     case 'unhold': await gw.unhold(body.uniqueId!); break;
-    case 'transfer': await gw.transfer(body.uniqueId!, body.target!, body.attended); break;
+    case 'transfer': {
+      const fromAgent = req.user?.agentId
+        ? await prisma.agent.findUnique({
+            where: { id: req.user.agentId },
+            include: { extension: true },
+          })
+        : null;
+
+      const targetAgent = body.target
+        ? await prisma.agent.findFirst({
+            where: {
+              OR: [
+                { id: body.target },
+                { extension: { number: body.target } },
+              ],
+            },
+            include: { extension: true },
+          })
+        : null;
+
+      const targetQueue = body.target
+        ? await prisma.queue.findFirst({
+            where: {
+              OR: [
+                { id: body.target },
+                { number: body.target },
+              ],
+            },
+          })
+        : null;
+
+      await gw.transfer(body.uniqueId!, body.target!, body.attended);
+
+      let call = await prisma.call.findFirst({
+        where: {
+          OR: [
+            { uniqueId: body.uniqueId },
+            { id: body.uniqueId },
+          ],
+        },
+      });
+
+      if (!call) {
+        call = await prisma.call.create({
+          data: {
+            uniqueId: body.uniqueId,
+            callerNumber: body.callerNumber || 'live-call',
+            destinationNumber: body.target || 'transfer',
+            direction: 'internal',
+            status: 'ended',
+            disposition: 'answered',
+            agentId: req.user?.agentId ?? null,
+          },
+        });
+      }
+
+      await prisma.callEvent.create({
+        data: {
+          callId: call.id,
+          type: 'transfer',
+          actor: req.user?.agentId || req.user?.username,
+          detail: JSON.stringify({
+            callerNumber: call.callerNumber,
+            destinationNumber: call.destinationNumber,
+            fromAgentId: fromAgent?.id || req.user?.agentId || '',
+            fromAgentName: fromAgent?.name || req.user?.username || '',
+            fromExtension: fromAgent?.extension?.number || req.user?.extension || '',
+            targetType: body.targetType || (targetQueue ? 'queue' : 'agent'),
+            targetId: body.target || '',
+            targetLabel:
+              body.targetLabel ||
+              targetAgent?.name ||
+              targetQueue?.name ||
+              body.target ||
+              '',
+            targetAgentId: targetAgent?.id || '',
+            targetAgentName: targetAgent?.name || '',
+            targetExtension: targetAgent?.extension?.number || '',
+            targetQueueId: targetQueue?.id || '',
+            targetQueueName: targetQueue?.name || '',
+            targetQueueNumber: targetQueue?.number || '',
+            type: body.transferType || (body.attended ? 'attended' : 'blind'),
+            status: 'completed',
+          }),
+        },
+      });
+
+      break;
+    }
     default: return res.status(400).json({ error: `Unknown action: ${action}` });
   }
   res.json({ success: true });
