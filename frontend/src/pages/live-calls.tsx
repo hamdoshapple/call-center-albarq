@@ -460,6 +460,7 @@ function TransferDialog({
         targetType,
         targetId: targetType === 'external' ? external : targetId,
         targetLabel: label,
+        callerNumber: call?.callerNumber,
       });
     },
     onSuccess: onDone,

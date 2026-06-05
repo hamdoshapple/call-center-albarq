@@ -140,15 +140,29 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
   }
 
   async transfer(uniqueId: string, target: string): Promise<void> {
-    const call = this.calls.get(uniqueId);
-    if (!call?.channel) throw new Error('Channel not found for transfer');
-    await this.action({
+    await this.refreshChannels();
+
+    const call =
+      this.calls.get(uniqueId) ||
+      [...this.calls.values()].find((c) => c.channel === uniqueId || c.uniqueId === uniqueId);
+
+    if (!call?.channel) {
+      throw new Error(`Channel not found for transfer: ${uniqueId}`);
+    }
+
+    const resp = await this.action({
       Action: 'Redirect',
       Channel: call.channel,
       Context: 'internal',
       Exten: target,
       Priority: '1',
     });
+
+    if (!/success/i.test(resp.Response || '')) {
+      throw new Error(resp.Message || `Transfer failed to ${target}`);
+    }
+
+    await this.refreshChannels();
   }
 
   async reloadConfig(): Promise<{ success: boolean; reloadedAt: string }> {

@@ -102,7 +102,7 @@ export async function addCallNote(id: string, note: string) {
 
 export async function transferCall(
   id: string,
-  payload: { type: TransferRecord['type']; targetType: TransferRecord['targetType']; targetId: string; targetLabel: string }
+  payload: { type: TransferRecord['type']; targetType: TransferRecord['targetType']; targetId: string; targetLabel: string; callerNumber?: string }
 ) {
   return api('/asterisk/control/transfer', {
     method: 'POST',
@@ -113,6 +113,7 @@ export async function transferCall(
       transferType: payload.type,
       targetType: payload.targetType,
       targetLabel: payload.targetLabel,
+      callerNumber: payload.callerNumber,
     }),
   });
 }
