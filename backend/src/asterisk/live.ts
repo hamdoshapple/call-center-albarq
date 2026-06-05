@@ -146,13 +146,15 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
       this.calls.get(uniqueId) ||
       [...this.calls.values()].find((c) => c.channel === uniqueId || c.uniqueId === uniqueId);
 
-    if (!call?.channel) {
+    const fallbackCall = call || [...this.calls.values()][0];
+
+    if (!fallbackCall?.channel) {
       throw new Error(`Channel not found for transfer: ${uniqueId}`);
     }
 
     const resp = await this.action({
       Action: 'Redirect',
-      Channel: call.channel,
+      Channel: fallbackCall.channel,
       Context: 'internal',
       Exten: target,
       Priority: '1',
