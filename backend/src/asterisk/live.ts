@@ -15,7 +15,11 @@ function parseAmiBlock(block: string): AmiEvent {
   const out: AmiEvent = {};
   for (const line of block.split(/\r?\n/)) {
     const i = line.indexOf(':');
-    if (i > 0) out[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+    if (i > 0) {
+      const key = line.slice(0, i).trim();
+      const value = line.slice(i + 1).trim();
+      out[key] = out[key] ? `${out[key]}\n${value}` : value;
+    }
   }
   return out;
 }

@@ -56,7 +56,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { liveCallsApi, agentsApi, queuesApi, tg400Api, subscribersApi } from '@/api';
+import { liveCallsApi, agentsApi, queuesApi, tg400Api, subscribersApi, asteriskApi } from '@/api';
 import type { LiveCall, TransferRecord } from '@/types';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDuration } from '@/lib/utils';
@@ -73,6 +73,7 @@ export function LiveCallsPage() {
     refetchInterval: 2000,
   });
   const { data: agents = [] } = useQuery({ queryKey: ['agents'], queryFn: agentsApi.listAgents });
+  const { data: agentStatuses = [] } = useQuery({ queryKey: ['agent-statuses'], queryFn: asteriskApi.listAgentStatuses, refetchInterval: 3000 });
   const { data: queues = [] } = useQuery({ queryKey: ['queues'], queryFn: queuesApi.listQueues });
   const { data: lines = [] } = useQuery({ queryKey: ['lines'], queryFn: tg400Api.listLines });
 
@@ -416,7 +417,15 @@ export function LiveCallsPage() {
       <TransferDialog
         call={transferCall}
         onClose={() => setTransferCall(null)}
-        agents={agents.map((a) => ({ id: a.extension || a.id, label: `${a.name} (${a.extension})` }))}
+        agents={agents.map((a) => {
+          const live = agentStatuses.find((x) => x.extension === a.extension);
+          const status = live?.inCall ? 'busy' : live?.status || 'offline';
+          return {
+            id: a.extension || a.id,
+            label: `${a.name} (${a.extension})`,
+            status,
+          };
+        })}
         queues={queues.map((q) => ({ id: q.number || q.id, label: `${q.name} (${q.number})` }))}
         onDone={() => {
           toast({ title: t('live_calls.transfer'), description: t('status.completed') });
@@ -429,7 +438,7 @@ export function LiveCallsPage() {
   );
 }
 
-interface Option { id: string; label: string; }
+interface Option { id: string; label: string; status?: 'online' | 'offline' | 'busy' | 'paused'; }
 
 function TransferDialog({
   call,
@@ -445,6 +454,7 @@ function TransferDialog({
   onDone: () => void;
 }) {
   const { t } = useTranslation();
+  const { toast } = useToast();
   const [type, setType] = useState<TransferRecord['type']>('blind'); // real implemented mode only
   const [targetType, setTargetType] = useState<TransferRecord['targetType']>('agent');
   const [targetId, setTargetId] = useState('');
@@ -455,6 +465,12 @@ function TransferDialog({
       const opts = targetType === 'agent' ? agents : queues;
       const label =
         targetType === 'external' ? external : opts.find((o) => o.id === targetId)?.label ?? targetId;
+
+      toast({
+        title: 'جاري التحويل',
+        description: `يتم تحويل المكالمة إلى ${label}...`,
+      });
+
       return liveCallsApi.transferCall(call!.id, {
         type,
         targetType,
@@ -463,11 +479,47 @@ function TransferDialog({
         callerNumber: call?.callerNumber,
       });
     },
-    onSuccess: onDone,
+    onSuccess: () => {
+      toast({
+        title: 'تم التحويل',
+        description: 'تم تحويل المكالمة بنجاح',
+      });
+      onDone();
+    },
+    onError: (err: any) => {
+      const code = err?.code;
+      let description = 'تعذر تحويل المكالمة. حاول مرة أخرى.';
+
+      if (code === 'TARGET_BUSY') description = 'الموظف مشغول حالياً بمكالمة أخرى.';
+      if (code === 'TARGET_OFFLINE') description = 'الموظف غير متصل حالياً أو غير متوفر.';
+      if (String(err?.message || '').includes('Channel not found')) description = 'المكالمة لم تعد متاحة للتحويل.';
+
+      toast({
+        title: 'فشل التحويل',
+        description,
+        variant: 'destructive',
+      });
+    },
   });
 
   const options = targetType === 'agent' ? agents : queues;
-  const valid = targetType === 'external' ? external.length >= 3 : !!targetId;
+  const selected = options.find((o) => o.id === targetId);
+  const selectedOffline = targetType === 'agent' && selected?.status === 'offline';
+  const valid = targetType === 'external' ? external.length >= 3 : !!targetId && !selectedOffline;
+
+  const statusText = (status?: Option['status']) => {
+    if (status === 'online') return 'متاح';
+    if (status === 'busy') return 'مشغول';
+    if (status === 'paused') return 'متوقف';
+    return 'غير متوفر';
+  };
+
+  const statusDot = (status?: Option['status']) => {
+    if (status === 'online') return '🟢';
+    if (status === 'busy') return '🟠';
+    if (status === 'paused') return '🟡';
+    return '🔴';
+  };
 
   return (
     <Dialog open={!!call} onOpenChange={(o) => !o && onClose()}>
@@ -514,16 +566,27 @@ function TransferDialog({
                 <SelectTrigger><SelectValue placeholder={t('common.search')} /></SelectTrigger>
                 <SelectContent>
                   {options.map((o) => (
-                    <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
+                    <SelectItem key={o.id} value={o.id} disabled={targetType === 'agent' && o.status === 'offline'}>
+                      {targetType === 'agent' ? `${statusDot(o.status)} ${o.label} — ${statusText(o.status)}` : o.label}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {targetType === 'agent' && selected && (
+                <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  الحالة: {statusDot(selected.status)} {statusText(selected.status)}
+                  {selected.status === 'busy' && <span className="ms-2 text-warning">الموظف مشغول، قد لا يستلم التحويل.</span>}
+                  {selected.status === 'offline' && <span className="ms-2 text-destructive">غير متوفر حالياً.</span>}
+                </div>
+              )}
             </div>
           )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
-          <Button disabled={!valid} onClick={() => mutation.mutate()}>{t('live_calls.transfer')}</Button>
+          <Button disabled={!valid || mutation.isPending} onClick={() => mutation.mutate()}>
+            {mutation.isPending ? 'جاري التحويل...' : t('live_calls.transfer')}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

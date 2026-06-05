@@ -90,6 +90,7 @@ router.post('/calls/:id/note', perm('live_calls', 'edit'), h(calls.addNote));
 router.get('/asterisk/settings', perm('asterisk'), h(asterisk.getSettings));
 router.put('/asterisk/settings', perm('asterisk', 'edit'), h(asterisk.updateSettings));
 router.get('/asterisk/status', perm('asterisk'), h(asterisk.connectionStatus));
+router.get('/asterisk/agent-statuses', perm('live_calls'), h(asterisk.agentStatuses));
 router.post('/asterisk/reload', perm('asterisk', 'edit'), h(asterisk.reload));
 router.post('/asterisk/control/:action', perm('live_calls', 'edit'), h(asterisk.control));
 

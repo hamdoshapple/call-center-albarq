@@ -108,6 +108,32 @@ export async function control(req: Request, res: Response) {
         }
       }
 
+      if ((body.targetType || 'agent') === 'agent' && body.target) {
+        const statuses = await gw.getAgentStatuses();
+        const targetStatus = statuses.find((a) => a.extension === body.target);
+
+        if (!targetStatus) {
+          return res.status(409).json({
+            code: 'TARGET_OFFLINE',
+            message: `Extension ${body.target} is not available now`
+          });
+        }
+
+        if (targetStatus.inCall || targetStatus.status === 'busy') {
+          return res.status(409).json({
+            code: 'TARGET_BUSY',
+            message: `Extension ${body.target} is busy now`
+          });
+        }
+
+        if (targetStatus.status === 'offline') {
+          return res.status(409).json({
+            code: 'TARGET_OFFLINE',
+            message: `Extension ${body.target} is offline now`
+          });
+        }
+      }
+
       await gw.transfer(body.uniqueId!, body.target!, body.attended);
 
       let call = await prisma.call.findFirst({
@@ -168,5 +194,11 @@ export async function control(req: Request, res: Response) {
     }
     default: return res.status(400).json({ error: `Unknown action: ${action}` });
   }
-  res.json({ success: true });
+  res.json({ success: true, message: action === 'transfer' ? 'TRANSFER_COMPLETED' : 'OK' });
+}
+
+
+export async function agentStatuses(_req: Request, res: Response) {
+  const gw = getAsteriskGateway();
+  res.json(await gw.getAgentStatuses());
 }

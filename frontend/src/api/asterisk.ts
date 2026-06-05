@@ -39,3 +39,14 @@ export function reloadConfig() {
     method: 'POST',
   });
 }
+
+
+export interface AgentLiveStatus {
+  extension: string;
+  status: 'online' | 'offline' | 'busy' | 'paused';
+  inCall: boolean;
+}
+
+export function listAgentStatuses() {
+  return api<AgentLiveStatus[]>('/asterisk/agent-statuses');
+}
