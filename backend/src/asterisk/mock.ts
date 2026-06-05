@@ -56,6 +56,10 @@ export class MockAsteriskGateway extends EventEmitter implements AsteriskGateway
     return [...this.calls.values()];
   }
 
+  async getParkedCalls() {
+    return [];
+  }
+
   async getAgentStatuses(): Promise<AsteriskAgentStatus[]> {
     return [...this.agents.values()];
   }

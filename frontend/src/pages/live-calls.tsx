@@ -547,6 +547,7 @@ function TransferDialog({
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="blind">{t('call_transfer.blind')}</SelectItem>
+                <SelectItem value="attended">{t('call_transfer.attended')}</SelectItem>
               </SelectContent>
             </Select>
           </div>

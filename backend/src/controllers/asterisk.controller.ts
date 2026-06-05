@@ -61,12 +61,6 @@ export async function control(req: Request, res: Response) {
     case 'hold': await gw.hold(body.uniqueId!); break;
     case 'unhold': await gw.unhold(body.uniqueId!); break;
     case 'transfer': {
-      if (body.attended || body.transferType === 'attended') {
-        return res.status(501).json({
-          error: 'Attended transfer is not implemented yet. Use blind transfer only.'
-        });
-      }
-
       const fromAgent = req.user?.agentId
         ? await prisma.agent.findUnique({
             where: { id: req.user.agentId },
@@ -201,4 +195,10 @@ export async function control(req: Request, res: Response) {
 export async function agentStatuses(_req: Request, res: Response) {
   const gw = getAsteriskGateway();
   res.json(await gw.getAgentStatuses());
+}
+
+
+export async function parkedCalls(_req: Request, res: Response) {
+  const gw = getAsteriskGateway();
+  res.json(await gw.getParkedCalls());
 }

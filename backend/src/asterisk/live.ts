@@ -7,6 +7,7 @@ import type {
   AsteriskGateway,
   AsteriskLiveCall,
   OriginateParams,
+  AsteriskParkedCall,
 } from './types.js';
 
 type AmiEvent = Record<string, string>;
@@ -68,6 +69,7 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
 
   private calls = new Map<string, AsteriskLiveCall>();
   private agents = new Map<string, AsteriskAgentStatus>();
+  private parkedCalls = new Map<string, AsteriskParkedCall>();
   private pending = new Map<string, (ev: AmiEvent) => void>();
   private reconnectTimer?: NodeJS.Timeout;
   private pollTimer?: NodeJS.Timeout;
@@ -108,6 +110,11 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
   async getAgentStatuses(): Promise<AsteriskAgentStatus[]> {
     await this.refreshContacts();
     return [...this.agents.values()];
+  }
+
+  async getParkedCalls(): Promise<AsteriskParkedCall[]> {
+    await this.refreshParkedCalls();
+    return [...this.parkedCalls.values()];
   }
 
   async originate(params: OriginateParams): Promise<{ uniqueId: string }> {
@@ -176,7 +183,7 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
     throw new Error('Unhold for parked calls requires parking slot retrieval');
   }
 
-  async transfer(uniqueId: string, target: string): Promise<void> {
+  async transfer(uniqueId: string, target: string, attended = false): Promise<void> {
     await this.refreshChannels();
 
     const call =
@@ -187,6 +194,22 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
 
     if (!fallbackCall?.channel) {
       throw new Error(`Channel not found for transfer: ${uniqueId}`);
+    }
+
+    if (attended) {
+      const resp = await this.action({
+        Action: 'Atxfer',
+        Channel: fallbackCall.channel,
+        Exten: target,
+        Context: 'internal',
+      });
+
+      if (!/success/i.test(resp.Response || '')) {
+        throw new Error(resp.Message || `Attended transfer failed to ${target}`);
+      }
+
+      await this.refreshChannels();
+      return;
     }
 
     if (fallbackCall.channel.startsWith('Local/')) {
@@ -320,6 +343,15 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
       case 'PeerStatus':
         this.upsertAgent(ev);
         break;
+      case 'ParkedCall':
+      case 'ParkedCallParked':
+        this.upsertParkedCall(ev);
+        break;
+      case 'ParkedCallGiveUp':
+      case 'ParkedCallTimeOut':
+      case 'ParkedCallUnparked':
+        this.removeParkedCall(ev);
+        break;
     }
   }
 
@@ -399,6 +431,70 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
     };
     this.agents.set(agent.extension, agent);
     this.emit('agent:update', agent);
+  }
+
+
+  private upsertParkedCall(ev: AmiEvent) {
+    const space =
+      ev.ParkingSpace ||
+      ev.ParkedExten ||
+      ev.ParkedExtension ||
+      ev.Extension ||
+      ev.Exten;
+
+    if (!space) return;
+
+    this.parkedCalls.set(space, {
+      parkingSpace: space,
+      parkingLot: ev.Parkinglot || ev.ParkingLot,
+      channel: ev.ParkedChannel || ev.Channel,
+      parkerDialString: ev.ParkerDialString || ev.Parker || ev.TimeoutChannel,
+      callerNumber: ev.CallerIDNum || ev.CallerIDName || ev.ConnectedLineNum,
+      parkedAt: new Date().toISOString(),
+    });
+  }
+
+  private removeParkedCall(ev: AmiEvent) {
+    const space =
+      ev.ParkingSpace ||
+      ev.ParkedExten ||
+      ev.ParkedExtension ||
+      ev.Extension ||
+      ev.Exten;
+
+    if (space) this.parkedCalls.delete(space);
+  }
+
+  private async refreshParkedCalls(): Promise<void> {
+    if (!this.loggedIn) return;
+
+    const resp = await this.action({ Action: 'Command', Command: 'parking show' });
+    const output = resp.Output || '';
+    const next = new Map<string, AsteriskParkedCall>();
+
+    const parkedSection = output.split(/Parked Calls\s*-+/i)[1] || '';
+    if (!parkedSection || /\(none\)/i.test(parkedSection)) {
+      this.parkedCalls = next;
+      return;
+    }
+
+    for (const line of parkedSection.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      const m = trimmed.match(/^(70[1-9]|71[0-9]|720)\b/);
+      if (!m) continue;
+
+      const space = m[1];
+      next.set(space, {
+        parkingSpace: space,
+        parkingLot: 'default',
+        channel: trimmed,
+        parkedAt: this.parkedCalls.get(space)?.parkedAt || new Date().toISOString(),
+      });
+    }
+
+    this.parkedCalls = next;
   }
 
   private async refreshContacts(): Promise<void> {

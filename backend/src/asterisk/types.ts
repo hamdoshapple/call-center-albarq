@@ -20,6 +20,15 @@ export interface AsteriskAgentStatus {
   inCall: boolean;
 }
 
+export interface AsteriskParkedCall {
+  parkingSpace: string;
+  parkingLot?: string;
+  channel?: string;
+  parkerDialString?: string;
+  callerNumber?: string;
+  parkedAt: string;
+}
+
 export interface AsteriskConnectionStatus {
   mode: 'mock' | 'live';
   ami: 'connected' | 'disconnected';
@@ -48,6 +57,7 @@ export interface AsteriskGateway extends EventEmitter {
   // Read state
   getLiveCalls(): Promise<AsteriskLiveCall[]>;
   getAgentStatuses(): Promise<AsteriskAgentStatus[]>;
+  getParkedCalls(): Promise<AsteriskParkedCall[]>;
 
   // Control actions
   originate(params: OriginateParams): Promise<{ uniqueId: string }>;
