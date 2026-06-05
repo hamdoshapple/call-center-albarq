@@ -154,27 +154,26 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
   async hold(uniqueId: string): Promise<void> {
     const channel = await this.findCallChannel(uniqueId);
 
+    console.log('[AMI PARK] parking channel', channel);
+
     const resp = await this.action({
-      Action: 'Hold',
+      Action: 'Park',
       Channel: channel,
+      TimeoutChannel: channel,
+      AnnounceChannel: channel,
+      Timeout: '0',
+      Parkinglot: 'default',
     });
 
+    console.log('[AMI PARK] response', resp);
+
     if (!/success/i.test(resp.Response || '')) {
-      throw new Error(resp.Message || 'Hold failed');
+      throw new Error(resp.Message || 'Park failed');
     }
   }
 
-  async unhold(uniqueId: string): Promise<void> {
-    const channel = await this.findCallChannel(uniqueId);
-
-    const resp = await this.action({
-      Action: 'Unhold',
-      Channel: channel,
-    });
-
-    if (!/success/i.test(resp.Response || '')) {
-      throw new Error(resp.Message || 'Unhold failed');
-    }
+  async unhold(_uniqueId: string): Promise<void> {
+    throw new Error('Unhold for parked calls requires parking slot retrieval');
   }
 
   async transfer(uniqueId: string, target: string): Promise<void> {

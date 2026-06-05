@@ -242,10 +242,11 @@ export function LiveCallsPage() {
                 </Button>
                 <Button
                   variant="outline"
+                  disabled={hold.isPending}
                   onClick={() => hold.mutate(incomingCall.id)}
                 >
                   <Pause className="h-4 w-4" />
-                  تعليق
+                  {hold.isPending ? 'جاري التعليق...' : 'تعليق'}
                 </Button>
                 <Button variant="destructive" onClick={() => hangup.mutate(incomingCall.id)}>
                   <PhoneOff className="h-4 w-4" />
