@@ -152,6 +152,24 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
       throw new Error(`Channel not found for transfer: ${uniqueId}`);
     }
 
+    if (fallbackCall.channel.startsWith('Local/')) {
+      const resp = await this.action({
+        Action: 'Originate',
+        Channel: `PJSIP/${target}`,
+        Application: 'Playback',
+        Data: 'demo-congrats',
+        CallerID: fallbackCall.callerNumber || 'test-live',
+        Async: 'true',
+      });
+
+      if (!/success/i.test(resp.Response || '')) {
+        throw new Error(resp.Message || `Test transfer originate failed to ${target}`);
+      }
+
+      await this.refreshChannels();
+      return;
+    }
+
     const resp = await this.action({
       Action: 'Redirect',
       Channel: fallbackCall.channel,
@@ -356,7 +374,7 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
       const extension = m[1];
       const agent: AsteriskAgentStatus = {
         extension,
-        status: /Unavail|NonQual/i.test(line) ? 'offline' : 'online',
+        status: /Unavail/i.test(line) ? 'offline' : 'online',
         inCall: [...this.calls.values()].some((c) => c.agentExtension === extension && c.status === 'active'),
       };
       this.agents.set(extension, agent);

@@ -97,6 +97,17 @@ export async function control(req: Request, res: Response) {
           })
         : null;
 
+      if ((body.targetType || 'agent') === 'agent' && body.target) {
+        const statuses = await gw.getAgentStatuses();
+        const targetStatus = statuses.find((a) => a.extension === body.target);
+
+        if (!targetStatus) {
+          return res.status(409).json({
+            error: `Target extension ${body.target} has no active contact`
+          });
+        }
+      }
+
       await gw.transfer(body.uniqueId!, body.target!, body.attended);
 
       let call = await prisma.call.findFirst({
