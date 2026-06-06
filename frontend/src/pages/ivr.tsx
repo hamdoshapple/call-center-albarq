@@ -79,7 +79,7 @@ export function IVRPage() {
     setDialogOpen(false);
   };
 
-  const addOption = () => setForm((f) => ({ ...f, options: [...f.options, { id: `opt-${crypto.randomUUID()}`, key: KEYS.find((k) => !f.options.some((o) => o.key === k)) ?? '0', label: '', destinationType: 'queue', destinationValue: '' }] }));
+  const addOption = () => setForm((f) => ({ ...f, options: [...f.options, { id: `opt-${crypto.randomUUID()}`, key: KEYS.find((k) => !f.options.some((o) => o.key === k)) ?? '0', label: '', destinationType: 'queue', destinationValue: '2009' }] }));
   const updateOption = (id: string, patch: Partial<IVROption>) => setForm((f) => ({ ...f, options: f.options.map((o) => (o.id === id ? { ...o, ...patch } : o)) }));
   const removeOption = (id: string) => setForm((f) => ({ ...f, options: f.options.filter((o) => o.id !== id) }));
 
@@ -157,7 +157,7 @@ export function IVRPage() {
               </div>
               <div className="space-y-2">
                 {form.options.map((o) => (
-                  <div key={o.id} className="grid grid-cols-[64px_1fr_1fr_1fr_40px] items-end gap-2">
+                  <div key={o.id} className="grid gap-2 rounded-lg border p-2 md:grid-cols-[64px_1fr_1fr_1fr_40px] md:items-end">
                     <div className="space-y-1">
                       <Label className="text-xs">{t('ivr.key')}</Label>
                       <Select value={o.key} onValueChange={(v) => updateOption(o.id, { key: v })}>

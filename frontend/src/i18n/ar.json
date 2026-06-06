@@ -247,6 +247,16 @@
       "hangup": "إنهاء المكالمة",
       "voicemail": "بريد صوتي",
       "external": "رقم خارجي"
+    },
+    "options": "خيارات القائمة",
+    "dest": {
+      "queue": "طابور / مجموعة",
+      "department": "قسم",
+      "agent": "موظف",
+      "ivr": "رد آلي آخر",
+      "voicemail": "بريد صوتي",
+      "hangup": "إنهاء المكالمة",
+      "external": "رقم خارجي"
     }
   },
   "voice_prompts": {

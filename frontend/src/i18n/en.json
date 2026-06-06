@@ -228,7 +228,7 @@
     "subtitle": "Build IVR menus and route calls",
     "add_menu": "Add Menu",
     "edit_menu": "Edit Menu",
-    "greeting": "Greeting Prompt",
+    "greeting": "Greeting prompt",
     "key_mapping": "Key Mapping",
     "key": "Key",
     "destination": "Destination",
@@ -236,7 +236,7 @@
     "timeout_dest": "Timeout Destination",
     "invalid_dest": "Invalid Input Destination",
     "repeat": "Repeat on invalid",
-    "max_repeats": "Max Repeats",
+    "max_repeats": "Max repeats",
     "add_option": "Add Option",
     "flow": "Flow Diagram",
     "destinations": {
@@ -247,6 +247,16 @@
       "hangup": "Hangup",
       "voicemail": "Voicemail",
       "external": "External Number"
+    },
+    "options": "Menu options",
+    "dest": {
+      "queue": "Queue / Group",
+      "department": "Department",
+      "agent": "Agent",
+      "ivr": "Another IVR",
+      "voicemail": "Voicemail",
+      "hangup": "Hang up",
+      "external": "External number"
     }
   },
   "voice_prompts": {

@@ -122,7 +122,7 @@ function optionDialplan(option: any) {
     case 'department': {
       const groups: Record<string, string> = {
         '2009': 'PJSIP/33&PJSIP/102&PJSIP/202',
-        '2000': 'PJSIP/102',
+        '2000': 'PJSIP/101',
         '2001': 'PJSIP/202',
         '2002': 'PJSIP/33',
       };
