@@ -135,7 +135,7 @@ export interface IVRMenu {
 }
 
 // ===== Voice Prompts =====
-export type PromptCategory = 'welcome' | 'waiting' | 'closed_hours' | 'busy' | 'ivr' | 'announcement' | 'other';
+export type PromptCategory = 'welcome' | 'waiting' | 'hold_music' | 'closed_hours' | 'busy' | 'transfer' | 'transfer_failed' | 'ivr' | 'queue' | 'goodbye' | 'announcement' | 'other';
 
 export interface VoicePrompt {
   id: string;

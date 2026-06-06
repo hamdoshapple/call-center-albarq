@@ -158,11 +158,63 @@ export async function audio(req: Request, res: Response) {
 }
 
 
-export async function setAsMoh(req: Request, res: Response) {
+const APPLY_TARGETS: Record<string, string> = {
+  hold_music: 'hold.wav',
+  waiting: 'queue_wait.wav',
+  welcome: 'welcome.wav',
+  closed_hours: 'closed.wav',
+  busy: 'busy.wav',
+  transfer: 'transfer.wav',
+  transfer_failed: 'transfer_failed.wav',
+  ivr: 'ivr_main.wav',
+  queue: 'queue_wait.wav',
+  goodbye: 'goodbye.wav',
+  announcement: 'announcement.wav',
+};
+
+async function convertPromptToWav(source: string, targetName: string) {
+  const { execFileSync } = await import('node:child_process');
+  fs.mkdirSync(MOH_DIR, { recursive: true });
+
+  const target = path.join(MOH_DIR, targetName);
+
+  execFileSync('ffmpeg', [
+    '-y',
+    '-i', source,
+    '-ar', '8000',
+    '-ac', '1',
+    '-c:a', 'pcm_s16le',
+    target,
+  ]);
+
+  return target;
+}
+
+export async function applyPrompt(req: Request, res: Response) {
   const row = await prisma.voicePrompt.findUnique({ where: { id: req.params.id } });
   if (!row) throw ApiError.notFound('Voice prompt not found');
 
-  fs.mkdirSync(MOH_DIR, { recursive: true });
+  const targetName = APPLY_TARGETS[row.category] || `${row.category}.wav`;
+
+  const source = path.join(SOUND_DIR, path.basename(row.fileName));
+  if (!fs.existsSync(source)) {
+    return res.status(404).json({ error: 'Source audio file not found', fileName: row.fileName });
+  }
+
+  await convertPromptToWav(source, targetName);
+
+  res.json({
+    success: true,
+    category: row.category,
+    fileName: targetName,
+    asteriskSound: targetName.replace(/\.wav$/i, ''),
+    message: 'Prompt converted and applied. Reload/use dialplan target as needed.',
+  });
+}
+
+export async function setAsMoh(req: Request, res: Response) {
+  const row = await prisma.voicePrompt.findUnique({ where: { id: req.params.id } });
+  if (!row) throw ApiError.notFound('Voice prompt not found');
 
   const source = path.join(SOUND_DIR, path.basename(row.fileName));
   if (!fs.existsSync(source)) {
@@ -170,17 +222,15 @@ export async function setAsMoh(req: Request, res: Response) {
   }
 
   for (const old of fs.readdirSync(MOH_DIR)) {
-    if (/^albarq-hold-/i.test(old)) {
-      fs.unlinkSync(path.join(MOH_DIR, old));
-    }
+    const oldPath = path.join(MOH_DIR, old);
+    if (fs.statSync(oldPath).isFile()) fs.unlinkSync(oldPath);
   }
 
-  const targetName = `albarq-hold-${path.basename(row.fileName)}`;
-  fs.copyFileSync(source, path.join(MOH_DIR, targetName));
+  await convertPromptToWav(source, 'hold.wav');
 
   res.json({
     success: true,
-    fileName: targetName,
-    message: 'Copied to Asterisk MOH directory. Run moh reload.',
+    fileName: 'hold.wav',
+    message: 'Converted and applied as Asterisk default MusicOnHold file.',
   });
 }

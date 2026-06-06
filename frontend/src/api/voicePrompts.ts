@@ -62,3 +62,14 @@ export async function uploadPrompt(input: { name: string; category: string; lang
   if (!res.ok) throw new Error(await res.text() || `API error ${res.status}`);
   return mapPrompt(await res.json());
 }
+
+
+export async function setAsMoh(id: string) {
+  return api(`/voice-prompts/${id}/set-moh`, {
+    method: 'POST',
+  });
+}
+
+export async function applyPrompt(id: string) {
+  return api(`/voice-prompts/${id}/apply`, { method: 'POST' });
+}
