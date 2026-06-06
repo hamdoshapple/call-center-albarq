@@ -12,11 +12,11 @@ services:
       MYSQL_ROOT_PASSWORD: rootpass
       MYSQL_DATABASE: callcenter
       MYSQL_USER: albarq
-      MYSQL_PASSWORD: albarqpass
+      MYSQL_PASSWORD: '@Cs5.01998'
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ualbarq", "-palbarqpass"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ualbarq", "-p@Cs5.01998"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -36,7 +36,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
-      DATABASE_URL: "mysql://albarq:albarqpass@mysql:3306/callcenter"
+      DATABASE_URL: "mysql://albarq:%40Cs5.01998@mysql:3306/callcenter"
       JWT_SECRET: demo-secret-change-in-production
       JWT_EXPIRES_IN: 7d
       CORS_ORIGIN: "*"
@@ -61,7 +61,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "127.0.0.1:3000:80"
+      - "3000:80"
 
 volumes:
   mysql_data:
