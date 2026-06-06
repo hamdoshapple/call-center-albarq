@@ -40,6 +40,26 @@ function safeFileName(name: string) {
   return `${base || 'prompt'}-${Date.now()}${ext}`;
 }
 
+function isVideoFile(fileName: string, mime = '') {
+  const ext = path.extname(fileName).toLowerCase();
+  return ['.mp4', '.mov', '.avi', '.mkv', '.webm'].includes(ext) || /^video\//i.test(mime);
+}
+
+async function extractAudioToWav(inputPath: string, outputPath: string) {
+  const { execFileSync } = await import('node:child_process');
+
+  execFileSync('ffmpeg', [
+    '-y',
+    '-i', inputPath,
+    '-vn',
+    '-filter:a', 'highpass=f=90,lowpass=f=5200,afftdn=nf=-18,loudnorm=I=-15:TP=-1.5:LRA=9,volume=1.8',
+    '-ar', '8000',
+    '-ac', '1',
+    '-c:a', 'pcm_s16le',
+    outputPath,
+  ]);
+}
+
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     fs.mkdirSync(SOUND_DIR, { recursive: true });
@@ -52,10 +72,10 @@ export const uploadVoicePrompt = multer({
   storage,
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const okExt = /\.(wav|mp3|m4a|aac|mp4|mpeg|gsm|ulaw|alaw)$/i.test(file.originalname);
-    const okMime = /^audio\//i.test(file.mimetype) || /mp4|mpeg|aac/i.test(file.mimetype);
+    const okExt = /\.(wav|mp3|m4a|aac|ogg|mp4|mov|avi|mkv|webm|mpeg|gsm|ulaw|alaw)$/i.test(file.originalname);
+    const okMime = /^(audio|video)\//i.test(file.mimetype) || /mp4|mpeg|aac|webm|quicktime|matroska/i.test(file.mimetype);
     if (!okExt && !okMime) {
-      return cb(new Error(`Only audio files are allowed: ${file.originalname} (${file.mimetype})`));
+      return cb(new Error(`Only audio/video files are allowed: ${file.originalname} (${file.mimetype})`));
     }
     cb(null, true);
   },
@@ -103,15 +123,33 @@ export async function upload(req: Request, res: Response) {
     } catch {}
   }
 
+  let finalFileName = file.filename;
+  let finalPath = file.path;
+  let finalSize = file.size;
+
+  if (isVideoFile(file.originalname, file.mimetype)) {
+    const base = path.basename(file.filename, path.extname(file.filename));
+    finalFileName = `${base}.wav`;
+    finalPath = path.join(SOUND_DIR, finalFileName);
+
+    await extractAudioToWav(file.path, finalPath);
+
+    try {
+      fs.unlinkSync(file.path);
+    } catch {}
+
+    finalSize = fs.statSync(finalPath).size;
+  }
+
   const row = await prisma.voicePrompt.create({
     data: {
       name,
       category,
-      fileName: file.filename,
-      url: `/api/voice-prompts/${file.filename}/audio`,
+      fileName: finalFileName,
+      url: `/api/voice-prompts/${finalFileName}/audio`,
       duration: Number(req.body.duration || 0),
       language,
-      sizeKb: Math.max(1, Math.round(file.size / 1024)),
+      sizeKb: Math.max(1, Math.round(finalSize / 1024)),
     },
   });
 
@@ -181,6 +219,7 @@ async function convertPromptToWav(source: string, targetName: string) {
   execFileSync('ffmpeg', [
     '-y',
     '-i', source,
+    '-filter:a', 'highpass=f=90,lowpass=f=5200,afftdn=nf=-18,loudnorm=I=-15:TP=-1.5:LRA=9,volume=1.8',
     '-ar', '8000',
     '-ac', '1',
     '-c:a', 'pcm_s16le',

@@ -311,7 +311,7 @@ export function VoicePromptsPage() {
         actions={canCreate && (
           <Button onClick={() => openCreate('welcome')}>
             <Upload className="h-4 w-4" />
-            رفع صوت جديد
+            رفع صوت / فيديو
           </Button>
         )}
       />
@@ -425,7 +425,7 @@ export function VoicePromptsPage() {
       <Dialog open={dialogOpen} onOpenChange={(o) => !uploading && setDialogOpen(o)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editing ? 'تعديل صوت' : 'رفع صوت جديد'}</DialogTitle>
+            <DialogTitle>{editing ? 'تعديل صوت' : 'رفع صوت / فيديو'}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4">
@@ -448,10 +448,10 @@ export function VoicePromptsPage() {
 
             {!editing && (
               <div className="space-y-2">
-                <Label>ملف الصوت</Label>
+                <Label>ملف صوتي أو فيديو</Label>
                 <Input
                   type="file"
-                  accept="audio/*,.m4a,.aac,.mp4,.wav,.mp3"
+                  accept="audio/*,video/*,.m4a,.aac,.mp4,.mov,.avi,.mkv,.webm,.wav,.mp3"
                   onChange={(e) => {
                     const file = e.target.files?.[0] || null;
                     setAudioFile(file);
@@ -471,6 +471,9 @@ export function VoicePromptsPage() {
                   <div className="rounded-lg border p-3 text-sm">
                     <div><b>الملف:</b> {audioFile.name}</div>
                     <div><b>الحجم:</b> {(audioFile.size / 1024 / 1024).toFixed(2)} MB</div>
+                    <div className="text-xs text-muted-foreground">
+                      إذا كان الملف فيديو، سيتم استخراج الصوت وتحويله تلقائياً.
+                    </div>
                   </div>
                 )}
               </div>
@@ -489,7 +492,7 @@ export function VoicePromptsPage() {
                   <div className="h-full bg-primary transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
                 </div>
                 <div className="text-center text-xs text-muted-foreground">
-                  جاري رفع الملف... {uploadProgress}%
+                  جاري رفع الملف ومعالجته... {uploadProgress}%
                 </div>
               </div>
             )}
