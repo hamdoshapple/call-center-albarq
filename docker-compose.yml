@@ -45,7 +45,7 @@ services:
       AMI_HOST: 172.17.0.1
       AMI_PORT: 5038
       AMI_USER: albarq
-      AMI_PASSWORD: AlbarqAmi12345
+      AMI_PASSWORD: rwSY5LCgoZpY9c8O1YQ/NaglnuEjuzsX7fWTlnWbnYc=
       SEED_ON_START: "false"
     ports:
       - "127.0.0.1:4000:4000"
@@ -53,6 +53,7 @@ services:
       - /var/spool/asterisk/monitor:/var/spool/asterisk/monitor:ro
       - /var/lib/asterisk/sounds/custom:/var/lib/asterisk/sounds/custom:rw
       - /var/lib/asterisk/moh:/var/lib/asterisk/moh:rw
+      - /etc/asterisk:/etc/asterisk:rw
 
   frontend:
     build: ./frontend

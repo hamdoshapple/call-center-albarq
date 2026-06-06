@@ -46,3 +46,7 @@ export async function deleteIVR(id: string) {
   await api(`/ivr/${id}`, { method: 'DELETE' });
   return { success: true };
 }
+
+export async function applyIVR(id: string) {
+  return api(`/ivr/${id}/apply`, { method: 'POST' });
+}

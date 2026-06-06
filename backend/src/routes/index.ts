@@ -51,6 +51,7 @@ router.delete('/queues/:id', perm('queues', 'delete'), h(queues.remove));
 router.get('/ivr', perm('ivr'), h(ivr.list));
 router.post('/ivr', perm('ivr', 'create'), h(ivr.create));
 router.put('/ivr/:id', perm('ivr', 'edit'), h(ivr.update));
+router.post('/ivr/:id/apply', perm('ivr', 'edit'), h(ivr.apply));
 router.delete('/ivr/:id', perm('ivr', 'delete'), h(ivr.remove));
 
 // ---------- Voice prompts ----------

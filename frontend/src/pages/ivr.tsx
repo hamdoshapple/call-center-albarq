@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Network, Plus, Pencil, Trash2, Phone, ArrowRight } from 'lucide-react';
+import { Network, Plus, Pencil, Trash2, Phone, ArrowRight, RadioTower } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { Loader } from '@/components/shared/loader';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
@@ -64,6 +64,12 @@ export function IVRPage() {
   const updateMut = useMutation({ mutationFn: ({ id, i }: { id: string; i: IVRInput }) => ivrApi.updateIVR(id, i), onSuccess: () => { invalidate(); toast({ title: t('common.update') }); } });
   const deleteMut = useMutation({ mutationFn: (id: string) => ivrApi.deleteIVR(id), onSuccess: () => { invalidate(); toast({ title: t('common.delete') }); } });
 
+  const applyMut = useMutation({
+    mutationFn: (id: string) => ivrApi.applyIVR(id),
+    onSuccess: () => toast({ title: 'تم تطبيق IVR على السنترال' }),
+    onError: () => toast({ title: 'فشل تطبيق IVR', variant: 'destructive' }),
+  });
+
   const openCreate = () => { setEditing(null); setForm(emptyForm()); setDialogOpen(true); };
   const openEdit = (m: IVRMenu) => { setEditing(m); setForm({ name: m.name, description: m.description, greetingPromptId: m.greetingPromptId, options: m.options, timeout: m.timeout, timeoutDestination: m.timeoutDestination, invalidDestination: m.invalidDestination, repeatOnInvalid: m.repeatOnInvalid, maxRepeats: m.maxRepeats, active: m.active }); setDialogOpen(true); };
   const submit = () => {
@@ -73,7 +79,7 @@ export function IVRPage() {
     setDialogOpen(false);
   };
 
-  const addOption = () => setForm((f) => ({ ...f, options: [...f.options, { id: `opt-${crypto.randomUUID()}`, key: KEYS.find((k) => !f.options.some((o) => o.key === k)) ?? '0', label: '', destinationType: 'queue' }] }));
+  const addOption = () => setForm((f) => ({ ...f, options: [...f.options, { id: `opt-${crypto.randomUUID()}`, key: KEYS.find((k) => !f.options.some((o) => o.key === k)) ?? '0', label: '', destinationType: 'queue', destinationValue: '' }] }));
   const updateOption = (id: string, patch: Partial<IVROption>) => setForm((f) => ({ ...f, options: f.options.map((o) => (o.id === id ? { ...o, ...patch } : o)) }));
   const removeOption = (id: string) => setForm((f) => ({ ...f, options: f.options.filter((o) => o.id !== id) }));
 
@@ -97,6 +103,7 @@ export function IVRPage() {
                 <p className="mt-1 text-xs text-muted-foreground">{m.description}</p>
               </div>
               <div className="flex gap-1">
+                {canEdit && <Button size="icon-sm" variant="secondary" title="تطبيق على السنترال" onClick={() => applyMut.mutate(m.id)}><RadioTower className="h-3.5 w-3.5" /></Button>}
                 {canEdit && <Button size="icon-sm" variant="ghost" onClick={() => openEdit(m)}><Pencil className="h-3.5 w-3.5" /></Button>}
                 {canDelete && <Button size="icon-sm" variant="ghost" className="text-destructive" onClick={() => setDeleteId(m.id)}><Trash2 className="h-3.5 w-3.5" /></Button>}
               </div>
@@ -150,7 +157,7 @@ export function IVRPage() {
               </div>
               <div className="space-y-2">
                 {form.options.map((o) => (
-                  <div key={o.id} className="grid grid-cols-[64px_1fr_1fr_40px] items-end gap-2">
+                  <div key={o.id} className="grid grid-cols-[64px_1fr_1fr_1fr_40px] items-end gap-2">
                     <div className="space-y-1">
                       <Label className="text-xs">{t('ivr.key')}</Label>
                       <Select value={o.key} onValueChange={(v) => updateOption(o.id, { key: v })}>
@@ -168,6 +175,29 @@ export function IVRPage() {
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>{DEST_TYPES.map((d) => <SelectItem key={d} value={d}>{t(`ivr.dest.${d}`)}</SelectItem>)}</SelectContent>
                       </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">قيمة الوجهة</Label>
+                      {o.destinationType === 'queue' || o.destinationType === 'department' ? (
+                        <Select
+                          value={o.destinationValue ?? '2009'}
+                          onValueChange={(v) => updateOption(o.id, { destinationValue: v })}
+                        >
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="2009">كل الموظفين - 2009</SelectItem>
+                            <SelectItem value="2000">الدعم الفني - 2000</SelectItem>
+                            <SelectItem value="2001">المحاسبة - 2001</SelectItem>
+                            <SelectItem value="2002">المبيعات - 2002</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          placeholder="102 أو رقم خارجي"
+                          value={o.destinationValue ?? ''}
+                          onChange={(e) => updateOption(o.id, { destinationValue: e.target.value })}
+                        />
+                      )}
                     </div>
                     <Button size="icon" variant="ghost" className="text-destructive" onClick={() => removeOption(o.id)}><Trash2 className="h-4 w-4" /></Button>
                   </div>
