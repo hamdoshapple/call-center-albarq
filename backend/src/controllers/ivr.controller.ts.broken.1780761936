@@ -132,12 +132,11 @@ async function optionDialplan(option: any) {
     case 'agent': {
       const ext = await getAgentExtension(value);
       return [
-        ` same => n,NoOp(IVR ${option.key}: ${label} -> agent ${ext || value})`,
-        ` same => n,Set(CALLERID(num)=\${REAL_CALLER})`,
-        ` same => n,Set(CALLERID(name)=\${REAL_CALLER})`,
-        ` same => n,Dial(PJSIP/${ext || value || '101'},30,b(set-real-cid^s^1(\${REAL_CALLER})))`,
-        ' same => n,Playback(vm-nobodyavail)',
-        ' same => n,Hangup()',
+        ` same => n,NoOp(IVR ${option.key}: ${label} -> agent ${ext})`,
+        ` same => n,Dial(PJSIP/${ext || '101'},30,b(set-real-cid^s^1($\{REAL_CALLER})))`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"=\"1\"]?Playback(/var/lib/asterisk/moh/queue_wait))`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"!=\"1\"]?Playback(vm-nobodyavail))`,
+        ` same => n,Hangup()`,
       ].join('\n');
     }
 
@@ -145,7 +144,9 @@ async function optionDialplan(option: any) {
       return [
         ` same => n,NoOp(IVR ${option.key}: ${label} -> external ${value})`,
         ` same => n,Dial(PJSIP/${value}@20001,60)`,
-        ' same => n,Hangup()',
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"=\"1\"]?Playback(/var/lib/asterisk/moh/queue_wait))`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"!=\"1\"]?Playback(vm-nobodyavail))`,
+        ` same => n,Hangup()`,
       ].join('\n');
 
     case 'ivr':
@@ -156,14 +157,16 @@ async function optionDialplan(option: any) {
 
     case 'hangup':
       return [
-        ' same => n,Playback(vm-goodbye)',
-        ' same => n,Hangup()',
+        ' same => n,ExecIf($["${STAT(e,/var/lib/asterisk/moh/goodbye.wav)}"="1"]?Playback(/var/lib/asterisk/moh/goodbye))',
+        ` same => n,Hangup()`,
       ].join('\n');
 
     case 'voicemail':
       return [
-        ' same => n,Playback(vm-nobodyavail)',
-        ' same => n,Hangup()',
+        ` same => n,Playback(vm-nobodyavail)`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"=\"1\"]?Playback(/var/lib/asterisk/moh/queue_wait))`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"!=\"1\"]?Playback(vm-nobodyavail))`,
+        ` same => n,Hangup()`,
       ].join('\n');
 
     case 'queue': {
@@ -178,8 +181,9 @@ async function optionDialplan(option: any) {
         ` same => n,Set(CALLERID(num)=\${REAL_CALLER})`,
         ` same => n,Set(CALLERID(name)=\${REAL_CALLER})`,
         ` same => n,Queue(${qnum},t,,,${wait})`,
-        ' same => n,Playback(vm-nobodyavail)',
-        ' same => n,Hangup()',
+        ` same => n,ExecIf($["\${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}"="1"]?Playback(/var/lib/asterisk/moh/queue_wait))`,
+        ` same => n,ExecIf($["\${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}"!="1"]?Playback(vm-nobodyavail))`,
+        ` same => n,Hangup()`,
       ].join('\n');
     }
 
@@ -187,19 +191,20 @@ async function optionDialplan(option: any) {
       const dialTarget = await getDepartmentDialTargets(value);
       return [
         ` same => n,NoOp(IVR ${option.key}: ${label} -> DB department ${value})`,
-        ` same => n,Set(CALLERID(num)=\${REAL_CALLER})`,
-        ` same => n,Set(CALLERID(name)=\${REAL_CALLER})`,
         ` same => n,Dial(${dialTarget},30,b(set-real-cid^s^1(\${REAL_CALLER})))`,
-        ' same => n,Playback(vm-nobodyavail)',
-        ' same => n,Hangup()',
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"=\"1\"]?Playback(/var/lib/asterisk/moh/queue_wait))`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"!=\"1\"]?Playback(vm-nobodyavail))`,
+        ` same => n,Hangup()`,
       ].join('\n');
     }
 
     default:
       return [
-        ` same => n,NoOp(IVR ${option.key}: ${label} -> default)`,
-        ' same => n,Playback(vm-nobodyavail)',
-        ' same => n,Hangup()',
+        ` same => n,NoOp(IVR ${option.key}: ${label} -> default agents)`,
+        ` same => n,Dial(PJSIP/101&PJSIP/33,30,b(set-real-cid^s^1($\{REAL_CALLER})))`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"=\"1\"]?Playback(/var/lib/asterisk/moh/queue_wait))`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"!=\"1\"]?Playback(vm-nobodyavail))`,
+        ` same => n,Hangup()`,
       ].join('\n');
   }
 }
