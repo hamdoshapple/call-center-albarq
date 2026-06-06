@@ -4,11 +4,11 @@ import { prisma } from '../config/prisma.js';
 import { ApiError } from '../utils/ApiError.js';
 
 const optionSchema = z.object({
-  key: z.string().min(1),
-  label: z.string().default(''),
+  key: z.coerce.string().min(1),
+  label: z.string().nullish().transform((v) => v ?? ''),
   destinationType: z.enum(['queue', 'department', 'agent', 'ivr', 'hangup', 'voicemail', 'external']),
-  destinationId: z.string().optional(),
-  destinationValue: z.string().optional(),
+  destinationId: z.string().nullish().transform((v) => v ?? undefined),
+  destinationValue: z.string().nullish().transform((v) => v ?? undefined),
 });
 
 const schema = z.object({
@@ -121,13 +121,13 @@ function optionDialplan(option: any) {
     case 'queue':
     case 'department': {
       const groups: Record<string, string> = {
-        '2009': 'PJSIP/33&PJSIP/102&PJSIP/202',
+        '2009': 'PJSIP/33&PJSIP/101&PJSIP/202',
         '2000': 'PJSIP/101',
         '2001': 'PJSIP/202',
         '2002': 'PJSIP/33',
       };
 
-      const dialTarget = groups[value] || 'PJSIP/33&PJSIP/102&PJSIP/202';
+      const dialTarget = groups[value] || 'PJSIP/33&PJSIP/101&PJSIP/202';
 
       return [
         ` same => n,NoOp(IVR ${option.key}: ${label} -> queue/group ${value})`,
@@ -140,7 +140,7 @@ function optionDialplan(option: any) {
     default:
       return [
         ` same => n,NoOp(IVR ${option.key}: ${label} -> default agents)`,
-        ` same => n,Dial(PJSIP/33&PJSIP/102&PJSIP/202,30)`,
+        ` same => n,Dial(PJSIP/33&PJSIP/101&PJSIP/202,30)`,
         ' same => n,ExecIf($["${STAT(e,/var/lib/asterisk/moh/busy.wav)}"="1"]?Playback(/var/lib/asterisk/moh/busy))',
         ` same => n,Hangup()`,
       ].join('\n');
@@ -150,11 +150,7 @@ function optionDialplan(option: any) {
 function buildIvrDialplan(menu: any) {
   const timeout = Number(menu.timeout || 10);
   const maxRepeats = Number(menu.maxRepeats || 3);
-  const promptSound = menu.greetingPrompt?.category === 'ivr'
-    ? 'ivr_main'
-    : menu.greetingPrompt?.category === 'welcome'
-      ? 'welcome'
-      : 'ivr_main';
+  const promptSound = 'ivr_main';
 
   const lines: string[] = [];
 
@@ -215,7 +211,25 @@ export async function apply(req: Request, res: Response) {
   if (!menu.active) throw new Error('Cannot apply inactive IVR menu');
 
   const fs = await import('node:fs');
+  const path = await import('node:path');
   const { execFileSync } = await import('node:child_process');
+
+  if (menu.greetingPrompt?.fileName) {
+    const src = path.join('/var/lib/asterisk/sounds/custom', path.basename(menu.greetingPrompt.fileName));
+    const dst = '/var/lib/asterisk/moh/ivr_main.wav';
+
+    if (fs.existsSync(src)) {
+      execFileSync('ffmpeg', [
+        '-y',
+        '-i', src,
+        '-filter:a', 'highpass=f=120,loudnorm=I=-16:TP=-1.5:LRA=11,volume=2',
+        '-ar', '8000',
+        '-ac', '1',
+        '-c:a', 'pcm_s16le',
+        dst,
+      ]);
+    }
+  }
 
   const file = '/etc/asterisk/extensions.conf';
   const backup = `/etc/asterisk/extensions.conf.bak.ivr.${Date.now()}`;
