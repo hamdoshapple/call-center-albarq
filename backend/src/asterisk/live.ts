@@ -1,3 +1,4 @@
+import { prisma } from '../config/prisma.js';
 import { EventEmitter } from 'node:events';
 import net from 'node:net';
 import { env } from '../config/env.js';
@@ -734,17 +735,44 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
 
   private async refreshContacts(): Promise<void> {
     if (!this.loggedIn) return;
-    const resp = await this.action({ Action: 'Command', Command: 'pjsip show contacts' });
+
+    const [resp, extensions] = await Promise.all([
+      this.action({ Action: 'Command', Command: 'pjsip show contacts' }),
+      prisma.extension.findMany({ select: { number: true } }),
+    ]);
+
     const output = resp.Output || '';
+    const registered = new Set<string>();
+
     for (const line of output.split('\n')) {
       const m = line.match(/Contact:\s+(\d+)\/sip:\1@/);
       if (!m) continue;
+
       const extension = m[1];
+      const unavailable = /Unavail|Unavailable/i.test(line);
+      if (!unavailable) registered.add(extension);
+    }
+
+    const knownExtensions = new Set<string>([
+      ...extensions.map((e) => String(e.number)).filter(Boolean),
+      ...registered,
+      ...this.agents.keys(),
+    ]);
+
+    for (const extension of knownExtensions) {
+      if (isTrunkExtension(extension)) continue;
+
+      const inCall = [...this.calls.values()].some((c) =>
+        c.agentExtension === extension &&
+        ['active', 'ringing'].includes(String(c.status))
+      );
+
       const agent: AsteriskAgentStatus = {
         extension,
-        status: /Unavail/i.test(line) ? 'offline' : 'online',
-        inCall: [...this.calls.values()].some((c) => c.agentExtension === extension && c.status === 'active'),
+        status: inCall ? 'busy' : (registered.has(extension) ? 'online' : 'offline'),
+        inCall,
       };
+
       this.agents.set(extension, agent);
       this.emit('agent:update', agent);
     }

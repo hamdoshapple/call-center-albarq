@@ -18,7 +18,16 @@ const schema = z.object({
   queueIds: z.array(z.string()).optional(),
 });
 
-function serialize(a: Awaited<ReturnType<typeof fetchOne>>) {
+type AgentPerformance = {
+  callsHandled: number;
+  callsMissed: number;
+  avgHandleTime: number;
+  totalTalkTime: number;
+  satisfaction: number;
+  occupancy: number;
+};
+
+function serialize(a: Awaited<ReturnType<typeof fetchOne>>, performance?: AgentPerformance) {
   if (!a) return a;
   return {
     id: a.id,
@@ -34,7 +43,7 @@ function serialize(a: Awaited<ReturnType<typeof fetchOne>>) {
     userId: a.userId ?? null,
     workingHours: { from: a.workFrom, to: a.workTo, days: a.workDays as number[] },
     queues: a.queueMembers.map((m) => m.queueId),
-    performance: {
+    performance: performance ?? {
       callsHandled: a.callsHandled,
       callsMissed: a.callsMissed,
       avgHandleTime: a.avgHandleTime,
@@ -118,7 +127,86 @@ export async function list(_req: Request, res: Response) {
     include: { extension: true, department: true, queueMembers: true, user: true },
     orderBy: { createdAt: 'asc' },
   });
-  res.json(rows.map(serialize));
+
+  const agentIds = rows.map((a) => a.id);
+  const extensions = rows.map((a) => a.extension?.number).filter(Boolean) as string[];
+  const extToAgent = new Map(rows.filter((a) => a.extension?.number).map((a) => [a.extension!.number, a.id]));
+
+  const calls = await prisma.call.findMany({
+    where: {
+      OR: [
+        { agentId: { in: agentIds } },
+        { callerNumber: { in: extensions } },
+        { destinationNumber: { in: extensions } },
+      ],
+    },
+    select: {
+      agentId: true,
+      callerNumber: true,
+      destinationNumber: true,
+      status: true,
+      disposition: true,
+      durationSec: true,
+      startedAt: true,
+    },
+  });
+
+  const perf = new Map<string, AgentPerformance>();
+
+  for (const a of rows) {
+    perf.set(a.id, {
+      callsHandled: 0,
+      callsMissed: 0,
+      avgHandleTime: 0,
+      totalTalkTime: 0,
+      satisfaction: 100,
+      occupancy: 0,
+    });
+  }
+
+  for (const c of calls) {
+    const agentId =
+      c.agentId ||
+      extToAgent.get(c.destinationNumber) ||
+      extToAgent.get(c.callerNumber);
+
+    if (!agentId || !perf.has(agentId)) continue;
+
+    const p = perf.get(agentId)!;
+    const disposition = String(c.disposition || '').toLowerCase();
+    const status = String(c.status || '').toLowerCase();
+    const duration = Number(c.durationSec || 0) || 0;
+
+    const answered =
+      disposition === 'answered' ||
+      status === 'ended' ||
+      status === 'active' ||
+      duration > 0;
+
+    const missed =
+      disposition === 'missed' ||
+      disposition === 'no_answer' ||
+      disposition === 'abandoned' ||
+      disposition === 'busy' ||
+      status === 'missed' ||
+      status === 'failed';
+
+    if (answered) {
+      p.callsHandled += 1;
+      p.totalTalkTime += duration;
+    } else if (missed) {
+      p.callsMissed += 1;
+    }
+  }
+
+  for (const p of perf.values()) {
+    p.avgHandleTime = p.callsHandled ? Math.round(p.totalTalkTime / p.callsHandled) : 0;
+    const total = p.callsHandled + p.callsMissed;
+    p.satisfaction = total ? Math.round((p.callsHandled / total) * 100) : 0;
+    p.occupancy = Math.min(100, Math.round((p.totalTalkTime / (8 * 60 * 60)) * 100));
+  }
+
+  res.json(rows.map((a) => serialize(a, perf.get(a.id))));
 }
 
 export async function create(req: Request, res: Response) {
