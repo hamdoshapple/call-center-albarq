@@ -214,7 +214,10 @@ async function buildIvrDialplan(menu: any) {
   lines.push('[cc-ivr-main]');
   lines.push('exten => s,1,NoOp(Albarq IVR Main - Caller ${CALLERID(num)})');
   lines.push(' same => n,Answer()');
-  lines.push(' same => n,Set(__REAL_CALLER=${IF($["${CALLERID(num)}"="20001"]?${CALLERID(name)}:${CALLERID(num)})})');
+  lines.push(' same => n,Set(__FROM_HDR=${PJSIP_HEADER(read,From)})');
+  lines.push(' same => n,Set(__FROM_NAME=${CUT(FROM_HDR,<,1)})');
+  lines.push(' same => n,Set(__FROM_NAME=${FILTER(0-9+,${FROM_NAME})})');
+  lines.push(' same => n,Set(__REAL_CALLER=${IF($["${FROM_NAME}"!=""]?${FROM_NAME}:${CALLERID(num)})})');
   lines.push(' same => n,Set(CALLERID(num)=${REAL_CALLER})');
   lines.push(' same => n,Set(CALLERID(name)=${REAL_CALLER})');
   lines.push(' same => n(start),NoOp(Playing IVR prompt)');
@@ -287,7 +290,7 @@ async function buildQueuesConf() {
     if (!qnum) continue;
 
     lines.push(`[${qnum}]`);
-    lines.push(`musicclass=${safeDialplanValue(q.musicOnHold || 'default') || 'default'}`);
+    lines.push('musicclass=queue_wait');
     lines.push(`strategy=${mapQueueStrategy(q.strategy)}`);
     lines.push('timeout=15');
     lines.push('retry=3');
