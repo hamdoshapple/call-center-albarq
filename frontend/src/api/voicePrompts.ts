@@ -45,3 +45,20 @@ export async function deletePrompt(id: string) {
   await api(`/voice-prompts/${id}`, { method: 'DELETE' });
   return { success: true };
 }
+
+export async function uploadPrompt(input: { name: string; category: string; language: string; file: File }) {
+  const form = new FormData();
+  form.append('name', input.name);
+  form.append('category', input.category);
+  form.append('language', input.language);
+  form.append('file', input.file);
+
+  const res = await fetch(`${API_BASE}/voice-prompts/upload`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token()}` },
+    body: form,
+  });
+
+  if (!res.ok) throw new Error(await res.text() || `API error ${res.status}`);
+  return mapPrompt(await res.json());
+}

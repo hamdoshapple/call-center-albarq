@@ -50,3 +50,16 @@ export interface AgentLiveStatus {
 export function listAgentStatuses() {
   return api<AgentLiveStatus[]>('/asterisk/agent-statuses');
 }
+
+
+export interface HeldCall {
+  id: string;
+  customerChannel: string;
+  customerNumber?: string;
+  agentExtension: string;
+  heldAt: string;
+}
+
+export function listHeldCalls() {
+  return api<HeldCall[]>('/asterisk/held-calls');
+}

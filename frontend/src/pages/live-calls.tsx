@@ -20,7 +20,7 @@ import { PageHeader } from '@/components/shared/page-header';
 import { StatCard } from '@/components/shared/stat-card';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { EmptyState } from '@/components/shared/empty-state';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
@@ -73,6 +73,7 @@ export function LiveCallsPage() {
   });
   const { data: agents = [] } = useQuery({ queryKey: ['agents'], queryFn: agentsApi.listAgents });
   const { data: agentStatuses = [] } = useQuery({ queryKey: ['agent-statuses'], queryFn: asteriskApi.listAgentStatuses, refetchInterval: 3000 });
+  const { data: heldCalls = [] } = useQuery({ queryKey: ['held-calls'], queryFn: asteriskApi.listHeldCalls, refetchInterval: 3000 });
   const { data: queues = [] } = useQuery({ queryKey: ['queues'], queryFn: queuesApi.listQueues });
   const { data: lines = [] } = useQuery({ queryKey: ['lines'], queryFn: tg400Api.listLines });
 
@@ -88,6 +89,16 @@ export function LiveCallsPage() {
   const unhold = useMutation({
     mutationFn: (id: string) => liveCallsApi.unholdCall(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['live-calls'] }),
+  });
+
+  const resumeHeld = useMutation({
+    mutationFn: (id: string) => liveCallsApi.unholdCall(id),
+    onSuccess: () => {
+      toast({ title: 'تم الاستئناف', description: 'تمت إعادة المكالمة إلى الموظف.' });
+      qc.invalidateQueries({ queryKey: ['held-calls'] });
+      qc.invalidateQueries({ queryKey: ['live-calls'] });
+    },
+    onError: () => toast({ title: 'فشل الاستئناف', description: 'تعذر استئناف المكالمة.', variant: 'destructive' }),
   });
 
   const hangup = useMutation({
@@ -258,6 +269,33 @@ export function LiveCallsPage() {
                 </Button>
               </div>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {heldCalls.length > 0 && (
+        <Card className="border-warning/40 bg-warning/5">
+          <CardHeader>
+            <CardTitle className="text-base">المكالمات المعلقة</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {heldCalls.map((h) => (
+              <div key={h.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background p-3">
+                <div>
+                  <div className="font-medium tabular-nums">{h.customerNumber || 'زبون'}</div>
+                  <div className="text-xs text-muted-foreground">معلقة عند الموظف {h.agentExtension}</div>
+                </div>
+                <Button
+                  variant="success"
+                  size="sm"
+                  disabled={resumeHeld.isPending}
+                  onClick={() => resumeHeld.mutate(h.id)}
+                >
+                  <Phone className="h-4 w-4" />
+                  استئناف
+                </Button>
+              </div>
+            ))}
           </CardContent>
         </Card>
       )}

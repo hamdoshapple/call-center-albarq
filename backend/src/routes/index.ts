@@ -55,8 +55,11 @@ router.delete('/ivr/:id', perm('ivr', 'delete'), h(ivr.remove));
 
 // ---------- Voice prompts ----------
 router.get('/voice-prompts', perm('voice_prompts'), h(prompts.list));
+router.get('/voice-prompts/:fileName/audio', perm('voice_prompts'), h(prompts.audio));
 router.post('/voice-prompts', perm('voice_prompts', 'create'), h(prompts.create));
+router.post('/voice-prompts/upload', perm('voice_prompts', 'create'), prompts.uploadVoicePrompt, h(prompts.upload));
 router.put('/voice-prompts/:id', perm('voice_prompts', 'edit'), h(prompts.update));
+router.post('/voice-prompts/:id/set-moh', perm('voice_prompts', 'edit'), h(prompts.setAsMoh));
 router.delete('/voice-prompts/:id', perm('voice_prompts', 'delete'), h(prompts.remove));
 
 // ---------- TG400 lines ----------

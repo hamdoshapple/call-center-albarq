@@ -55,6 +55,8 @@ services:
       - "4000:4000"
     volumes:
       - /var/spool/asterisk/monitor:/var/spool/asterisk/monitor:ro
+      - /var/lib/asterisk/sounds/custom:/var/lib/asterisk/sounds/custom:rw
+      - /var/lib/asterisk/moh:/var/lib/asterisk/moh:rw
 
   frontend:
     build: ./frontend
