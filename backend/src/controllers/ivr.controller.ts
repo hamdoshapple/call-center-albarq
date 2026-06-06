@@ -100,34 +100,6 @@ async function getAgentExtension(agentIdOrNumber?: string | null) {
   return agent?.extension?.sipUsername || agent?.extension?.number || value;
 }
 
-async function getQueueDialTargets(value?: string | null) {
-  const v = safeDialplanValue(value);
-
-  const queue = await prisma.queue.findFirst({
-    where: {
-      OR: [
-        { id: v },
-        { number: v },
-        { name: v },
-      ],
-    },
-    include: {
-      members: {
-        include: {
-          agent: { include: { extension: true } },
-        },
-      },
-    },
-  });
-
-  const targets = (queue?.members || [])
-    .map((m) => m.agent.extension?.sipUsername || m.agent.extension?.number)
-    .filter(Boolean)
-    .map((n) => `PJSIP/${n}`);
-
-  return targets.length ? targets.join('&') : 'PJSIP/101&PJSIP/33';
-}
-
 async function getDepartmentDialTargets(value?: string | null) {
   const v = safeDialplanValue(value);
 
@@ -162,7 +134,9 @@ async function optionDialplan(option: any) {
       return [
         ` same => n,NoOp(IVR ${option.key}: ${label} -> agent ${ext})`,
         ` same => n,Dial(PJSIP/${ext || '101'},30,b(set-real-cid^s^1($\{REAL_CALLER})))`,
-        ` same => n,Goto(cc-ivr-main,s,start)`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"=\"1\"]?Playback(/var/lib/asterisk/moh/queue_wait))`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"!=\"1\"]?Playback(vm-nobodyavail))`,
+        ` same => n,Hangup()`,
       ].join('\n');
     }
 
@@ -170,7 +144,9 @@ async function optionDialplan(option: any) {
       return [
         ` same => n,NoOp(IVR ${option.key}: ${label} -> external ${value})`,
         ` same => n,Dial(PJSIP/${value}@20001,60)`,
-        ` same => n,Goto(cc-ivr-main,s,start)`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"=\"1\"]?Playback(/var/lib/asterisk/moh/queue_wait))`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"!=\"1\"]?Playback(vm-nobodyavail))`,
+        ` same => n,Hangup()`,
       ].join('\n');
 
     case 'ivr':
@@ -188,7 +164,9 @@ async function optionDialplan(option: any) {
     case 'voicemail':
       return [
         ` same => n,Playback(vm-nobodyavail)`,
-        ` same => n,Goto(cc-ivr-main,s,start)`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"=\"1\"]?Playback(/var/lib/asterisk/moh/queue_wait))`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"!=\"1\"]?Playback(vm-nobodyavail))`,
+        ` same => n,Hangup()`,
       ].join('\n');
 
     case 'queue': {
@@ -200,8 +178,12 @@ async function optionDialplan(option: any) {
 
       return [
         ` same => n,NoOp(IVR ${option.key}: ${label} -> REAL Queue ${qnum})`,
+        ` same => n,Set(CALLERID(num)=\${REAL_CALLER})`,
+        ` same => n,Set(CALLERID(name)=\${REAL_CALLER})`,
         ` same => n,Queue(${qnum},t,,,${wait})`,
-        ` same => n,Goto(cc-ivr-main,s,start)`,
+        ` same => n,ExecIf($["\${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}"="1"]?Playback(/var/lib/asterisk/moh/queue_wait))`,
+        ` same => n,ExecIf($["\${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}"!="1"]?Playback(vm-nobodyavail))`,
+        ` same => n,Hangup()`,
       ].join('\n');
     }
 
@@ -210,7 +192,9 @@ async function optionDialplan(option: any) {
       return [
         ` same => n,NoOp(IVR ${option.key}: ${label} -> DB department ${value})`,
         ` same => n,Dial(${dialTarget},30,b(set-real-cid^s^1(\${REAL_CALLER})))`,
-        ` same => n,Goto(cc-ivr-main,s,start)`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"=\"1\"]?Playback(/var/lib/asterisk/moh/queue_wait))`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"!=\"1\"]?Playback(vm-nobodyavail))`,
+        ` same => n,Hangup()`,
       ].join('\n');
     }
 
@@ -218,7 +202,9 @@ async function optionDialplan(option: any) {
       return [
         ` same => n,NoOp(IVR ${option.key}: ${label} -> default agents)`,
         ` same => n,Dial(PJSIP/101&PJSIP/33,30,b(set-real-cid^s^1($\{REAL_CALLER})))`,
-        ` same => n,Goto(cc-ivr-main,s,start)`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"=\"1\"]?Playback(/var/lib/asterisk/moh/queue_wait))`,
+        ` same => n,ExecIf($[\"${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}\"!=\"1\"]?Playback(vm-nobodyavail))`,
+        ` same => n,Hangup()`,
       ].join('\n');
   }
 }
@@ -233,7 +219,9 @@ async function buildIvrDialplan(menu: any) {
   lines.push('[cc-ivr-main]');
   lines.push('exten => s,1,NoOp(Albarq IVR Main - Caller ${CALLERID(num)})');
   lines.push(' same => n,Answer()');
-  lines.push(' same => n,Set(__REAL_CALLER=${CALLERID(num)})');
+  lines.push(' same => n,Set(__REAL_CALLER=${IF($["${CALLERID(num)}"="20001"]?${CALLERID(name)}:${CALLERID(num)})})');
+  lines.push(' same => n,Set(CALLERID(num)=${REAL_CALLER})');
+  lines.push(' same => n,Set(CALLERID(name)=${REAL_CALLER})');
   lines.push(' same => n(start),NoOp(Playing IVR prompt)');
   lines.push(' same => n,ExecIf($["${STAT(e,/var/lib/asterisk/moh/' + promptSound + '.wav)}"="1"]?Background(/var/lib/asterisk/moh/' + promptSound + '))');
   lines.push(` same => n,WaitExten(${timeout})`);

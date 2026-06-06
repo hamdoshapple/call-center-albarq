@@ -484,6 +484,14 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
       case 'BridgeEnter':
         this.upsertCall(ev);
         break;
+      case 'QueueCallerJoin':
+      case 'QueueCallerLeave':
+      case 'AgentCalled':
+      case 'AgentConnect':
+      case 'AgentComplete':
+      case 'QueueMemberStatus':
+        this.upsertQueueCall(ev);
+        break;
       case 'Hangup':
         this.endCall(ev);
         break;
@@ -501,6 +509,57 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
         this.removeParkedCall(ev);
         break;
     }
+  }
+
+
+  private upsertQueueCall(ev: AmiEvent) {
+    const uniqueId = ev.Linkedid || ev.Uniqueid || ev.UniqueID || ev.Channel;
+    if (!uniqueId) return;
+
+    const existing = this.calls.get(uniqueId);
+    const channel = ev.Channel || existing?.channel || '';
+    const iface = ev.Interface || ev.MemberName || ev.DestChannel || '';
+
+    const extMatch = `${iface} ${channel}`.match(/PJSIP\/(\d+)/);
+    const ext = extMatch?.[1];
+    const agentExtension = ext && !isTrunkExtension(ext) ? ext : existing?.agentExtension;
+
+    const callerNumber = bestCallerNumber(
+      ev.CallerIDName,
+      ev.CallerIDNum,
+      ev.CallerID,
+      ev.ConnectedLineNum,
+      existing?.callerNumber
+    );
+
+    const queue = ev.Queue || ev.QueueName || existing?.queue;
+
+    let status: AsteriskLiveCall['status'] = existing?.status || 'waiting';
+    if (ev.Event === 'AgentConnect' || ev.Event === 'BridgeEnter') status = 'active';
+    if (ev.Event === 'QueueCallerLeave' || ev.Event === 'AgentComplete') status = 'ended';
+
+    const call: AsteriskLiveCall = {
+      uniqueId,
+      channel,
+      callerNumber,
+      destinationNumber: agentExtension || queue || ev.Exten || existing?.destinationNumber || '7000',
+      direction: existing?.direction || 'inbound',
+      status,
+      agentExtension,
+      queue,
+      line: existing?.line || 'TG400-20001',
+      startedAt: existing?.startedAt || new Date().toISOString(),
+      durationSec: existing ? Math.floor((Date.now() - new Date(existing.startedAt).getTime()) / 1000) : 0,
+    };
+
+    if (status === 'ended') {
+      this.calls.delete(uniqueId);
+      this.emit('call:end', call);
+      return;
+    }
+
+    this.calls.set(uniqueId, call);
+    this.emit(existing ? 'call:update' : 'call:new', call);
   }
 
   private upsertCall(ev: AmiEvent) {
@@ -528,13 +587,17 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
     const existing = this.calls.get(uniqueId);
     const channel = ev.Channel || existing?.channel || '';
 
-    const callerNumber = bestCallerNumber(
+    let callerNumber = bestCallerNumber(
       ev.CallerIDName,
       ev.ConnectedLineName,
       ev.CallerIDNum,
       ev.CallerID,
       existing?.callerNumber
     );
+
+    if (callerNumber === '20001' && ev.CallerIDName && ev.CallerIDName !== '20001') {
+      callerNumber = ev.CallerIDName;
+    }
 
     const agentMatch = `${channel} ${ev.DestChannel || ''}`.match(/PJSIP\/(\d+)/);
     const matchedExtension = agentMatch?.[1];
