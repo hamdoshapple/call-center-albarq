@@ -87,11 +87,15 @@ export async function holdCall(id: string) {
   });
 }
 
-export async function unholdCall(id: string) {
+export async function unholdCall(id: string, parkingSpace?: string, targetExtension?: string) {
   return api('/asterisk/control/unhold', {
     method: 'POST',
-    body: JSON.stringify({ uniqueId: id }),
+    body: JSON.stringify({ uniqueId: id, parkingSpace, targetExtension }),
   });
+}
+
+export async function listParkedCalls() {
+  return api<Array<{ parkingSpace: string; parkingLot?: string; channel?: string; parkedAt: string }>>('/asterisk/parked-calls');
 }
 
 export async function hangupCall(id: string) {

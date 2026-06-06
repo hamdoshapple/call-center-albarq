@@ -48,6 +48,8 @@ const controlSchema = z.object({
   targetLabel: z.string().optional(),
   transferType: z.string().optional(),
   callerNumber: z.string().optional(),
+  parkingSpace: z.string().optional(),
+  targetExtension: z.string().optional(),
 });
 
 export async function control(req: Request, res: Response) {
@@ -59,7 +61,22 @@ export async function control(req: Request, res: Response) {
     case 'answer': await gw.answer(body.uniqueId!); break;
     case 'hangup': await gw.hangup(body.uniqueId!); break;
     case 'hold': await gw.hold(body.uniqueId!); break;
-    case 'unhold': await gw.unhold(body.uniqueId!); break;
+    case 'unhold': {
+      if (body.parkingSpace) {
+        const targetExtension = body.targetExtension || req.user?.extension;
+        if (!targetExtension) {
+          return res.status(400).json({
+            code: 'TARGET_EXTENSION_REQUIRED',
+            message: 'Target extension is required to retrieve parked call'
+          });
+        }
+        await gw.retrieveParkedCall(body.parkingSpace, targetExtension);
+        break;
+      }
+
+      await gw.unhold(body.uniqueId!);
+      break;
+    }
     case 'transfer': {
       const fromAgent = req.user?.agentId
         ? await prisma.agent.findUnique({

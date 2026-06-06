@@ -65,6 +65,7 @@ export interface AsteriskGateway extends EventEmitter {
   hangup(uniqueId: string): Promise<void>;
   hold(uniqueId: string): Promise<void>;
   unhold(uniqueId: string): Promise<void>;
+  retrieveParkedCall(parkingSpace: string, targetExtension: string): Promise<void>;
   transfer(uniqueId: string, target: string, attended?: boolean): Promise<void>;
 
   // Config management (safe reload)

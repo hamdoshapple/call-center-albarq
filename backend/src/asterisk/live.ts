@@ -34,8 +34,22 @@ function callStatusFromState(state?: string): AsteriskLiveCall['status'] {
 }
 
 
+function isTrunkExtension(ext?: string): boolean {
+  return !!ext && /^(20001|2000\d|tg400)$/i.test(ext);
+}
+
 function isRealPhone(v?: string): boolean {
   return !!(v || '').match(/07\d{9,10}|\+?964\d{10}/);
+}
+
+function bestExternalNumber(...values: Array<string | undefined>): string | undefined {
+  for (const raw of values) {
+    const v = (raw || '').trim();
+    if (!v || v === '<unknown>' || v === 'unknown') continue;
+    const phone = v.match(/07\d{9,10}|\+?964\d{10}|00\d{6,15}|\d{6,15}/)?.[0];
+    if (phone && !/^\d{2,4}$/.test(phone)) return phone;
+  }
+  return undefined;
 }
 
 function bestCallerNumber(...values: Array<string | undefined>): string {
@@ -104,7 +118,29 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
 
   async getLiveCalls(): Promise<AsteriskLiveCall[]> {
     await this.refreshChannels();
-    return [...this.calls.values()];
+
+    const calls = [...this.calls.values()].map((c) => ({
+      ...c,
+      agentExtension: isTrunkExtension(c.agentExtension) ? undefined : c.agentExtension,
+    }));
+
+    const outboundNumbers = new Set(
+      calls
+        .filter((c) => c.direction === 'outbound')
+        .map((c) => c.destinationNumber)
+        .filter(Boolean)
+    );
+
+    return calls.filter((c) => {
+      const isTrunkLeg =
+        c.line === 'TG400-20001' &&
+        !c.agentExtension &&
+        c.direction === 'inbound' &&
+        c.destinationNumber === '7000' &&
+        outboundNumbers.has(c.callerNumber);
+
+      return !isTrunkLeg;
+    });
   }
 
   async getAgentStatuses(): Promise<AsteriskAgentStatus[]> {
@@ -180,7 +216,26 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
   }
 
   async unhold(_uniqueId: string): Promise<void> {
-    throw new Error('Unhold for parked calls requires parking slot retrieval');
+    throw new Error('Use retrieveParkedCall for parked calls');
+  }
+
+  async retrieveParkedCall(parkingSpace: string, targetExtension: string): Promise<void> {
+    const resp = await this.action({
+      Action: 'Originate',
+      Channel: `PJSIP/${targetExtension}`,
+      Exten: parkingSpace,
+      Context: 'parkedcalls',
+      Priority: '1',
+      CallerID: targetExtension,
+      Async: 'true',
+    });
+
+    if (!/success/i.test(resp.Response || '')) {
+      throw new Error(resp.Message || `Retrieve parked call failed: ${parkingSpace}`);
+    }
+
+    this.parkedCalls.delete(parkingSpace);
+    await this.refreshChannels();
   }
 
   async transfer(uniqueId: string, target: string, attended = false): Promise<void> {
@@ -356,15 +411,22 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
   }
 
   private upsertCall(ev: AmiEvent) {
-    if (ev.Event === 'Newchannel' || ev.Event === 'Newstate') {
+    if (['Newchannel', 'Newstate', 'DialBegin', 'DialEnd'].includes(ev.Event || '')) {
       console.log('[AMI CALLER]', {
         Event: ev.Event,
         Channel: ev.Channel,
+        DestChannel: ev.DestChannel,
+        Exten: ev.Exten,
+        DestExten: ev.DestExten,
+        Application: ev.Application,
+        ApplicationData: ev.ApplicationData,
         CallerIDName: ev.CallerIDName,
         CallerIDNum: ev.CallerIDNum,
-        CallerID: ev.CallerID,
         ConnectedLineName: ev.ConnectedLineName,
         ConnectedLineNum: ev.ConnectedLineNum,
+        DialString: ev.DialString,
+        Uniqueid: ev.Uniqueid,
+        Linkedid: ev.Linkedid,
       });
     }
     const uniqueId = ev.Uniqueid || ev.UniqueID || ev.Linkedid || ev.Channel;
@@ -381,22 +443,42 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
       existing?.callerNumber
     );
 
-    const destinationNumber =
-      ev.Exten ||
-      ev.DestExten ||
-      ev.ConnectedLineNum ||
-      existing?.destinationNumber ||
-      'unknown';
-
     const agentMatch = `${channel} ${ev.DestChannel || ''}`.match(/PJSIP\/(\d+)/);
-    const agentExtension = agentMatch?.[1] || existing?.agentExtension;
+    const matchedExtension = agentMatch?.[1];
+    const agentExtension = !isTrunkExtension(matchedExtension)
+      ? (matchedExtension || existing?.agentExtension)
+      : existing?.agentExtension;
+
+    const externalNumber = bestExternalNumber(
+      ev.Exten,
+      ev.DestExten,
+      ev.ConnectedLineNum,
+      ev.ConnectedLineName,
+      ev.ApplicationData,
+      existing?.destinationNumber
+    );
+
+    const isOutbound =
+      !!agentExtension &&
+      !!externalNumber &&
+      externalNumber !== agentExtension &&
+      !['7000', 's', 'unknown'].includes(String(externalNumber));
+
+    const destinationNumber =
+      isOutbound
+        ? externalNumber
+        : ev.Exten ||
+          ev.DestExten ||
+          ev.ConnectedLineNum ||
+          existing?.destinationNumber ||
+          'unknown';
 
     const call: AsteriskLiveCall = {
       uniqueId,
       channel,
-      callerNumber,
+      callerNumber: isOutbound ? agentExtension : callerNumber,
       destinationNumber,
-      direction: existing?.direction || 'inbound',
+      direction: isOutbound ? 'outbound' : (existing?.direction || 'inbound'),
       status: callStatusFromState(ev.ChannelStateDesc || ev.DialStatus),
       agentExtension,
       queue: existing?.queue,
@@ -468,28 +550,25 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
   private async refreshParkedCalls(): Promise<void> {
     if (!this.loggedIn) return;
 
-    const resp = await this.action({ Action: 'Command', Command: 'parking show' });
-    const output = resp.Output || '';
+    const resp = await this.action({
+      Action: 'ParkedCalls',
+      ParkingLot: 'default',
+    });
+
     const next = new Map<string, AsteriskParkedCall>();
+    const raw = resp as Record<string, string>;
 
-    const parkedSection = output.split(/Parked Calls\s*-+/i)[1] || '';
-    if (!parkedSection || /\(none\)/i.test(parkedSection)) {
-      this.parkedCalls = next;
-      return;
-    }
+    const chunks = Object.values(raw).join('\n');
 
-    for (const line of parkedSection.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
+    for (const line of chunks.split('\n')) {
+      const spaceMatch = line.match(/\b(70[1-9]|71[0-9]|720)\b/);
+      if (!spaceMatch) continue;
 
-      const m = trimmed.match(/^(70[1-9]|71[0-9]|720)\b/);
-      if (!m) continue;
-
-      const space = m[1];
+      const space = spaceMatch[1];
       next.set(space, {
         parkingSpace: space,
         parkingLot: 'default',
-        channel: trimmed,
+        channel: line.trim(),
         parkedAt: this.parkedCalls.get(space)?.parkedAt || new Date().toISOString(),
       });
     }
@@ -533,16 +612,37 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
         isRealPhone(existing?.callerNumber)
           ? existing!.callerNumber
           : bestCallerNumber(conciseCaller, existing?.callerNumber);
-      const destinationNumber = p[2] || existing?.destinationNumber || 'unknown';
       const durationSec = Number(p[12] || 0) || existing?.durationSec || 0;
       const agentMatch = channel.match(/PJSIP\/(\d+)/);
+      const matchedExtension = agentMatch?.[1];
+    const agentExtension = !isTrunkExtension(matchedExtension)
+      ? (matchedExtension || existing?.agentExtension)
+      : existing?.agentExtension;
+      const externalNumber = bestExternalNumber(existing?.destinationNumber, p[2], p[7], p[8], p[10]);
+      const isOutbound =
+        !!agentExtension &&
+        !isTrunkExtension(agentExtension) &&
+        !!externalNumber &&
+        externalNumber !== agentExtension &&
+        !['7000', 's', 'unknown'].includes(String(externalNumber));
+
+      const keepExistingOutbound =
+        existing?.direction === 'outbound' &&
+        !!existing.destinationNumber &&
+        existing.destinationNumber !== 'unknown';
+
+      const destinationNumber = keepExistingOutbound
+        ? existing.destinationNumber
+        : isOutbound
+          ? externalNumber
+          : (p[2] || existing?.destinationNumber || 'unknown');
 
       const call: AsteriskLiveCall = {
         uniqueId,
         channel,
-        callerNumber,
+        callerNumber: keepExistingOutbound ? existing.callerNumber : (isOutbound ? agentExtension : callerNumber),
         destinationNumber,
-        direction: existing?.direction || 'inbound',
+        direction: keepExistingOutbound ? 'outbound' : (isOutbound ? 'outbound' : (existing?.direction || 'inbound')),
         status: callStatusFromState(p[4]),
         agentExtension: agentMatch?.[1] || existing?.agentExtension,
         queue: existing?.queue,
