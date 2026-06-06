@@ -38,9 +38,6 @@ function isTrunkExtension(ext?: string): boolean {
   return !!ext && /^(20001|2000\d|tg400)$/i.test(ext);
 }
 
-function isRealPhone(v?: string): boolean {
-  return !!(v || '').match(/07\d{9,10}|\+?964\d{10}/);
-}
 
 function bestExternalNumber(...values: Array<string | undefined>): string | undefined {
   for (const raw of values) {
@@ -178,32 +175,64 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
     });
   }
 
-  private async findCallChannel(uniqueId: string): Promise<string> {
+  async hold(uniqueId: string): Promise<void> {
     await this.refreshChannels();
 
-    const call =
-      this.calls.get(uniqueId) ||
-      [...this.calls.values()].find((c) => c.channel === uniqueId || c.uniqueId === uniqueId);
+    const respChannels = await this.action({
+      Action: 'Command',
+      Command: 'core show channels concise',
+    });
 
-    const fallbackCall = call || [...this.calls.values()][0];
+    const output = respChannels.Output || '';
+    const rows = output
+      .split('\n')
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const p = line.split('!');
+        const channel = p[0] || '';
+        return {
+          line,
+          channel,
+          context: p[1] || '',
+          exten: p[2] || '',
+          app: p[5] || '',
+          data: p[6] || '',
+          caller: p[7] || p[8] || p[10] || '',
+          uniqueId: p[13] || p[11] || channel,
+          linkedId: p[14] || p[13] || p[11] || channel,
+        };
+      });
 
-    if (!fallbackCall?.channel) {
-      throw new Error(`Channel not found: ${uniqueId}`);
+    const selected =
+      rows.find((r) => r.uniqueId === uniqueId || r.linkedId === uniqueId || r.channel === uniqueId) ||
+      rows.find((r) => this.calls.get(uniqueId)?.channel === r.channel);
+
+    const selectedLinkedId = selected?.linkedId || uniqueId;
+
+    const group = rows.filter((r) => r.linkedId === selectedLinkedId || r.uniqueId === selectedLinkedId);
+
+    const tg400Leg =
+      group.find((r) => r.channel.includes('PJSIP/20001')) ||
+      rows.find((r) => r.channel.includes('PJSIP/20001') && (r.context === 'from-tg400' || r.exten === '7000'));
+
+    const agentLeg =
+      group.find((r) => /^PJSIP\/(?!20001)\d+/.test(r.channel)) ||
+      selected;
+
+    // Inbound from TG400: park the TG400/customer side.
+    // Fallback: use selected/agent channel only if there is no TG400 leg.
+    const channel = tg400Leg?.channel || agentLeg?.channel;
+
+    if (!channel) {
+      throw new Error(`Channel not found for park: ${uniqueId}`);
     }
 
-    return fallbackCall.channel;
-  }
-
-  async hold(uniqueId: string): Promise<void> {
-    const channel = await this.findCallChannel(uniqueId);
-
-    console.log('[AMI PARK] parking channel', channel);
+    console.log('[AMI PARK] selected', { uniqueId, selected, tg400Leg, agentLeg, parkingChannel: channel });
 
     const resp = await this.action({
       Action: 'Park',
       Channel: channel,
-      TimeoutChannel: channel,
-      AnnounceChannel: channel,
       Timeout: '0',
       Parkinglot: 'default',
     });
@@ -213,6 +242,9 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
     if (!/success/i.test(resp.Response || '')) {
       throw new Error(resp.Message || 'Park failed');
     }
+
+    await this.refreshParkedCalls();
+    await this.refreshChannels();
   }
 
   async unhold(_uniqueId: string): Promise<void> {
@@ -598,60 +630,147 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
     if (!this.loggedIn) return;
     const resp = await this.action({ Action: 'Command', Command: 'core show channels concise' });
     const output = resp.Output || '';
+
+    type Row = {
+      line: string;
+      channel: string;
+      context: string;
+      exten: string;
+      state: string;
+      app: string;
+      data: string;
+      caller: string;
+      durationSec: number;
+      uniqueId: string;
+      linkedId: string;
+      agentExtension?: string;
+      isTrunk: boolean;
+    };
+
+    const rows: Row[] = output
+      .split('\n')
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const p = line.split('!');
+        const channel = p[0] || '';
+        const m = channel.match(/PJSIP\/(\d+)/);
+        const ext = m?.[1];
+
+        return {
+          line,
+          channel,
+          context: p[1] || '',
+          exten: p[2] || '',
+          state: p[4] || '',
+          app: p[5] || '',
+          data: p[6] || '',
+          caller: p[7] || p[8] || p[10] || '',
+          durationSec: Number(p[12] || 0) || 0,
+          uniqueId: p[13] || p[11] || channel,
+          linkedId: p[14] || p[13] || p[11] || channel,
+          agentExtension: ext && !isTrunkExtension(ext) ? ext : undefined,
+          isTrunk: !!ext && isTrunkExtension(ext),
+        };
+      });
+
     const seen = new Set<string>();
+    const next = new Map<string, AsteriskLiveCall>();
 
-    for (const line of output.split('\n').map((x) => x.trim()).filter(Boolean)) {
-      const p = line.split('!');
-      const channel = p[0] || '';
-      const uniqueId = p[11] || channel;
-      seen.add(uniqueId);
+    const groups = new Map<string, Row[]>();
+    for (const row of rows) {
+      const key = row.linkedId || row.uniqueId;
+      groups.set(key, [...(groups.get(key) || []), row]);
+    }
 
-      const existing = this.calls.get(uniqueId);
-      const conciseCaller = bestCallerNumber(p[7], p[8], p[10]);
-      const callerNumber =
-        isRealPhone(existing?.callerNumber)
-          ? existing!.callerNumber
-          : bestCallerNumber(conciseCaller, existing?.callerNumber);
-      const durationSec = Number(p[12] || 0) || existing?.durationSec || 0;
-      const agentMatch = channel.match(/PJSIP\/(\d+)/);
-      const matchedExtension = agentMatch?.[1];
-    const agentExtension = !isTrunkExtension(matchedExtension)
-      ? (matchedExtension || existing?.agentExtension)
-      : existing?.agentExtension;
-      const externalNumber = bestExternalNumber(existing?.destinationNumber, p[2], p[7], p[8], p[10]);
+    const allTrunks = rows.filter((r) => r.isTrunk || r.channel.includes('20001'));
+
+    for (const [linkedId, group] of groups) {
+      let trunk = group.find((r) => r.isTrunk || r.channel.includes('20001'));
+      const agent = group.find((r) => r.agentExtension);
+      const existing = this.calls.get(linkedId) || group.map((r) => this.calls.get(r.uniqueId)).find(Boolean);
+
+      if (!trunk && agent && (agent.caller === '7000' || agent.exten === '7000')) {
+        trunk = allTrunks.find((r) => r.context === 'from-tg400' && (r.exten === '7000' || r.data.includes('PJSIP/')));
+      }
+
+      if (trunk && agent && trunk.context === 'from-tg400') {
+        const caller = bestCallerNumber(trunk.caller, trunk.data, existing?.callerNumber);
+        const call: AsteriskLiveCall = {
+          uniqueId: linkedId,
+          channel: agent.channel,
+          callerNumber: caller,
+          destinationNumber: agent.agentExtension || trunk.exten || '7000',
+          direction: 'inbound',
+          status: callStatusFromState(agent.state || trunk.state),
+          agentExtension: agent.agentExtension,
+          queue: existing?.queue,
+          line: 'TG400-20001',
+          startedAt: existing?.startedAt || new Date(Date.now() - Math.max(agent.durationSec, trunk.durationSec) * 1000).toISOString(),
+          durationSec: Math.max(agent.durationSec, trunk.durationSec),
+        };
+        next.set(linkedId, call);
+        seen.add(linkedId);
+        continue;
+      }
+
+      const row = agent || trunk || group[0];
+      const agentExtension = row.agentExtension || existing?.agentExtension;
+      const externalNumber = bestExternalNumber(existing?.destinationNumber, row.exten, row.caller, row.data);
+
+      const looksLikeTg400Inbound =
+        !!agentExtension &&
+        !isTrunkExtension(agentExtension) &&
+        (row.caller === '7000' || row.exten === '7000' || row.context === 'from-tg400' || existing?.line === 'TG400-20001') &&
+        !!externalNumber;
+
       const isOutbound =
+        !looksLikeTg400Inbound &&
         !!agentExtension &&
         !isTrunkExtension(agentExtension) &&
         !!externalNumber &&
         externalNumber !== agentExtension &&
         !['7000', 's', 'unknown'].includes(String(externalNumber));
 
-      const keepExistingOutbound =
-        existing?.direction === 'outbound' &&
-        !!existing.destinationNumber &&
-        existing.destinationNumber !== 'unknown';
-
-      const destinationNumber = keepExistingOutbound
-        ? existing.destinationNumber
-        : isOutbound
-          ? externalNumber
-          : (p[2] || existing?.destinationNumber || 'unknown');
-
       const call: AsteriskLiveCall = {
-        uniqueId,
-        channel,
-        callerNumber: keepExistingOutbound ? existing.callerNumber : (isOutbound ? agentExtension : callerNumber),
-        destinationNumber,
-        direction: keepExistingOutbound ? 'outbound' : (isOutbound ? 'outbound' : (existing?.direction || 'inbound')),
-        status: callStatusFromState(p[4]),
-        agentExtension: agentMatch?.[1] || existing?.agentExtension,
+        uniqueId: linkedId,
+        channel: row.channel,
+        callerNumber: looksLikeTg400Inbound ? externalNumber! : (isOutbound ? agentExtension : bestCallerNumber(row.caller, existing?.callerNumber)),
+        destinationNumber: looksLikeTg400Inbound ? agentExtension! : (isOutbound ? externalNumber! : (row.exten || existing?.destinationNumber || 'unknown')),
+        direction: looksLikeTg400Inbound ? 'inbound' : (isOutbound ? 'outbound' : (existing?.direction || 'inbound')),
+        status: callStatusFromState(row.state),
+        agentExtension,
         queue: existing?.queue,
-        line: channel.includes('20001') ? 'TG400-20001' : existing?.line,
-        startedAt: existing?.startedAt || new Date(Date.now() - durationSec * 1000).toISOString(),
-        durationSec,
+        line: looksLikeTg400Inbound || group.some((r) => r.channel.includes('20001')) ? 'TG400-20001' : existing?.line,
+        startedAt: existing?.startedAt || new Date(Date.now() - row.durationSec * 1000).toISOString(),
+        durationSec: row.durationSec || existing?.durationSec || 0,
       };
 
-      this.calls.set(uniqueId, call);
+      next.set(linkedId, call);
+      seen.add(linkedId);
+    }
+
+    const inboundCallerNumbers = new Set(
+      [...next.values()]
+        .filter((c) => c.direction === 'inbound' && !!c.agentExtension)
+        .map((c) => c.callerNumber)
+    );
+
+    for (const [id, call] of [...next.entries()]) {
+      const isDuplicateTrunk =
+        call.line === 'TG400-20001' &&
+        !call.agentExtension &&
+        call.destinationNumber === '7000' &&
+        inboundCallerNumbers.has(call.callerNumber);
+
+      if (isDuplicateTrunk) {
+        next.delete(id);
+      }
+    }
+
+    for (const [id, call] of next) {
+      const existing = this.calls.get(id);
+      this.calls.set(id, call);
       this.emit(existing ? 'call:update' : 'call:new', call);
     }
 
