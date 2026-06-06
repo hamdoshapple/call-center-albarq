@@ -77,27 +77,100 @@ export async function remove(req: Request, res: Response) {
 }
 
 
+
 function safeDialplanValue(v?: string | null) {
   return String(v || '').replace(/[^0-9A-Za-z_+*@#.-]/g, '');
 }
 
-function optionDialplan(option: any) {
+async function getAgentExtension(agentIdOrNumber?: string | null) {
+  const value = safeDialplanValue(agentIdOrNumber);
+  if (!value) return '';
+
+  const agent = await prisma.agent.findFirst({
+    where: {
+      OR: [
+        { id: value },
+        { extension: { number: value } },
+        { extension: { sipUsername: value } },
+      ],
+    },
+    include: { extension: true },
+  });
+
+  return agent?.extension?.sipUsername || agent?.extension?.number || value;
+}
+
+async function getQueueDialTargets(value?: string | null) {
+  const v = safeDialplanValue(value);
+
+  const queue = await prisma.queue.findFirst({
+    where: {
+      OR: [
+        { id: v },
+        { number: v },
+        { name: v },
+      ],
+    },
+    include: {
+      members: {
+        include: {
+          agent: { include: { extension: true } },
+        },
+      },
+    },
+  });
+
+  const targets = (queue?.members || [])
+    .map((m) => m.agent.extension?.sipUsername || m.agent.extension?.number)
+    .filter(Boolean)
+    .map((n) => `PJSIP/${n}`);
+
+  return targets.length ? targets.join('&') : 'PJSIP/101&PJSIP/33';
+}
+
+async function getDepartmentDialTargets(value?: string | null) {
+  const v = safeDialplanValue(value);
+
+  const department = await prisma.department.findFirst({
+    where: {
+      OR: [
+        { id: v },
+        { name: v },
+        { nameEn: v },
+      ],
+    },
+    include: {
+      agents: { include: { extension: true } },
+    },
+  });
+
+  const targets = (department?.agents || [])
+    .map((a) => a.extension?.sipUsername || a.extension?.number)
+    .filter(Boolean)
+    .map((n) => `PJSIP/${n}`);
+
+  return targets.length ? targets.join('&') : 'PJSIP/101&PJSIP/33';
+}
+
+async function optionDialplan(option: any) {
   const value = safeDialplanValue(option.destinationValue || option.destinationId);
   const label = String(option.label || option.key || '').replace(/"/g, '');
 
   switch (option.destinationType) {
-    case 'agent':
+    case 'agent': {
+      const ext = await getAgentExtension(value);
       return [
-        ` same => n,NoOp(IVR ${option.key}: ${label} -> agent ${value})`,
-        ` same => n,Dial(PJSIP/${value || '102'},30)`,
-        ` same => n,Hangup()`,
+        ` same => n,NoOp(IVR ${option.key}: ${label} -> agent ${ext})`,
+        ` same => n,Dial(PJSIP/${ext || '101'},30,b(set-real-cid^s^1($\{REAL_CALLER})))`,
+        ` same => n,Goto(cc-ivr-main,s,start)`,
       ].join('\n');
+    }
 
     case 'external':
       return [
         ` same => n,NoOp(IVR ${option.key}: ${label} -> external ${value})`,
         ` same => n,Dial(PJSIP/${value}@20001,60)`,
-        ` same => n,Hangup()`,
+        ` same => n,Goto(cc-ivr-main,s,start)`,
       ].join('\n');
 
     case 'ivr':
@@ -115,50 +188,52 @@ function optionDialplan(option: any) {
     case 'voicemail':
       return [
         ` same => n,Playback(vm-nobodyavail)`,
-        ` same => n,Hangup()`,
+        ` same => n,Goto(cc-ivr-main,s,start)`,
       ].join('\n');
 
-    case 'queue':
-    case 'department': {
-      const groups: Record<string, string> = {
-        '2009': 'PJSIP/33&PJSIP/101&PJSIP/202',
-        '2000': 'PJSIP/101',
-        '2001': 'PJSIP/202',
-        '2002': 'PJSIP/33',
-      };
-
-      const dialTarget = groups[value] || 'PJSIP/33&PJSIP/101&PJSIP/202';
+    case 'queue': {
+      const queue = await prisma.queue.findFirst({
+        where: { OR: [{ id: value }, { number: value }, { name: value }] },
+      });
+      const qnum = safeDialplanValue(queue?.number || value);
+      const wait = Number(queue?.maxWaitTime || 60);
 
       return [
-        ` same => n,NoOp(IVR ${option.key}: ${label} -> queue/group ${value})`,
-        ` same => n,Dial(${dialTarget},30)`,
-        ' same => n,ExecIf($["${STAT(e,/var/lib/asterisk/moh/busy.wav)}"="1"]?Playback(/var/lib/asterisk/moh/busy))',
-        ` same => n,Hangup()`,
+        ` same => n,NoOp(IVR ${option.key}: ${label} -> REAL Queue ${qnum})`,
+        ` same => n,Queue(${qnum},t,,,${wait})`,
+        ` same => n,Goto(cc-ivr-main,s,start)`,
+      ].join('\n');
+    }
+
+    case 'department': {
+      const dialTarget = await getDepartmentDialTargets(value);
+      return [
+        ` same => n,NoOp(IVR ${option.key}: ${label} -> DB department ${value})`,
+        ` same => n,Dial(${dialTarget},30,b(set-real-cid^s^1(\${REAL_CALLER})))`,
+        ` same => n,Goto(cc-ivr-main,s,start)`,
       ].join('\n');
     }
 
     default:
       return [
         ` same => n,NoOp(IVR ${option.key}: ${label} -> default agents)`,
-        ` same => n,Dial(PJSIP/33&PJSIP/101&PJSIP/202,30)`,
-        ' same => n,ExecIf($["${STAT(e,/var/lib/asterisk/moh/busy.wav)}"="1"]?Playback(/var/lib/asterisk/moh/busy))',
-        ` same => n,Hangup()`,
+        ` same => n,Dial(PJSIP/101&PJSIP/33,30,b(set-real-cid^s^1($\{REAL_CALLER})))`,
+        ` same => n,Goto(cc-ivr-main,s,start)`,
       ].join('\n');
   }
 }
 
-function buildIvrDialplan(menu: any) {
+async function buildIvrDialplan(menu: any) {
   const timeout = Number(menu.timeout || 10);
-  const maxRepeats = Number(menu.maxRepeats || 3);
   const promptSound = 'ivr_main';
 
   const lines: string[] = [];
 
   lines.push('; >>> ALBARQ_IVR_AUTO_START');
   lines.push('[cc-ivr-main]');
-  lines.push('exten => s,1,NoOp(Albarq IVR Main)');
+  lines.push('exten => s,1,NoOp(Albarq IVR Main - Caller ${CALLERID(num)})');
   lines.push(' same => n,Answer()');
-  lines.push(` same => n,Set(IVR_REPEATS=0)`);
+  lines.push(' same => n,Set(__REAL_CALLER=${CALLERID(num)})');
   lines.push(' same => n(start),NoOp(Playing IVR prompt)');
   lines.push(' same => n,ExecIf($["${STAT(e,/var/lib/asterisk/moh/' + promptSound + '.wav)}"="1"]?Background(/var/lib/asterisk/moh/' + promptSound + '))');
   lines.push(` same => n,WaitExten(${timeout})`);
@@ -167,19 +242,15 @@ function buildIvrDialplan(menu: any) {
     const key = safeDialplanValue(option.key);
     if (!key) continue;
     lines.push(`exten => ${key},1,NoOp(IVR option ${key})`);
-    lines.push(optionDialplan(option));
+    lines.push(await optionDialplan(option));
   }
 
   lines.push('exten => t,1,NoOp(IVR timeout)');
-  lines.push(` same => n,Set(IVR_REPEATS=$[${'${IVR_REPEATS}'} + 1])`);
-  lines.push(` same => n,GotoIf($[${'${IVR_REPEATS}'} < ${maxRepeats}]?s,start)`);
-  lines.push(' same => n,ExecIf($["${STAT(e,/var/lib/asterisk/moh/queue_wait.wav)}"="1"]?Playback(/var/lib/asterisk/moh/queue_wait))');
-  lines.push(' same => n,Hangup()');
+  lines.push(' same => n,Goto(cc-ivr-main,s,start)');
 
   lines.push('exten => i,1,NoOp(IVR invalid option)');
-  lines.push(` same => n,Set(IVR_REPEATS=$[${'${IVR_REPEATS}'} + 1])`);
-  lines.push(` same => n,GotoIf($[${'${IVR_REPEATS}'} < ${maxRepeats}]?s,start)`);
-  lines.push(' same => n,Hangup()');
+  lines.push(' same => n,Goto(cc-ivr-main,s,start)');
+
   lines.push('; <<< ALBARQ_IVR_AUTO_END');
 
   return lines.join('\n') + '\n';
@@ -200,6 +271,79 @@ function routeFromTg400ToIvr(content: string) {
   if (!re.test(content)) return content;
   return content.replace(re, replacement);
 }
+
+
+function mapQueueStrategy(strategy?: string | null) {
+  const s = String(strategy || 'ringall');
+  if (s === 'roundrobin') return 'rrmemory';
+  if (s === 'linear') return 'linear';
+  if (s === 'leastrecent') return 'leastrecent';
+  return 'ringall';
+}
+
+async function buildQueuesConf() {
+  const queues = await prisma.queue.findMany({
+    include: {
+      members: {
+        include: {
+          agent: { include: { extension: true } },
+        },
+        orderBy: { penalty: 'asc' },
+      },
+    },
+    orderBy: { number: 'asc' },
+  });
+
+  const lines: string[] = [];
+  lines.push('; >>> ALBARQ_QUEUE_AUTO_START');
+  lines.push('; Generated from Call Center DB. Do not edit manually.');
+  lines.push('');
+
+  for (const q of queues) {
+    const qnum = safeDialplanValue(q.number);
+    if (!qnum) continue;
+
+    lines.push(`[${qnum}]`);
+    lines.push(`musicclass=${safeDialplanValue(q.musicOnHold || 'default') || 'default'}`);
+    lines.push(`strategy=${mapQueueStrategy(q.strategy)}`);
+    lines.push('timeout=15');
+    lines.push('retry=3');
+    lines.push('wrapuptime=5');
+    lines.push('ringinuse=no');
+    lines.push('joinempty=yes');
+    lines.push('leavewhenempty=no');
+    lines.push('announce-frequency=0');
+    lines.push('setinterfacevar=yes');
+    lines.push('setqueuevar=yes');
+    lines.push('setqueueentryvar=yes');
+
+    for (const m of q.members || []) {
+      const ext = safeDialplanValue(m.agent.extension?.sipUsername || m.agent.extension?.number);
+      if (!ext) continue;
+      const name = String(m.agent.name || ext).replace(/[,;\n\r]/g, ' ');
+      lines.push(`member => PJSIP/${ext},${Number(m.penalty || 0)},${name},PJSIP/${ext}`);
+    }
+
+    lines.push('');
+  }
+
+  lines.push('; <<< ALBARQ_QUEUE_AUTO_END');
+  lines.push('');
+  return lines.join('\n');
+}
+
+function ensureQueuesInclude(fs: typeof import('node:fs')) {
+  const main = '/etc/asterisk/queues.conf';
+  const includeLine = '#include queues_callcenter.conf';
+
+  let content = fs.readFileSync(main, 'utf8');
+  if (!content.includes(includeLine)) {
+    fs.copyFileSync(main, `/etc/asterisk/queues.conf.bak.${Date.now()}`);
+    content = `${content.trim()}\n\n${includeLine}\n`;
+    fs.writeFileSync(main, content);
+  }
+}
+
 
 export async function apply(req: Request, res: Response) {
   const menu = await prisma.ivrMenu.findUnique({
@@ -231,13 +375,16 @@ export async function apply(req: Request, res: Response) {
     }
   }
 
+  ensureQueuesInclude(fs);
+  fs.writeFileSync('/etc/asterisk/queues_callcenter.conf', await buildQueuesConf());
+
   const file = '/etc/asterisk/extensions.conf';
   const backup = `/etc/asterisk/extensions.conf.bak.ivr.${Date.now()}`;
 
   let content = fs.readFileSync(file, 'utf8');
   fs.copyFileSync(file, backup);
 
-  const block = buildIvrDialplan(menu);
+  const block = await buildIvrDialplan(menu);
   content = replaceAutoBlock(content, block);
   content = routeFromTg400ToIvr(content);
 
@@ -245,6 +392,7 @@ export async function apply(req: Request, res: Response) {
 
   let reloadOk = false;
   try {
+    execFileSync('asterisk', ['-rx', 'queue reload all']);
     execFileSync('asterisk', ['-rx', 'dialplan reload']);
     reloadOk = true;
   } catch {
