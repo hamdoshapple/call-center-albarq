@@ -52,7 +52,7 @@ async function extractAudioToWav(inputPath: string, outputPath: string) {
     '-y',
     '-i', inputPath,
     '-vn',
-    '-filter:a', 'highpass=f=90,lowpass=f=5200,afftdn=nf=-18,loudnorm=I=-15:TP=-1.5:LRA=9,volume=1.8',
+    '-filter:a', 'highpass=f=120,loudnorm=I=-16:TP=-1.5:LRA=11,volume=2',
     '-ar', '8000',
     '-ac', '1',
     '-c:a', 'pcm_s16le',
@@ -219,7 +219,7 @@ async function convertPromptToWav(source: string, targetName: string) {
   execFileSync('ffmpeg', [
     '-y',
     '-i', source,
-    '-filter:a', 'highpass=f=90,lowpass=f=5200,afftdn=nf=-18,loudnorm=I=-15:TP=-1.5:LRA=9,volume=1.8',
+    '-filter:a', 'highpass=f=120,loudnorm=I=-16:TP=-1.5:LRA=11,volume=2',
     '-ar', '8000',
     '-ac', '1',
     '-c:a', 'pcm_s16le',
