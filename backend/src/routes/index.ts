@@ -22,6 +22,7 @@ export const router = Router();
 
 // ---------- Auth (public + protected) ----------
 router.post('/auth/login', h(auth.login));
+router.get('/internal/caller-name', h(internalCaller.callerName));
 router.get('/auth/me', authenticate, h(auth.me));
 
 // All routes below require authentication.
@@ -89,7 +90,6 @@ router.delete('/recordings/:id', perm('recordings', 'delete'), h(recordings.remo
 
 // ---------- Call logs / live ----------
 router.get('/calls', perm('call_logs'), h(calls.listLogs));
-router.get('/internal/caller-name', h(internalCaller.callerName));
 router.get('/calls/live', perm('live_calls'), h(calls.getLive));
 router.post('/calls/:id/note', perm('live_calls', 'edit'), h(calls.addNote));
 

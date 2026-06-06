@@ -205,6 +205,7 @@ async function optionDialplan(option: any) {
 }
 
 async function buildIvrDialplan(menu: any) {
+  const internalCallerToken = safeDialplanValue(process.env.INTERNAL_CALLER_TOKEN || '');
   const timeout = Number(menu.timeout || 10);
   const promptSound = 'ivr_main';
 
@@ -220,7 +221,7 @@ async function buildIvrDialplan(menu: any) {
   lines.push(' same => n,Set(__REAL_CALLER=${IF($["${FROM_NAME}"!=""]?${FROM_NAME}:${CALLERID(num)})})');
   lines.push(' same => n,Set(CALLERID(num)=${REAL_CALLER})');
   lines.push(' same => n,Set(CALLERID(name)=${REAL_CALLER})');
-  lines.push(' same => n,Set(__CRM_CALLER_NAME=${CURL(http://127.0.0.1:3000/api/internal/caller-name?phone=${REAL_CALLER})})');
+  lines.push(` same => n,Set(__CRM_CALLER_NAME=\${CURL(http://127.0.0.1:3000/api/internal/caller-name?phone=\${REAL_CALLER}&t=${internalCallerToken})})`);
   lines.push(' same => n,ExecIf($["${CRM_CALLER_NAME}"!=""]?Set(CALLERID(name)=${CRM_CALLER_NAME}))');
   lines.push(' same => n(start),NoOp(Playing IVR prompt)');
   lines.push(' same => n,ExecIf($["${STAT(e,/var/lib/asterisk/moh/' + promptSound + '.wav)}"="1"]?Background(/var/lib/asterisk/moh/' + promptSound + '))');

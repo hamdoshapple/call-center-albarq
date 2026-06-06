@@ -45,6 +45,7 @@ services:
       AMI_HOST: 172.17.0.1
       AMI_PORT: 5038
       AMI_USER: albarq
+      INTERNAL_CALLER_TOKEN: ${INTERNAL_CALLER_TOKEN}
       AMI_PASSWORD: rwSY5LCgoZpY9c8O1YQ/NaglnuEjuzsX7fWTlnWbnYc=
       SEED_ON_START: "false"
     ports:
