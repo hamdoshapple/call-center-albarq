@@ -13,6 +13,7 @@ import * as tg400 from '../controllers/tg400.controller.js';
 import * as subscribers from '../controllers/subscribers.controller.js';
 import * as recordings from '../controllers/recordings.controller.js';
 import * as calls from '../controllers/calls.controller.js';
+import * as internalCaller from '../controllers/internal-caller.controller.js';
 import * as asterisk from '../controllers/asterisk.controller.js';
 import * as reports from '../controllers/reports.controller.js';
 import * as misc from '../controllers/misc.controller.js';
@@ -88,6 +89,7 @@ router.delete('/recordings/:id', perm('recordings', 'delete'), h(recordings.remo
 
 // ---------- Call logs / live ----------
 router.get('/calls', perm('call_logs'), h(calls.listLogs));
+router.get('/internal/caller-name', h(internalCaller.callerName));
 router.get('/calls/live', perm('live_calls'), h(calls.getLive));
 router.post('/calls/:id/note', perm('live_calls', 'edit'), h(calls.addNote));
 
