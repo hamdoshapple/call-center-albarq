@@ -219,3 +219,9 @@ export async function parkedCalls(_req: Request, res: Response) {
   const gw = getAsteriskGateway();
   res.json(await gw.getParkedCalls());
 }
+
+
+export async function heldCalls(_req: Request, res: Response) {
+  const gw = getAsteriskGateway();
+  res.json(await gw.getHeldCalls());
+}

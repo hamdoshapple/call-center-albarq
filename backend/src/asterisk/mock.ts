@@ -60,6 +60,10 @@ export class MockAsteriskGateway extends EventEmitter implements AsteriskGateway
     return [];
   }
 
+  async getHeldCalls() {
+    return [];
+  }
+
   async retrieveParkedCall() {
     return;
   }

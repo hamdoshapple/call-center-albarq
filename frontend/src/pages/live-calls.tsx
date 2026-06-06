@@ -7,7 +7,6 @@ import {
   Phone,
   PhoneForwarded,
   Pause,
-  Play,
   PhoneOff,
   StickyNote,
   Wifi,
@@ -85,7 +84,12 @@ export function LiveCallsPage() {
 
   const answer = useMutation({ mutationFn: (id: string) => liveCallsApi.answerCall(id), onSuccess: refresh });
   const hold = useMutation({ mutationFn: (id: string) => liveCallsApi.holdCall(id), onSuccess: refresh });
-  const unhold = useMutation({ mutationFn: (id: string) => liveCallsApi.unholdCall(id), onSuccess: refresh });
+
+  const unhold = useMutation({
+    mutationFn: (id: string) => liveCallsApi.unholdCall(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['live-calls'] }),
+  });
+
   const hangup = useMutation({
     mutationFn: (id: string) => liveCallsApi.hangupCall(id),
     onSuccess: () => {
@@ -243,7 +247,7 @@ export function LiveCallsPage() {
                 <Button
                   variant="outline"
                   disabled={hold.isPending}
-                  onClick={() => hold.mutate(incomingCall.id)}
+                  onClick={() => (incomingCall.onHold ? unhold.mutate(incomingCall.id) : hold.mutate(incomingCall.id))}
                 >
                   <Pause className="h-4 w-4" />
                   {hold.isPending ? 'جاري التعليق...' : 'تعليق'}
@@ -308,7 +312,7 @@ export function LiveCallsPage() {
                               title={call.onHold ? t('live_calls.unhold') : t('live_calls.hold')}
                               onClick={() => (call.onHold ? unhold.mutate(call.id) : hold.mutate(call.id))}
                             >
-                              {call.onHold ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+                              <Pause className="h-3.5 w-3.5" />
                             </Button>
                           )}
                           <DropdownMenu>

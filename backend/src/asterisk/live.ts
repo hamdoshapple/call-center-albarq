@@ -8,6 +8,7 @@ import type {
   AsteriskLiveCall,
   OriginateParams,
   AsteriskParkedCall,
+  AsteriskHeldCall,
 } from './types.js';
 
 type AmiEvent = Record<string, string>;
@@ -81,6 +82,7 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
   private calls = new Map<string, AsteriskLiveCall>();
   private agents = new Map<string, AsteriskAgentStatus>();
   private parkedCalls = new Map<string, AsteriskParkedCall>();
+  private heldCalls = new Map<string, { customer: string; agentExtension: string; callerNumber?: string; heldAt?: string }>();
   private pending = new Map<string, (ev: AmiEvent) => void>();
   private reconnectTimer?: NodeJS.Timeout;
   private pollTimer?: NodeJS.Timeout;
@@ -150,6 +152,16 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
     return [...this.parkedCalls.values()];
   }
 
+  async getHeldCalls(): Promise<AsteriskHeldCall[]> {
+    return [...this.heldCalls.entries()].map(([id, h]) => ({
+      id,
+      customerChannel: h.customer,
+      customerNumber: h.callerNumber,
+      agentExtension: h.agentExtension,
+      heldAt: h.heldAt || new Date().toISOString(),
+    }));
+  }
+
   async originate(params: OriginateParams): Promise<{ uniqueId: string }> {
     const resp = await this.action({
       Action: 'Originate',
@@ -175,80 +187,129 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
     });
   }
 
-  async hold(uniqueId: string): Promise<void> {
-    await this.refreshChannels();
-
+  private async findBridgeChannels(uniqueId: string): Promise<{ agent?: string; customer?: string; all: string[] }> {
     const respChannels = await this.action({
       Action: 'Command',
-      Command: 'core show channels concise',
+      Command: 'core show channels verbose',
     });
 
     const output = respChannels.Output || '';
     const rows = output
       .split('\n')
       .map((x) => x.trim())
-      .filter(Boolean)
+      .filter((x) => x.startsWith('PJSIP/'))
       .map((line) => {
-        const p = line.split('!');
-        const channel = p[0] || '';
-        return {
-          line,
-          channel,
-          context: p[1] || '',
-          exten: p[2] || '',
-          app: p[5] || '',
-          data: p[6] || '',
-          caller: p[7] || p[8] || p[10] || '',
-          uniqueId: p[13] || p[11] || channel,
-          linkedId: p[14] || p[13] || p[11] || channel,
-        };
+        const parts = line.split(/\s+/);
+        const channel = parts[0];
+        const bridgeId = parts[parts.length - 1] || '';
+        const caller = parts[7] || '';
+        return { line, channel, bridgeId, caller };
       });
 
     const selected =
-      rows.find((r) => r.uniqueId === uniqueId || r.linkedId === uniqueId || r.channel === uniqueId) ||
+      rows.find((r) => r.channel === uniqueId || r.line.includes(uniqueId)) ||
       rows.find((r) => this.calls.get(uniqueId)?.channel === r.channel);
 
-    const selectedLinkedId = selected?.linkedId || uniqueId;
+    const bridgeId = selected?.bridgeId || rows.find((r) => r.bridgeId && r.bridgeId !== '(None)')?.bridgeId;
+    const group = bridgeId ? rows.filter((r) => r.bridgeId === bridgeId) : rows;
 
-    const group = rows.filter((r) => r.linkedId === selectedLinkedId || r.uniqueId === selectedLinkedId);
+    const customer = group.find((r) => r.channel.includes('PJSIP/20001'))?.channel;
+    const agent = group.find((r) => /^PJSIP\/(?!20001)\d+/.test(r.channel))?.channel;
 
-    const tg400Leg =
-      group.find((r) => r.channel.includes('PJSIP/20001')) ||
-      rows.find((r) => r.channel.includes('PJSIP/20001') && (r.context === 'from-tg400' || r.exten === '7000'));
-
-    const agentLeg =
-      group.find((r) => /^PJSIP\/(?!20001)\d+/.test(r.channel)) ||
-      selected;
-
-    // Inbound from TG400: park the TG400/customer side.
-    // Fallback: use selected/agent channel only if there is no TG400 leg.
-    const channel = tg400Leg?.channel || agentLeg?.channel;
-
-    if (!channel) {
-      throw new Error(`Channel not found for park: ${uniqueId}`);
-    }
-
-    console.log('[AMI PARK] selected', { uniqueId, selected, tg400Leg, agentLeg, parkingChannel: channel });
-
-    const resp = await this.action({
-      Action: 'Park',
-      Channel: channel,
-      Timeout: '0',
-      Parkinglot: 'default',
-    });
-
-    console.log('[AMI PARK] response', resp);
-
-    if (!/success/i.test(resp.Response || '')) {
-      throw new Error(resp.Message || 'Park failed');
-    }
-
-    await this.refreshParkedCalls();
-    await this.refreshChannels();
+    return {
+      agent,
+      customer,
+      all: group.map((r) => r.channel),
+    };
   }
 
-  async unhold(_uniqueId: string): Promise<void> {
-    throw new Error('Use retrieveParkedCall for parked calls');
+  async hold(uniqueId: string): Promise<void> {
+    const { agent, customer, all } = await this.findBridgeChannels(uniqueId);
+
+    if (!agent || !customer) {
+      throw new Error(`Bridge channels not found for hold: ${uniqueId}`);
+    }
+
+    const agentExtension = agent.match(/PJSIP\/(\d+)/)?.[1];
+    if (!agentExtension) {
+      throw new Error(`Agent extension not found for hold: ${uniqueId}`);
+    }
+
+    console.log('[AMI HOLD] start', { uniqueId, agent, customer, agentExtension, all });
+
+    this.heldCalls.set(uniqueId, {
+      customer,
+      agentExtension,
+      callerNumber: this.calls.get(uniqueId)?.callerNumber,
+      heldAt: new Date().toISOString(),
+    });
+
+    await this.action({
+      Action: 'MuteAudio',
+      Channel: agent,
+      Direction: 'all',
+      State: 'on',
+    });
+
+    const resp = await this.action({
+      Action: 'Redirect',
+      Channel: customer,
+      Context: 'hold-music',
+      Exten: 's',
+      Priority: '1',
+    });
+
+    if (!/success/i.test(resp.Response || '')) {
+      this.heldCalls.delete(uniqueId);
+      throw new Error(resp.Message || 'Redirect customer to hold music failed');
+    }
+  }
+
+  async unhold(uniqueId: string): Promise<void> {
+    let held = this.heldCalls.get(uniqueId);
+
+    if (!held) {
+      const respChannels = await this.action({
+        Action: 'Command',
+        Command: 'core show channels verbose',
+      });
+
+      const output = respChannels.Output || '';
+      const heldLine = output
+        .split('\n')
+        .map((x) => x.trim())
+        .find((x) => x.startsWith('PJSIP/') && x.includes(' hold-music '));
+
+      const customer = heldLine?.split(/\s+/)[0];
+
+      if (customer) {
+        held = {
+          customer,
+          agentExtension: this.calls.get(uniqueId)?.agentExtension || '102',
+        };
+      }
+    }
+
+    if (!held?.customer || !held.agentExtension) {
+      throw new Error(`Held customer not found for unhold: ${uniqueId}`);
+    }
+
+    console.log('[AMI HOLD] resume', { uniqueId, held });
+
+    const resp = await this.action({
+      Action: 'Originate',
+      Channel: `PJSIP/${held.agentExtension}`,
+      Application: 'Bridge',
+      Data: held.customer,
+      CallerID: held.callerNumber || 'Hold Resume',
+      Async: 'true',
+    });
+
+    if (!/success/i.test(resp.Response || '')) {
+      throw new Error(resp.Message || 'Resume held call failed');
+    }
+
+    this.heldCalls.delete(uniqueId);
   }
 
   async retrieveParkedCall(parkingSpace: string, targetExtension: string): Promise<void> {

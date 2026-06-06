@@ -53,8 +53,21 @@ async function syncRecordingsFromDisk() {
 
     const duration = estimateWavDurationSec(stat.size);
 
-    const call = await prisma.call.create({
-      data: {
+    const call = await prisma.call.upsert({
+      where: { uniqueId: parsed.uniqueId },
+      update: {
+        callerNumber: parsed.callerNumber,
+        destinationNumber: parsed.destinationNumber,
+        direction: parsed.direction,
+        status: 'ended',
+        disposition: 'answered',
+        agentId: ext?.agent?.id ?? null,
+        endedAt: stat.mtime,
+        durationSec: duration,
+        talkTimeSec: duration,
+        waitTimeSec: 0,
+      },
+      create: {
         uniqueId: parsed.uniqueId,
         callerNumber: parsed.callerNumber,
         destinationNumber: parsed.destinationNumber,
@@ -70,17 +83,31 @@ async function syncRecordingsFromDisk() {
       },
     });
 
-    await prisma.recording.create({
-      data: {
-        callId: call.id,
+    const recording = await prisma.recording.upsert({
+      where: { callId: call.id },
+      update: {
         callerNumber: parsed.callerNumber,
         agentId: ext?.agent?.id ?? null,
         fileName,
-        url: `/api/recordings/${call.id}/audio`,
         durationSec: duration,
         sizeKb: Math.max(1, Math.round(stat.size / 1024)),
         recordedAt: stat.birthtime,
       },
+      create: {
+        callId: call.id,
+        callerNumber: parsed.callerNumber,
+        agentId: ext?.agent?.id ?? null,
+        fileName,
+        url: '',
+        durationSec: duration,
+        sizeKb: Math.max(1, Math.round(stat.size / 1024)),
+        recordedAt: stat.birthtime,
+      },
+    });
+
+    await prisma.recording.update({
+      where: { id: recording.id },
+      data: { url: `/api/recordings/${recording.id}/audio` },
     });
   }
 }
