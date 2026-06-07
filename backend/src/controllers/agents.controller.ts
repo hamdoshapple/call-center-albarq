@@ -1,8 +1,29 @@
 import bcrypt from 'bcryptjs';
+import { exec } from 'child_process';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../config/prisma.js';
 import { ApiError } from '../utils/ApiError.js';
+
+function reloadAsterisk() {
+  exec('/opt/scripts/sync-callcenter-extensions.sh', (err, stdout, stderr) => {
+    if (err) {
+      console.error('[asterisk-sync] failed:', err.message);
+      if (stderr) console.error(stderr);
+      return;
+    }
+
+    if (stdout) console.log(stdout);
+
+    exec('asterisk -rx "pjsip reload"', (e) => {
+      if (e) console.error('[asterisk-sync] pjsip reload failed:', e.message);
+    });
+
+    exec('asterisk -rx "queue reload all"', (e) => {
+      if (e) console.error('[asterisk-sync] queue reload failed:', e.message);
+    });
+  });
+}
 
 const schema = z.object({
   name: z.string().min(1),
@@ -240,19 +261,50 @@ export async function create(req: Request, res: Response) {
       workFrom: data.workFrom ?? '09:00',
       workTo: data.workTo ?? '17:00',
       workDays: data.workDays ?? [0, 1, 2, 3, 4],
-      extension: data.extension
-        ? {
-            create: {
-              number: data.extension,
-              sipUsername: data.sipUsername ?? data.extension,
-              sipPassword: rawPassword,
-            },
-          }
-        : undefined,
       queueMembers: queueIds.length ? { create: queueIds.map((queueId) => ({ queueId })) } : undefined,
     },
     include: { extension: true, department: true, queueMembers: true, user: true },
   });
+
+  if (data.extension) {
+    const sipUser = data.sipUsername ?? data.extension;
+
+    const existingExtension = await prisma.extension.findFirst({
+      where: {
+        OR: [
+          { number: data.extension },
+          { sipUsername: sipUser },
+        ],
+      },
+    });
+
+    if (existingExtension) {
+      if (existingExtension.agentId) {
+        throw ApiError.badRequest(`Extension ${data.extension} is already assigned`);
+      }
+
+      await prisma.extension.update({
+        where: { id: existingExtension.id },
+        data: {
+          agentId: agent.id,
+          number: data.extension,
+          sipUsername: sipUser,
+          sipPassword: rawPassword,
+        },
+      });
+    } else {
+      await prisma.extension.create({
+        data: {
+          agentId: agent.id,
+          number: data.extension,
+          sipUsername: sipUser,
+          sipPassword: rawPassword,
+        },
+      });
+    }
+  }
+
+  reloadAsterisk();
 
   res.status(201).json({
     ...serialize(agent),
@@ -319,6 +371,8 @@ export async function update(req: Request, res: Response) {
     }
   }
 
+  reloadAsterisk();
+
   res.json(serialize(await fetchOne(req.params.id)));
 }
 
@@ -326,5 +380,8 @@ export async function remove(req: Request, res: Response) {
   const existing = await prisma.agent.findUnique({ where: { id: req.params.id } });
   if (!existing) throw ApiError.notFound('Agent not found');
   await prisma.agent.delete({ where: { id: req.params.id } });
+
+  reloadAsterisk();
+
   res.status(204).end();
 }
