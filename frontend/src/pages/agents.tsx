@@ -212,7 +212,7 @@ export function AgentsPage() {
   const toggleQueue = (id: string) => {
     setForm((f) => ({
       ...f,
-      queues: f.queues.includes(id) ? f.queues.filter((x) => x !== id) : [...f.queues, id],
+      queues: f.queues.includes(id) ? [] : [id],
     }));
   };
 
