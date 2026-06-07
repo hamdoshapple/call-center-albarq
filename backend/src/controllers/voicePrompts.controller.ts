@@ -70,7 +70,7 @@ const storage = multer.diskStorage({
 
 export const uploadVoicePrompt = multer({
   storage,
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const okExt = /\.(wav|mp3|m4a|aac|ogg|mp4|mov|avi|mkv|webm|mpeg|gsm|ulaw|alaw)$/i.test(file.originalname);
     const okMime = /^(audio|video)\//i.test(file.mimetype) || /mp4|mpeg|aac|webm|quicktime|matroska/i.test(file.mimetype);
@@ -153,7 +153,15 @@ export async function upload(req: Request, res: Response) {
     },
   });
 
-  res.status(201).json(row);
+  
+  try {
+    const targetName = APPLY_TARGETS[row.category] || `${row.category}.wav`;
+    await convertPromptToWav(finalPath, targetName);
+  } catch (err) {
+    console.error('[voice-prompts] auto apply after upload failed', err);
+  }
+
+res.status(201).json(row);
 }
 
 export async function update(req: Request, res: Response) {
@@ -225,6 +233,10 @@ async function convertPromptToWav(source: string, targetName: string) {
     '-c:a', 'pcm_s16le',
     target,
   ]);
+
+  if (targetName === 'welcome.wav') {
+    fs.copyFileSync(target, path.join(MOH_DIR, 'ivr_main.wav'));
+  }
 
   if (targetName === 'queue_wait.wav') {
     const queueDir = path.join(MOH_DIR, 'queue_wait');
