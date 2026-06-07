@@ -226,7 +226,52 @@ async function convertPromptToWav(source: string, targetName: string) {
     target,
   ]);
 
+  if (targetName === 'queue_wait.wav') {
+    const queueDir = path.join(MOH_DIR, 'queue_wait');
+    fs.mkdirSync(queueDir, { recursive: true });
+
+    for (const old of fs.readdirSync(queueDir)) {
+      const oldPath = path.join(queueDir, old);
+      if (fs.statSync(oldPath).isFile()) fs.unlinkSync(oldPath);
+    }
+
+    fs.copyFileSync(target, path.join(queueDir, 'hold.wav'));
+  }
+
+  if (targetName === 'hold.wav') {
+    const defaultDir = MOH_DIR;
+    for (const old of fs.readdirSync(defaultDir)) {
+      const oldPath = path.join(defaultDir, old);
+      if (
+        fs.statSync(oldPath).isFile() &&
+        old !== 'hold.wav' &&
+        old.startsWith('albarq-hold-')
+      ) {
+        fs.unlinkSync(oldPath);
+      }
+    }
+  }
+
   return target;
+}
+
+async function reloadAsterisk(category: string) {
+  const { execFileSync } = await import('node:child_process');
+
+  try {
+    if (category === 'hold_music' || category === 'waiting') {
+      execFileSync('asterisk', ['-rx', 'moh reload']);
+      return { reloadOk: true, reloadCommand: 'moh reload' };
+    }
+
+    execFileSync('asterisk', ['-rx', 'dialplan reload']);
+    return { reloadOk: true, reloadCommand: 'dialplan reload' };
+  } catch {
+    return {
+      reloadOk: false,
+      reloadCommand: category === 'hold_music' || category === 'waiting' ? 'moh reload' : 'dialplan reload',
+    };
+  }
 }
 
 export async function applyPrompt(req: Request, res: Response) {
@@ -241,13 +286,17 @@ export async function applyPrompt(req: Request, res: Response) {
   }
 
   await convertPromptToWav(source, targetName);
+  const reload = await reloadAsterisk(row.category);
 
   res.json({
     success: true,
     category: row.category,
     fileName: targetName,
     asteriskSound: targetName.replace(/\.wav$/i, ''),
-    message: 'Prompt converted and applied. Reload/use dialplan target as needed.',
+    ...reload,
+    message: reload.reloadOk
+      ? `Prompt converted, applied and Asterisk ${reload.reloadCommand} done.`
+      : `Prompt converted and applied. Run manually: asterisk -rx "${reload.reloadCommand}"`,
   });
 }
 
@@ -266,10 +315,14 @@ export async function setAsMoh(req: Request, res: Response) {
   }
 
   await convertPromptToWav(source, 'hold.wav');
+  const reload = await reloadAsterisk('hold_music');
 
   res.json({
     success: true,
     fileName: 'hold.wav',
-    message: 'Converted and applied as Asterisk default MusicOnHold file.',
+    ...reload,
+    message: reload.reloadOk
+      ? 'Converted, applied as MusicOnHold and moh reload done.'
+      : 'Converted and applied as MusicOnHold. Run manually: asterisk -rx "moh reload"',
   });
 }

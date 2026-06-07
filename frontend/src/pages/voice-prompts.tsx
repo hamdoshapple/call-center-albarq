@@ -201,11 +201,14 @@ export function VoicePromptsPage() {
 
   const mohMut = useMutation({
     mutationFn: (id: string) => voicePromptsApi.applyPrompt(id),
-    onSuccess: () => {
-      toast({ title: 'تم تطبيق الصوت على السنترال' });
+    onSuccess: (res: any) => {
+      toast({
+        title: res?.reloadOk ? 'تم تطبيق الصوت على السنترال' : 'تم تطبيق الصوت ويحتاج إعادة تحميل',
+        description: res?.reloadOk ? undefined : `نفذ: asterisk -rx "${res?.reloadCommand || 'dialplan reload'}"`,
+      });
     },
-    onError: () => {
-      toast({ variant: 'destructive', title: 'فشل تطبيق الصوت' });
+    onError: (err: any) => {
+      toast({ variant: 'destructive', title: 'فشل تطبيق الصوت', description: String(err?.message || '').slice(0, 160) });
     },
   });
 
