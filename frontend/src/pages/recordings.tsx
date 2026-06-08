@@ -78,7 +78,13 @@ export function RecordingsPage() {
                 <div className="flex items-start justify-between">
                   <div>
                     <p className="font-medium tabular-nums">{r.callerNumber}</p>
+                    {(r as any).subscriberName && (
+                      <p className="text-sm font-medium text-primary">{(r as any).subscriberName}</p>
+                    )}
                     <p className="text-xs text-muted-foreground">{agentName(r.agentId)}</p>
+                    {(r as any).queueName && (
+                      <p className="text-xs text-muted-foreground">{(r as any).queueName}</p>
+                    )}
                   </div>
                   <div className="flex gap-1">
                     <Button
@@ -110,7 +116,7 @@ export function RecordingsPage() {
                     )}
                   </div>
                 </div>
-                <AudioPlayer durationSec={r.durationSec} src={r.url} label={r.fileName} />
+                <AudioPlayer durationSec={r.durationSec} src={r.url} label={`تسجيل ${r.callerNumber}`} />
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>{formatDateTime(r.recordedAt, lang)}</span>
                   <span>{(r.sizeKb / 1024).toFixed(1)} MB</span>

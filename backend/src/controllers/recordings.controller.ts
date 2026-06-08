@@ -29,6 +29,38 @@ function estimateWavDurationSec(size: number) {
   return Math.max(1, Math.round(Math.max(0, size - 44) / 16000));
 }
 
+function normalizePhone(v?: string | null) {
+  let n = String(v || '').replace(/\D/g, '');
+  if (n.startsWith('00964')) n = '0' + n.slice(5);
+  if (n.startsWith('964')) n = '0' + n.slice(3);
+  return n;
+}
+
+async function findSubscriberByPhone(phone: string) {
+  const normalized = normalizePhone(phone);
+  if (!normalized) return null;
+
+  const rows = await prisma.subscriber.findMany({
+    select: { id: true, name: true, phone: true, pppoeUsername: true },
+    take: 5000,
+  });
+
+  return rows.find((s) => {
+    const p = normalizePhone(s.phone);
+    const u = normalizePhone(s.pppoeUsername);
+    if (!p && !u) return false;
+
+    return (
+      p === normalized ||
+      u === normalized ||
+      normalized.endsWith(p) ||
+      normalized.endsWith(u) ||
+      (p && normalized.includes(p)) ||
+      (u && normalized.includes(u))
+    );
+  }) || null;
+}
+
 async function syncRecordingsFromDisk() {
   const basePath = await recordingBasePath();
   if (!fs.existsSync(basePath)) return;
@@ -51,6 +83,7 @@ async function syncRecordingsFromDisk() {
       include: { agent: true },
     });
 
+    const subscriber = await findSubscriberByPhone(parsed.callerNumber);
     const duration = estimateWavDurationSec(stat.size);
 
     const call = await prisma.call.upsert({
@@ -62,6 +95,7 @@ async function syncRecordingsFromDisk() {
         status: 'ended',
         disposition: 'answered',
         agentId: ext?.agent?.id ?? null,
+        subscriberId: subscriber?.id ?? null,
         endedAt: stat.mtime,
         durationSec: duration,
         talkTimeSec: duration,
@@ -75,6 +109,7 @@ async function syncRecordingsFromDisk() {
         status: 'ended',
         disposition: 'answered',
         agentId: ext?.agent?.id ?? null,
+        subscriberId: subscriber?.id ?? null,
         startedAt: stat.birthtime,
         endedAt: stat.mtime,
         durationSec: duration,
@@ -130,7 +165,10 @@ export async function list(req: Request, res: Response) {
             }
           : undefined,
     },
-    include: { agent: { select: { id: true, name: true } } },
+    include: {
+      agent: { select: { id: true, name: true } },
+      call: { include: { subscriber: true, queue: true } },
+    },
     orderBy: { recordedAt: 'desc' },
     take: 200,
   });
@@ -138,7 +176,15 @@ export async function list(req: Request, res: Response) {
   const mapped = rows.map((r) => {
     const safeName = path.basename(r.fileName);
     const exists = fs.existsSync(path.join(basePath, safeName));
-    return { ...r, fileExists: exists, url: exists ? `/api/recordings/${r.id}/audio` : null };
+    return {
+      ...r,
+      subscriberId: r.call?.subscriber?.id ?? null,
+      subscriberName: r.call?.subscriber?.name ?? null,
+      queueName: r.call?.queue?.name ?? null,
+      queueId: r.call?.queueId ?? null,
+      fileExists: exists,
+      url: exists ? `/api/recordings/${r.id}/audio` : null,
+    };
   });
 
   res.json(includeMissing === '1' ? mapped : mapped.filter((r) => r.fileExists));

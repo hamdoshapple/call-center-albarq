@@ -31,6 +31,9 @@ function mapRecording(r: any): Recording {
     durationSec: Number(r.durationSec || 0),
     sizeKb: Number(r.sizeKb || 0),
     recordedAt: r.recordedAt || new Date().toISOString(),
+    subscriberId: r.subscriberId || '',
+    subscriberName: r.subscriberName || '',
+    queueName: r.queueName || '',
   } as Recording;
 }
 
