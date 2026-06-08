@@ -71,16 +71,21 @@ export async function searchExternalSubscribers(q = ''): Promise<ExternalSubscri
 
   const term = String(q || '').trim();
   const phone = cleanPhone(term);
+  const compact = term.replace(/\s+/g, '');
+  const words = term.split(/\s+/).filter(Boolean).slice(0, 5);
 
   try {
     const pool = await getPool();
     const req = pool.request()
       .input('q', sql.NVarChar, `%${term}%`)
-      .input('qCompact', sql.NVarChar, `%${term.replace(/\s+/g, '')}%`)
-      .input('w1', sql.NVarChar, `%${term.split(/\s+/)[0] || ''}%`)
-      .input('w2', sql.NVarChar, `%${term.split(/\s+/)[1] || ''}%`)
-      .input('w3', sql.NVarChar, `%${term.split(/\s+/)[2] || ''}%`)
+      .input('qCompact', sql.NVarChar, `%${compact}%`)
       .input('phone', sql.NVarChar, phone);
+
+    words.forEach((w, i) => req.input(`w${i}`, sql.NVarChar, `%${w}%`));
+
+    const wordConds = words.length
+      ? words.map((_, i) => `c.cost_name COLLATE Arabic_CI_AI LIKE @w${i}`).join(' AND ')
+      : '1=1';
 
     const result = await req.query(`
       SELECT TOP 50
@@ -102,12 +107,8 @@ export async function searchExternalSubscribers(q = ''): Promise<ExternalSubscri
         AND (
           @q = '%%'
           OR c.cost_name COLLATE Arabic_CI_AI LIKE @q
-          OR REPLACE(c.cost_name,' ','') COLLATE Arabic_CI_AI LIKE @qCompact
-          OR (
-            c.cost_name COLLATE Arabic_CI_AI LIKE @w1
-            AND (@w2 = '%%' OR c.cost_name COLLATE Arabic_CI_AI LIKE @w2)
-            AND (@w3 = '%%' OR c.cost_name COLLATE Arabic_CI_AI LIKE @w3)
-          )
+          OR REPLACE(REPLACE(REPLACE(c.cost_name,' ',''), N'ـ', ''), CHAR(9), '') COLLATE Arabic_CI_AI LIKE @qCompact
+          OR (${wordConds})
           OR c.cost_user LIKE @q
           OR RIGHT(REPLACE(REPLACE(REPLACE(ISNULL(c.cost_phone,''),' ',''),'-',''),'+',''),10) = @phone
           OR REPLACE(REPLACE(REPLACE(ISNULL(c.cost_phone,''),' ',''),'-',''),'+','') LIKE @q
@@ -115,7 +116,13 @@ export async function searchExternalSubscribers(q = ''): Promise<ExternalSubscri
       GROUP BY
         c.cost_id,c.cost_name,c.cost_phone,c.cost_user,c.cost_state,
         c.cost_address,c.cost_note,c.cost_dateFrom,c.cost_dateTo
-      ORDER BY c.cost_id DESC
+      ORDER BY
+        CASE
+          WHEN c.cost_name COLLATE Arabic_CI_AI LIKE @q THEN 0
+          WHEN (${wordConds}) THEN 1
+          ELSE 2
+        END,
+        c.cost_id DESC
     `);
 
     return result.recordset.map(mapRow);
