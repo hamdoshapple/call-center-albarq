@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../config/prisma.js';
 import { ApiError } from '../utils/ApiError.js';
+import { getExternalSubscriberById, searchExternalSubscribers } from '../services/external-subscriber.service.js';
 
 const schema = z.object({
   name: z.string().min(1),
@@ -18,6 +19,12 @@ const schema = z.object({
 
 export async function search(req: Request, res: Response) {
   const q = String(req.query.q ?? '').trim();
+
+  const externalRows = await searchExternalSubscribers(q);
+  if (externalRows.length || process.env.EXTERNAL_MSSQL_ENABLED === 'true') {
+    return res.json(externalRows);
+  }
+
   const rows = await prisma.subscriber.findMany({
     where: q
       ? { OR: [{ phone: { contains: q } }, { name: { contains: q } }, { pppoeUsername: { contains: q } }] }
@@ -29,6 +36,12 @@ export async function search(req: Request, res: Response) {
 }
 
 export async function getOne(req: Request, res: Response) {
+  if (req.params.id.startsWith('ext-')) {
+    const external = await getExternalSubscriberById(req.params.id);
+    if (!external) throw ApiError.notFound('Subscriber not found');
+    return res.json({ ...external, tickets: [] });
+  }
+
   const row = await prisma.subscriber.findUnique({
     where: { id: req.params.id },
     include: { tickets: { orderBy: { createdAt: 'desc' } } },
@@ -38,6 +51,8 @@ export async function getOne(req: Request, res: Response) {
 }
 
 export async function getTickets(req: Request, res: Response) {
+  if (req.params.id.startsWith('ext-')) return res.json([]);
+
   const where =
     req.user?.role === 'agent' && req.user?.agentId
       ? {

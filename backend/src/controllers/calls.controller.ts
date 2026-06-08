@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../config/prisma.js';
 import { getAsteriskGateway } from '../asterisk/index.js';
+import { searchExternalSubscribers } from '../services/external-subscriber.service.js';
 
 export async function listLogs(req: Request, res: Response) {
   const { search, direction, disposition, agentId, queueId, from, to } = req.query as Record<string, string | undefined>;
@@ -61,6 +62,14 @@ export async function getLive(req: Request, res: Response) {
   };
 
   const phones = [...new Set(calls.map((c) => normalizePhone(c.callerNumber)).filter(Boolean))];
+
+  const externalSubscribers = process.env.EXTERNAL_MSSQL_ENABLED === 'true'
+    ? (await Promise.all(phones.map((phone) => searchExternalSubscribers(phone)))).flat()
+    : [];
+
+  const externalByPhone = new Map(
+    externalSubscribers.map((s) => [normalizePhone(s.phone), s])
+  );
 
   const variants = [...new Set(
     phones.flatMap((p) => [
@@ -126,7 +135,9 @@ export async function getLive(req: Request, res: Response) {
 
   res.json(
     calls.map((c) => {
-      const sub = subByPhone.get(normalizePhone(c.callerNumber));
+      const externalSub = externalByPhone.get(normalizePhone(c.callerNumber));
+      const sub = externalSub ?? subByPhone.get(normalizePhone(c.callerNumber));
+
       return {
         id: c.uniqueId,
         callerNumber: c.callerNumber,
@@ -145,10 +156,10 @@ export async function getLive(req: Request, res: Response) {
           address: sub.address,
         } : null,
         crm: sub ? {
-          ticketsCount: ticketCount.get(sub.id) ?? 0,
-          callsCount: callCount.get(sub.id) ?? 0,
-          lastTicket: lastTicketBySub.get(sub.id) ?? null,
-          lastCall: lastCallBySub.get(sub.id) ?? null,
+          ticketsCount: externalSub ? 0 : (ticketCount.get(sub.id) ?? 0),
+          callsCount: externalSub ? 0 : (callCount.get(sub.id) ?? 0),
+          lastTicket: externalSub ? null : (lastTicketBySub.get(sub.id) ?? null),
+          lastCall: externalSub ? null : (lastCallBySub.get(sub.id) ?? null),
           hasHighDebt: Number(sub.debt || 0) >= 50000,
         } : null,
         destinationNumber: c.destinationNumber,
