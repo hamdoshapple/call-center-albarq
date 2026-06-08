@@ -48,6 +48,12 @@ services:
       INTERNAL_CALLER_TOKEN: ${INTERNAL_CALLER_TOKEN}
       AMI_PASSWORD: rwSY5LCgoZpY9c8O1YQ/NaglnuEjuzsX7fWTlnWbnYc=
       SEED_ON_START: "false"
+      EXTERNAL_MSSQL_ENABLED: "true"
+      EXTERNAL_MSSQL_HOST: "192.168.0.25"
+      EXTERNAL_MSSQL_PORT: "1434"
+      EXTERNAL_MSSQL_DATABASE: "mynet"
+      EXTERNAL_MSSQL_USER: "callcenter_sync"
+      EXTERNAL_MSSQL_PASSWORD: "Itech@@1122"
     ports:
       - "127.0.0.1:4000:4000"
     volumes:
