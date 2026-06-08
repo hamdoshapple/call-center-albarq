@@ -43,7 +43,7 @@ import {
 import { subscribersApi } from '@/api';
 import type { Subscriber, SubscriberStatus } from '@/types';
 import { useLanguage } from '@/hooks/use-language';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatDate } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 
 const emptyForm: Omit<Subscriber, 'id'> = {
@@ -207,7 +207,7 @@ export function SubscribersPage() {
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <Badge variant="secondary">{s.package}</Badge>
-                  {s.debt > 0 && <span className="text-destructive font-medium">{formatCurrency(s.debt, 'ar')}</span>}
+                  {s.debt > 0 && <span className="text-destructive font-medium">{formatMoneyEn(s.debt)}</span>}
                 </div>
               </CardContent>
             </Card>
@@ -221,6 +221,10 @@ export function SubscribersPage() {
 }
 
 
+
+function formatMoneyEn(value: number) {
+  return `${Number(value || 0).toLocaleString('en-US')} د.ع`;
+}
 
 function noteAuthorName(note: any) {
   return note?.author?.fullName || note?.author?.username || note?.author?.email || 'النظام';
@@ -261,7 +265,7 @@ function SubscriberProfile({ subscriber: s, tickets, onBack, onEdit }: { subscri
     { icon: Wifi, label: t('subscribers.package'), value: `${s.package} • ${s.speed}` },
     { icon: Calendar, label: t('subscribers.expiration'), value: formatDate(s.expiration, lang) },
     { icon: Calendar, label: t('subscribers.last_activation'), value: formatDate(s.lastActivation, lang) },
-    { icon: Wallet, label: t('subscribers.debt'), value: formatCurrency(s.debt, lang) },
+    { icon: Wallet, label: t('subscribers.debt'), value: formatMoneyEn(s.debt) },
     { icon: MapPin, label: t('subscribers.address'), value: s.address },
   ];
 

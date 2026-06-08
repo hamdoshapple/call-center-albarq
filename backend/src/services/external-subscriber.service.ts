@@ -76,6 +76,10 @@ export async function searchExternalSubscribers(q = ''): Promise<ExternalSubscri
     const pool = await getPool();
     const req = pool.request()
       .input('q', sql.NVarChar, `%${term}%`)
+      .input('qCompact', sql.NVarChar, `%${term.replace(/\s+/g, '')}%`)
+      .input('w1', sql.NVarChar, `%${term.split(/\s+/)[0] || ''}%`)
+      .input('w2', sql.NVarChar, `%${term.split(/\s+/)[1] || ''}%`)
+      .input('w3', sql.NVarChar, `%${term.split(/\s+/)[2] || ''}%`)
       .input('phone', sql.NVarChar, phone);
 
     const result = await req.query(`
@@ -97,7 +101,13 @@ export async function searchExternalSubscribers(q = ''): Promise<ExternalSubscri
       WHERE ISNULL(c.cost_isdel,0)=0
         AND (
           @q = '%%'
-          OR c.cost_name LIKE @q
+          OR c.cost_name COLLATE Arabic_CI_AI LIKE @q
+          OR REPLACE(c.cost_name,' ','') COLLATE Arabic_CI_AI LIKE @qCompact
+          OR (
+            c.cost_name COLLATE Arabic_CI_AI LIKE @w1
+            AND (@w2 = '%%' OR c.cost_name COLLATE Arabic_CI_AI LIKE @w2)
+            AND (@w3 = '%%' OR c.cost_name COLLATE Arabic_CI_AI LIKE @w3)
+          )
           OR c.cost_user LIKE @q
           OR RIGHT(REPLACE(REPLACE(REPLACE(ISNULL(c.cost_phone,''),' ',''),'-',''),'+',''),10) = @phone
           OR REPLACE(REPLACE(REPLACE(ISNULL(c.cost_phone,''),' ',''),'-',''),'+','') LIKE @q

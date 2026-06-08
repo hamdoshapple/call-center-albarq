@@ -204,7 +204,7 @@ export function LiveCallsPage() {
                       </div>
                       <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
                         <Wallet className="h-4 w-4 text-destructive" />
-                        <span>{Number(incomingCall.subscriber.debt || 0).toLocaleString()} د.ع</span>
+                        <span>{Number(incomingCall.subscriber.debt || 0).toLocaleString('en-US')} د.ع</span>
                       </div>
                       <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
                         <Calendar className="h-4 w-4 text-muted-foreground" />
