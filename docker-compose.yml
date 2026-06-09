@@ -30,6 +30,8 @@ services:
     build: ./backend
     container_name: albarq-backend
     restart: unless-stopped
+    pid: host
+    privileged: true
     depends_on:
       mysql:
         condition: service_healthy

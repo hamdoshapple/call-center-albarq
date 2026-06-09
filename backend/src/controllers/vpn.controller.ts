@@ -304,15 +304,14 @@ export async function logs(_req: Request, res: Response) {
 }
 
 export async function status(_req: Request, res: Response) {
-  const ip = execSync("ip -o addr show | grep -E ' ppp[0-9]+' || true", {
+  const out = execSync("/opt/scripts/vpn-status.sh || true", {
     encoding: 'utf8',
-    timeout: 2000,
+    timeout: 3000,
   });
 
-  const routes = execSync("ip route | grep -E 'ppp|10\\.50\\.50|192\\.168\\.0' || true", {
-    encoding: 'utf8',
-    timeout: 2000,
+  const [ipPart = '', routePart = ''] = out.split('=== ROUTES ===');
+  res.json({
+    ip: ipPart.replace('=== IP ===', '').trim(),
+    routes: routePart.trim(),
   });
-
-  res.json({ ip, routes });
 }

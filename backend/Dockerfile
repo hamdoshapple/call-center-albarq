@@ -2,7 +2,7 @@
 FROM node:20-bookworm-slim AS build
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y default-mysql-client openssl ca-certificates ffmpeg \
+RUN apt-get update && apt-get install -y default-mysql-client openssl ca-certificates ffmpeg iproute2 util-linux \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
@@ -20,7 +20,7 @@ FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
-RUN apt-get update && apt-get install -y default-mysql-client openssl ca-certificates ffmpeg \
+RUN apt-get update && apt-get install -y default-mysql-client openssl ca-certificates ffmpeg iproute2 util-linux \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
