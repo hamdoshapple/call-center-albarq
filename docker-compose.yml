@@ -63,6 +63,9 @@ services:
       - /etc/asterisk:/etc/asterisk:rw
       - /var/run/asterisk:/var/run/asterisk:rw
       - /opt/scripts:/opt/scripts:rw
+      - /etc/ppp:/etc/ppp:rw
+      - /etc/xl2tpd:/etc/xl2tpd:rw
+      - /etc/swanctl:/etc/swanctl:rw
 
   frontend:
     build: ./frontend

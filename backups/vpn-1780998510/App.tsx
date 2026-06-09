@@ -19,7 +19,6 @@ import { ReportsPage } from '@/pages/reports';
 import { PermissionsPage } from '@/pages/permissions';
 import { CompanySettingsPage } from '@/pages/company-settings';
 import { NotFoundPage } from '@/pages/not-found';
-import { VpnPage } from '@/pages/vpn';
 
 export function App() {
   return (
@@ -47,7 +46,6 @@ export function App() {
         <Route path="/recordings" element={<ProtectedRoute module="recordings"><RecordingsPage /></ProtectedRoute>} />
         <Route path="/tg400" element={<ProtectedRoute module="tg400"><TG400Page /></ProtectedRoute>} />
         <Route path="/asterisk" element={<ProtectedRoute module="asterisk"><AsteriskPage /></ProtectedRoute>} />
-        <Route path="/vpn" element={<ProtectedRoute module="vpn"><VpnPage /></ProtectedRoute>} />
         <Route path="/permissions" element={<ProtectedRoute module="permissions"><PermissionsPage /></ProtectedRoute>} />
         <Route path="/company-settings" element={<ProtectedRoute module="company_settings"><CompanySettingsPage /></ProtectedRoute>} />
       </Route>

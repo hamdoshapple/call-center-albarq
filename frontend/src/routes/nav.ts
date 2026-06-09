@@ -46,6 +46,7 @@ export const NAV_ITEMS: NavItem[] = [
   { module: 'tg400', path: '/tg400', icon: Signal, group: 'telephony' },
 
   { module: 'asterisk', path: '/asterisk', icon: Server, group: 'system' },
+    { module: 'vpn', path: '/vpn', icon: ShieldCheck, group: 'system' },
   { module: 'permissions', path: '/permissions', icon: ShieldCheck, group: 'system' },
   { module: 'company_settings', path: '/company-settings', icon: Settings, group: 'system' },
 ];

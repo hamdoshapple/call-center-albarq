@@ -14,6 +14,7 @@ export const MODULES: ModuleKey[] = [
   'subscribers',
   'tg400',
   'asterisk',
+  'vpn',
   'reports',
   'permissions',
   'company_settings',
@@ -61,6 +62,7 @@ export const DEFAULT_PERMISSIONS: RolePermissions = {
       'subscribers',
       'tg400',
       'asterisk',
+  'vpn',
       'reports',
     ]),
     {

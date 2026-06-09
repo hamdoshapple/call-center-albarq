@@ -17,7 +17,6 @@ import * as internalCaller from '../controllers/internal-caller.controller.js';
 import * as asterisk from '../controllers/asterisk.controller.js';
 import * as reports from '../controllers/reports.controller.js';
 import * as misc from '../controllers/misc.controller.js';
-import * as vpn from '../controllers/vpn.controller.js';
 
 export const router = Router();
 
@@ -124,20 +123,6 @@ router.post('/asterisk/reload-pjsip', perm('asterisk', 'edit'), h(asterisk.reloa
 router.post('/asterisk/reload-dialplan', perm('asterisk', 'edit'), h(asterisk.reloadDialplan));
 
 router.post('/asterisk/control/:action', perm('live_calls', 'edit'), h(asterisk.control));
-
-
-// ---------- VPN / L2TP ----------
-router.get('/vpn', perm('vpn'), h(vpn.list));
-router.post('/vpn', perm('vpn', 'create'), h(vpn.create));
-router.put('/vpn/:id', perm('vpn', 'edit'), h(vpn.update));
-router.delete('/vpn/:id', perm('vpn', 'delete'), h(vpn.remove));
-router.post('/vpn/:id/toggle', perm('vpn', 'edit'), h(vpn.toggle));
-router.post('/vpn/:id/extend', perm('vpn', 'edit'), h(vpn.extend));
-router.post('/vpn/generate-chap', perm('vpn', 'edit'), h(vpn.generateChap));
-router.post('/vpn/restart-service', perm('vpn', 'edit'), h(vpn.restartService));
-router.post('/vpn/:id/apply-routes', perm('vpn', 'edit'), h(vpn.applyRoutes));
-router.get('/vpn/logs', perm('vpn'), h(vpn.logs));
-router.get('/vpn/status', perm('vpn'), h(vpn.status));
 
 // ---------- Reports ----------
 router.get('/reports/agents', perm('reports'), h(reports.agentPerformance));

@@ -376,34 +376,3 @@ model Notification {
   @@index([userId])
   @@index([read])
 }
-
-
-// ===================== VPN / L2TP Management =====================
-model VpnUser {
-  id           String   @id @default(cuid())
-  username     String   @unique
-  password     String
-  service      String   @default("l2tp")
-  remoteIp     String?  @db.VarChar(60)
-  localIp      String?  @db.VarChar(60)
-  routedRanges String?  @db.Text
-  expiresAt    DateTime?
-  enabled      Boolean  @default(true)
-  notes        String?  @db.Text
-  createdBy    String?
-  logs         VpnLog[]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-}
-
-model VpnLog {
-  id          String   @id @default(cuid())
-  vpnUserId   String?
-  vpnUser     VpnUser? @relation(fields: [vpnUserId], references: [id], onDelete: SetNull)
-  actorId     String?
-  action      String
-  description String?  @db.Text
-  createdAt   DateTime @default(now())
-
-  @@index([vpnUserId])
-}

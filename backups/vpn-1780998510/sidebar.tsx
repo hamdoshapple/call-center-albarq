@@ -91,5 +91,3 @@ export function Sidebar({ open, onClose }: SidebarProps) {
     </>
   );
 }
-
-// TODO: add sidebar link to /vpn with module vpn

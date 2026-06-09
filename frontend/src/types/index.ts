@@ -16,7 +16,7 @@ export type ModuleKey =
   | 'recordings'
   | 'subscribers'
   | 'tg400'
-  | 'asterisk'
+  | 'asterisk' | 'vpn'
   | 'reports'
   | 'permissions'
   | 'company_settings';
