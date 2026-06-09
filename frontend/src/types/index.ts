@@ -370,3 +370,25 @@ export interface Paginated<T> {
   page: number;
   pageSize: number;
 }
+
+
+export interface TG400LiveStatus {
+  gateway: {
+    ip: string;
+    online: boolean;
+    latencyMs: number | null;
+    httpStatus: number | null;
+  };
+  vpn: {
+    routeOk: boolean;
+    interface: string;
+    route: string;
+    ppp: string[];
+  };
+  sip: {
+    endpoint: string;
+    registered: boolean;
+    raw: string;
+  };
+  checkedAt: string;
+}

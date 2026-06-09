@@ -54,7 +54,7 @@ export function TG400Page() {
   const qc = useQueryClient();
 
   const { data: lines, isLoading } = useQuery({ queryKey: ['lines'], queryFn: tg400Api.listLines });
-  const { data: live } = useQuery({ queryKey: ['tg400-live'], queryFn: tg400Api.liveStatus, refetchInterval: 5000 });
+  const { data: live, isLoading: liveLoading } = useQuery({ queryKey: ['tg400-live'], queryFn: tg400Api.liveStatus, refetchInterval: 5000 });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<TG400Line | null>(null);
   const [form, setForm] = useState<LineInput>(emptyForm(1));
@@ -104,6 +104,8 @@ export function TG400Page() {
           <Row label="SIP 20001" value={live?.sip.registered ? 'Registered' : 'Unavailable'} />
         </CardContent>
       </Card>
+
+      <LiveStatusCard live={live} loading={liveLoading} />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {(lines ?? []).map((l) => (
@@ -177,6 +179,62 @@ function Row({ label, value }: { label: string; value: string }) {
     <div className="flex items-center justify-between gap-2">
       <span className="text-muted-foreground">{label}</span>
       <span className="font-medium text-end truncate">{value}</span>
+    </div>
+  );
+}
+
+
+function LiveStatusCard({ live, loading }: { live: any; loading: boolean }) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-4">
+      <Card className="border-primary/20">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">TG400 Gateway</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-xs">
+          <Row label="IP" value={live?.gateway?.ip || '192.168.0.6'} />
+          <Row label="Status" value={loading ? 'Checking...' : live?.gateway?.online ? 'Online' : 'Offline'} />
+          <Row label="HTTP" value={live?.gateway?.httpStatus ? String(live.gateway.httpStatus) : '—'} />
+          <Row label="Latency" value={live?.gateway?.latencyMs != null ? `${live.gateway.latencyMs} ms` : '—'} />
+        </CardContent>
+      </Card>
+
+      <Card className="border-primary/20">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">VPN Route</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-xs">
+          <Row label="Route" value={live?.vpn?.routeOk ? 'OK' : 'Bad'} />
+          <Row label="Interface" value={live?.vpn?.interface || '—'} />
+          <Row label="PPP Links" value={String(live?.vpn?.ppp?.length ?? 0)} />
+          <Row label="Updated" value={live?.checkedAt ? new Date(live.checkedAt).toLocaleTimeString() : '—'} />
+        </CardContent>
+      </Card>
+
+      <Card className="border-primary/20">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">SIP Trunk</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-xs">
+          <Row label="Endpoint" value={live?.sip?.endpoint || '20001'} />
+          <Row label="State" value={live?.sip?.registered ? 'Available' : 'Unavailable'} />
+          <Row label="Contact" value={live?.sip?.raw || '—'} />
+        </CardContent>
+      </Card>
+
+      <Card className="border-primary/20">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Quick Access</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Button className="w-full" variant="outline" onClick={() => window.open('http://192.168.0.6', '_blank')}>
+            فتح TG400
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            يتم تحديث الحالة تلقائياً كل 5 ثواني من السيرفر مباشرة.
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }
