@@ -103,6 +103,10 @@ router.get('/asterisk/held-calls', perm('live_calls'), h(asterisk.heldCalls));
 router.post('/asterisk/reload', perm('asterisk', 'edit'), h(asterisk.reload));
 
 router.get('/asterisk/contacts', perm('asterisk'), h(asterisk.contacts));
+router.get('/asterisk/contacts-json', perm('asterisk'), h(asterisk.contactsJson));
+router.get('/asterisk/endpoints-json', perm('asterisk'), h(asterisk.endpointsJson));
+router.get('/asterisk/queues-json', perm('asterisk'), h(asterisk.queuesJson));
+router.get('/asterisk/channels-json', perm('asterisk'), h(asterisk.channelsJson));
 router.get('/asterisk/endpoints', perm('asterisk'), h(asterisk.endpoints));
 router.get('/asterisk/registrations', perm('asterisk'), h(asterisk.registrations));
 router.get('/asterisk/transports', perm('asterisk'), h(asterisk.transports));

@@ -308,3 +308,93 @@ export async function reloadPjsip(_req: Request, res: Response) {
 export async function reloadDialplan(_req: Request, res: Response) {
   res.json(await ast('dialplan reload'));
 }
+
+
+function parseContactsText(stdout: string) {
+  return stdout.split('\n')
+    .filter((line) => line.trim().startsWith('Contact:') && !line.includes('<Aor/ContactUri'))
+    .map((line) => {
+      const m = line.match(/Contact:\s+(\S+)\/sip:([^@\s]+)@([^;\s]+)(?:;transport=([A-Z]+))?.*?\s(Avail|Unavail|NonQual|Unknown)\s+([0-9.\-nan]+)?/i);
+      return {
+        raw: line.trim(),
+        aor: m?.[1] || '',
+        user: m?.[2] || '',
+        host: m?.[3] || '',
+        transport: m?.[4] || '',
+        status: m?.[5] || 'Unknown',
+        rtt: m?.[6] || '',
+      };
+    });
+}
+
+function parseEndpointsText(stdout: string) {
+  return stdout.split('\n')
+    .filter((line) => line.trim().startsWith('Endpoint:'))
+    .map((line) => {
+      const m = line.match(/Endpoint:\s+(\S+)\s+([A-Za-z ]+?)\s+(\d+\s+of\s+\S+)/);
+      return {
+        raw: line.trim(),
+        endpoint: m?.[1] || '',
+        state: (m?.[2] || '').trim(),
+        channels: m?.[3] || '',
+      };
+    })
+    .filter((x) => x.endpoint && x.endpoint !== '<Endpoint/CID.....................................>');
+}
+
+function parseQueuesText(stdout: string) {
+  const queues: Array<{ queue: string; calls: number; strategy: string; members: number; callers: number; raw: string }> = [];
+  const blocks = stdout.split(/\n(?=\S+ has \d+ calls)/);
+
+  for (const block of blocks) {
+    const first = block.split('\n')[0] || '';
+    const m = first.match(/^(\S+) has (\d+) calls .* in '([^']+)' strategy/);
+    if (!m) continue;
+
+    const membersSection = block.split('Members:')[1]?.split('Callers:')[0] || '';
+    const callersSection = block.split('Callers:')[1] || '';
+    const members = membersSection.split('\n').filter((x) => x.includes('PJSIP/')).length;
+    const callers = callersSection.split('\n').filter((x) => x.trim() && !x.includes('No Callers')).length;
+
+    queues.push({
+      queue: m[1],
+      calls: Number(m[2]),
+      strategy: m[3],
+      members,
+      callers,
+      raw: block.trim(),
+    });
+  }
+
+  return queues;
+}
+
+function parseChannelsText(stdout: string) {
+  const summary = stdout.match(/(\d+) active channels?\n(\d+) active calls?\n(\d+) calls processed/);
+  return {
+    activeChannels: Number(summary?.[1] || 0),
+    activeCalls: Number(summary?.[2] || 0),
+    callsProcessed: Number(summary?.[3] || 0),
+    raw: stdout,
+  };
+}
+
+export async function contactsJson(_req: Request, res: Response) {
+  const result = await ast('pjsip show contacts');
+  res.json(parseContactsText(result.stdout));
+}
+
+export async function endpointsJson(_req: Request, res: Response) {
+  const result = await ast('pjsip show endpoints');
+  res.json(parseEndpointsText(result.stdout));
+}
+
+export async function queuesJson(_req: Request, res: Response) {
+  const result = await ast('queue show');
+  res.json(parseQueuesText(result.stdout));
+}
+
+export async function channelsJson(_req: Request, res: Response) {
+  const result = await ast('core show channels');
+  res.json(parseChannelsText(result.stdout));
+}

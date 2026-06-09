@@ -112,3 +112,53 @@ export function runAsteriskCli(command: string) {
     body: JSON.stringify({ command }),
   });
 }
+
+
+export interface AsteriskContactJson {
+  raw: string;
+  aor: string;
+  user: string;
+  host: string;
+  transport: string;
+  status: string;
+  rtt: string;
+}
+
+export interface AsteriskEndpointJson {
+  raw: string;
+  endpoint: string;
+  state: string;
+  channels: string;
+}
+
+export interface AsteriskQueueJson {
+  queue: string;
+  calls: number;
+  strategy: string;
+  members: number;
+  callers: number;
+  raw: string;
+}
+
+export interface AsteriskChannelsJson {
+  activeChannels: number;
+  activeCalls: number;
+  callsProcessed: number;
+  raw: string;
+}
+
+export function getAsteriskContactsJson() {
+  return api<AsteriskContactJson[]>('/asterisk/contacts-json');
+}
+
+export function getAsteriskEndpointsJson() {
+  return api<AsteriskEndpointJson[]>('/asterisk/endpoints-json');
+}
+
+export function getAsteriskQueuesJson() {
+  return api<AsteriskQueueJson[]>('/asterisk/queues-json');
+}
+
+export function getAsteriskChannelsJson() {
+  return api<AsteriskChannelsJson>('/asterisk/channels-json');
+}
