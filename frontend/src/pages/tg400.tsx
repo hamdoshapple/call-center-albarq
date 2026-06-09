@@ -54,6 +54,7 @@ export function TG400Page() {
   const qc = useQueryClient();
 
   const { data: lines, isLoading } = useQuery({ queryKey: ['lines'], queryFn: tg400Api.listLines });
+  const { data: live } = useQuery({ queryKey: ['tg400-live'], queryFn: tg400Api.liveStatus, refetchInterval: 5000 });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<TG400Line | null>(null);
   const [form, setForm] = useState<LineInput>(emptyForm(1));
@@ -87,6 +88,22 @@ export function TG400Page() {
         icon={<Signal className="h-5 w-5" />}
         actions={canCreate && <Button onClick={openCreate}><Plus className="h-4 w-4" />{t('common.add')}</Button>}
       />
+
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between text-sm">
+            <span>Live TG400</span>
+            <StatusBadge status={live?.gateway.online ? 'active' : 'error'} />
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 text-xs sm:grid-cols-4">
+          <Row label="Gateway" value={live?.gateway.ip || '192.168.0.6'} />
+          <Row label="HTTP" value={live?.gateway.online ? `Online ${live.gateway.latencyMs ?? '-'}ms` : 'Offline'} />
+          <Row label="Route" value={live?.vpn.routeOk ? `OK ${live.vpn.interface}` : 'Bad'} />
+          <Row label="SIP 20001" value={live?.sip.registered ? 'Registered' : 'Unavailable'} />
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {(lines ?? []).map((l) => (

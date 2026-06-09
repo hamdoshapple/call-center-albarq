@@ -1,7 +1,13 @@
 import type { Request, Response } from 'express';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import http from 'node:http';
 import { z } from 'zod';
 import { prisma } from '../config/prisma.js';
 import { ApiError } from '../utils/ApiError.js';
+
+const execFileAsync = promisify(execFile);
+const TG400_IP = process.env.TG400_IP || '192.168.0.6';
 
 const schema = z.object({
   slot: z.number(),
@@ -58,3 +64,72 @@ export async function remove(req: Request, res: Response) {
   await prisma.tg400Line.delete({ where: { id: req.params.id } });
   res.status(204).end();
 }
+
+
+async function shell(cmd: string, args: string[] = []) {
+  try {
+    const r = await execFileAsync(cmd, args, { timeout: 2500 });
+    return { ok: true, stdout: r.stdout.trim(), stderr: r.stderr.trim() };
+  } catch (e: any) {
+    return { ok: false, stdout: e?.stdout?.trim?.() || '', stderr: e?.stderr?.trim?.() || e?.message || '' };
+  }
+}
+
+async function httpCheck(ip: string) {
+  const started = Date.now();
+  return await new Promise<{ ok: boolean; latencyMs: number | null; statusCode: number | null }>((resolve) => {
+    const req = http.request({ host: ip, port: 80, method: 'HEAD', path: '/', timeout: 2500 }, (res) => {
+      res.resume();
+      resolve({ ok: true, latencyMs: Date.now() - started, statusCode: res.statusCode ?? null });
+    });
+    req.on('timeout', () => { req.destroy(); resolve({ ok: false, latencyMs: null, statusCode: null }); });
+    req.on('error', () => resolve({ ok: false, latencyMs: null, statusCode: null }));
+    req.end();
+  });
+}
+
+export async function live(_req: Request, res: Response) {
+  const ip = TG400_IP;
+
+  const [route, ppp, web, contacts] = await Promise.all([
+    shell('/usr/bin/nsenter', ['-t', '1', '-n', '/usr/sbin/ip', 'route', 'get', ip]),
+    shell('/usr/bin/nsenter', ['-t', '1', '-n', '/usr/sbin/ip', '-o', 'addr', 'show']),
+    httpCheck(ip),
+    shell('/usr/sbin/asterisk', ['-rx', 'pjsip show contacts']),
+  ]);
+
+  const routeText = route.stdout || '';
+  const iface = (routeText.match(/\bdev\s+(\S+)/)?.[1]) || '';
+  const routeOk = routeText.includes('192.168.0.6') && routeText.includes('dev ppp0');
+
+  const pppLines = (ppp.stdout || '')
+    .split('\n')
+    .filter((x: string) => x.includes(' ppp'))
+    .map((x: string) => x.trim());
+
+  const contactsText = contacts.stdout || '';
+  const sip20001 =
+    contactsText.split('\n').find((x: string) => x.includes('20001'))?.trim() || '';
+
+  res.json({
+    gateway: {
+      ip,
+      online: web.ok,
+      latencyMs: web.latencyMs,
+      httpStatus: web.statusCode,
+    },
+    vpn: {
+      routeOk,
+      interface: iface,
+      route: routeText,
+      ppp: pppLines,
+    },
+    sip: {
+      endpoint: '20001',
+      registered: /Avail/i.test(sip20001),
+      raw: sip20001,
+    },
+    checkedAt: new Date().toISOString(),
+  });
+}
+

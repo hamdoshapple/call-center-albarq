@@ -50,3 +50,15 @@ export async function deleteLine(id: string) {
   await api(`/tg400/${id}`, { method: 'DELETE' });
   return { success: true };
 }
+
+
+export type TG400Live = {
+  gateway: { ip: string; online: boolean; latencyMs: number | null; httpStatus: number | null };
+  vpn: { routeOk: boolean; interface: string; route: string; ppp: string[] };
+  sip: { endpoint: string; registered: boolean; raw: string };
+  checkedAt: string;
+};
+
+export async function liveStatus() {
+  return api<TG400Live>('/tg400/live');
+}

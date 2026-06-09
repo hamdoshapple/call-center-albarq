@@ -68,6 +68,7 @@ router.post('/voice-prompts/:id/set-moh', perm('voice_prompts', 'edit'), h(promp
 router.delete('/voice-prompts/:id', perm('voice_prompts', 'delete'), h(prompts.remove));
 
 // ---------- TG400 lines ----------
+router.get('/tg400/live', perm('tg400'), h(tg400.live));
 router.get('/tg400', perm('tg400'), h(tg400.list));
 router.post('/tg400', perm('tg400', 'create'), h(tg400.create));
 router.put('/tg400/:id', perm('tg400', 'edit'), h(tg400.update));
