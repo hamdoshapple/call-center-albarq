@@ -79,7 +79,9 @@
     "seconds": "sec",
     "minutes": "min",
     "required": "Required field",
-    "demo_mode": "Demo Mode"
+    "demo_mode": "Demo Mode",
+    "refresh": "Refresh",
+    "unknown": "Unknown"
   },
   "auth": {
     "login": "Login",
@@ -352,7 +354,128 @@
     "reload": "Reload Config",
     "reloading": "Reloading...",
     "reload_success": "Asterisk config reloaded (mock)",
-    "connection": "Connection Status"
+    "connection": "Connection Status",
+    "reloadPjsip": "Reload PJSIP",
+    "reloadDialplan": "Reload Dialplan",
+    "reloadConfig": "Reload Config",
+    "saveSettings": "Save Settings",
+    "settingsSaved": "Settings saved",
+    "settingsSavedDesc": "Asterisk settings were saved successfully.",
+    "pjsipReloaded": "PJSIP reloaded",
+    "pjsipReloadedDesc": "Asterisk accepted pjsip reload.",
+    "dialplanReloaded": "Dialplan reloaded",
+    "dialplanReloadedDesc": "Asterisk accepted dialplan reload.",
+    "configReloaded": "Config reloaded",
+    "configReloadedDesc": "Asterisk config reload command completed.",
+    "tabs": {
+      "overview": "Overview",
+      "settings": "Settings",
+      "tg400": "TG400",
+      "security": "Security",
+      "contacts": "Contacts",
+      "endpoints": "Endpoints",
+      "queues": "Queues",
+      "channels": "Channels",
+      "pjsip": "PJSIP",
+      "console": "Console"
+    },
+    "metrics": {
+      "ami": "AMI",
+      "activeCalls": "Active Calls",
+      "uptime": "Uptime"
+    },
+    "tg400": {
+      "monitor": "TG400 Monitor",
+      "liveState": "TG400 Live State"
+    },
+    "fields": {
+      "endpoint": "Endpoint",
+      "state": "State",
+      "matchRange": "Match Range",
+      "contact": "Contact",
+      "serverIp": "Server IP",
+      "sipPort": "SIP Port",
+      "rtpStart": "RTP Start",
+      "rtpEnd": "RTP End",
+      "amiHost": "AMI Host",
+      "amiPort": "AMI Port",
+      "amiUser": "AMI User",
+      "ariHost": "ARI Host",
+      "ariPort": "ARI Port",
+      "ariUser": "ARI User",
+      "extensionStart": "Extension Start",
+      "extensionEnd": "Extension End",
+      "recordingPath": "Recording Path",
+      "codecs": "Codecs",
+      "pjsipConf": "pjsip.conf",
+      "extensionsConf": "extensions.conf",
+      "context": "Context",
+      "username": "Username",
+      "password": "Password",
+      "matchIpRange": "Match IP / Range",
+      "trunkHost": "Trunk Host",
+      "transport": "Transport",
+      "registeredContact": "Registered Contact",
+      "channels": "Channels",
+      "endpointIdentifierOrder": "Endpoint Identifier Order",
+      "externalMediaAddress": "External Media Address",
+      "externalSignalingAddress": "External Signaling Address",
+      "localNetwork": "Local Network",
+      "allowedSipRanges": "Allowed SIP Ranges",
+      "blockedSipRanges": "Blocked SIP Ranges"
+    },
+    "sections": {
+      "server": "Server",
+      "amiAri": "AMI / ARI",
+      "extensionsRecordings": "Extensions & Recordings",
+      "configFiles": "Config Files",
+      "tg400TrunkSettings": "TG400 Trunk Settings",
+      "pjsipGlobalNat": "PJSIP Global / NAT",
+      "sipFirewallNotes": "SIP Firewall Notes"
+    },
+    "contacts": {
+      "title": "SIP Contacts",
+      "aor": "AOR",
+      "user": "User",
+      "host": "Host",
+      "status": "Status",
+      "rtt": "RTT",
+      "transport": "Transport"
+    },
+    "endpoints": {
+      "title": "Endpoints",
+      "endpoint": "Endpoint",
+      "state": "State",
+      "channels": "Channels"
+    },
+    "queues": {
+      "title": "Queues",
+      "members": "Members",
+      "waiting": "Waiting",
+      "calls": "Calls",
+      "strategy": "Strategy"
+    },
+    "raw": {
+      "registrations": "Registrations",
+      "pjsipGlobalSettings": "PJSIP Global Settings",
+      "transports": "Transports",
+      "liveChannels": "Live Channels",
+      "output": "Output"
+    },
+    "console": {
+      "safeTitle": "Safe Asterisk Console",
+      "execute": "Execute",
+      "chooseCommand": "Choose a command and press Execute."
+    },
+    "empty": {
+      "noContacts": "No SIP contacts registered.",
+      "noEndpoints": "No endpoints found.",
+      "noQueues": "No queues found.",
+      "noChannelsOutput": "No channels output",
+      "noOutput": "No output",
+      "noTg400Registration": "No TG400 registration",
+      "noRegistration": "No registration"
+    }
   },
   "reports": {
     "title": "Reports",

@@ -11,8 +11,8 @@ export function AppLayout() {
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="cc-content">
         <Topbar onMenu={() => setSidebarOpen(true)} />
-        <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-[1600px] space-y-6 p-4 md:p-6">
+        <main className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+          <div className="mx-auto w-full max-w-[1600px] min-w-0 space-y-6 overflow-x-hidden p-4 md:p-6">
             <Outlet />
           </div>
         </main>

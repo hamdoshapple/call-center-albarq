@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -12,7 +13,6 @@ import {
   Save,
   Server,
   Settings,
-  Shield,
   TerminalSquare,
   Users,
   XCircle,
@@ -74,6 +74,7 @@ const safeCommands = [
 ];
 
 export function AsteriskPage() {
+  const { t, i18n } = useTranslation();
   const { toast } = useToast();
   const { hasPermission } = useAuth();
   const qc = useQueryClient();
@@ -144,7 +145,7 @@ export function AsteriskPage() {
   const saveMut = useMutation({
     mutationFn: (s: AdvancedAsteriskSettings) => asteriskApi.updateAsteriskSettings(s as AsteriskSettings),
     onSuccess: () => {
-      toast({ title: 'Settings saved', description: 'Asterisk settings were saved successfully.' });
+      toast({ title: t('asterisk.settingsSaved'), description: t('asterisk.settingsSavedDesc') });
       void qc.invalidateQueries({ queryKey: ['asterisk-settings'] });
     },
   });
@@ -152,7 +153,7 @@ export function AsteriskPage() {
   const reloadPjsipMut = useMutation({
     mutationFn: asteriskApi.reloadPjsip,
     onSuccess: () => {
-      toast({ title: 'PJSIP reloaded', description: 'Asterisk accepted pjsip reload.' });
+      toast({ title: t('asterisk.pjsipReloaded'), description: t('asterisk.pjsipReloadedDesc') });
       invalidateAll(qc);
     },
   });
@@ -160,7 +161,7 @@ export function AsteriskPage() {
   const reloadDialplanMut = useMutation({
     mutationFn: asteriskApi.reloadDialplan,
     onSuccess: () => {
-      toast({ title: 'Dialplan reloaded', description: 'Asterisk accepted dialplan reload.' });
+      toast({ title: t('asterisk.dialplanReloaded'), description: t('asterisk.dialplanReloadedDesc') });
       invalidateAll(qc);
     },
   });
@@ -168,14 +169,14 @@ export function AsteriskPage() {
   const reloadConfigMut = useMutation({
     mutationFn: asteriskApi.reloadConfig,
     onSuccess: () => {
-      toast({ title: 'Config reloaded', description: 'Asterisk config reload command completed.' });
+      toast({ title: t('asterisk.configReloaded'), description: t('asterisk.configReloadedDesc') });
       invalidateAll(qc);
     },
   });
 
   const cliMut = useMutation({
     mutationFn: asteriskApi.runAsteriskCli,
-    onSuccess: (r) => setCliOutput(r.stdout || r.stderr || 'No output'),
+    onSuccess: (r) => setCliOutput(r.stdout || r.stderr || t('asterisk.empty.noOutput')),
     onError: (err) => setCliOutput(err instanceof Error ? err.message : 'Command failed'),
   });
 
@@ -198,157 +199,157 @@ export function AsteriskPage() {
   const set = (patch: Partial<AdvancedAsteriskSettings>) => setForm((f) => (f ? { ...f, ...patch } : f));
 
   return (
-    <div className="space-y-6">
+    <div dir={i18n.dir()} className="w-full max-w-full min-w-0 overflow-x-hidden space-y-6 px-2 sm:px-0">
       <PageHeader
-        title="Asterisk PBX"
-        subtitle="Monitor, settings, TG400 trunk, PJSIP, security and console"
+        title={t('asterisk.title')}
+        subtitle={t('asterisk.subtitle')}
         icon={<Server className="h-5 w-5" />}
         actions={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => invalidateAll(qc)}>
               <RefreshCw className="h-4 w-4" />
-              Refresh
+              {t('common.refresh')}
             </Button>
             {canEdit && (
               <Button variant="outline" onClick={() => reloadPjsipMut.mutate()} disabled={reloadPjsipMut.isPending}>
                 <Router className="h-4 w-4" />
-                Reload PJSIP
+                {t('asterisk.reloadPjsip')}
               </Button>
             )}
             {canEdit && (
               <Button variant="outline" onClick={() => reloadDialplanMut.mutate()} disabled={reloadDialplanMut.isPending}>
                 <Zap className="h-4 w-4" />
-                Reload Dialplan
+                {t('asterisk.reloadDialplan')}
               </Button>
             )}
             {canEdit && (
               <Button onClick={() => saveMut.mutate(form)} disabled={saveMut.isPending}>
                 <Save className="h-4 w-4" />
-                Save Settings
+                {t('asterisk.saveSettings')}
               </Button>
             )}
           </div>
         }
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
-        <MetricCard title="AMI" value={status?.ami ?? '—'} ok={status?.ami === 'connected'} icon={<Server className="h-5 w-5" />} />
-        <MetricCard title="SIP Contacts" value={contacts.length} ok={contacts.length > 0} icon={<Network className="h-5 w-5" />} />
-        <MetricCard title="Endpoints" value={`${registeredEndpoints}/${endpoints.length}`} ok={registeredEndpoints > 0} icon={<Users className="h-5 w-5" />} />
-        <MetricCard title="Active Calls" value={channels?.activeCalls ?? 0} neutral icon={<PhoneCall className="h-5 w-5" />} />
-        <MetricCard title="Queues" value={queues.length} ok={queues.length > 0} icon={<Activity className="h-5 w-5" />} />
-        <MetricCard title="Uptime" value={formatDuration(status?.uptimeSec ?? 0)} ok icon={<CircleDot className="h-5 w-5" />} />
+      <div className="grid w-full min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <MetricCard title={t('asterisk.metrics.ami')} value={status?.ami ?? '—'} ok={status?.ami === 'connected'} icon={<Server className="h-5 w-5" />} />
+        <MetricCard title={t('asterisk.contacts.title')} value={contacts.length} ok={contacts.length > 0} icon={<Network className="h-5 w-5" />} />
+        <MetricCard title={t('asterisk.endpoints.title')} value={`${registeredEndpoints}/${endpoints.length}`} ok={registeredEndpoints > 0} icon={<Users className="h-5 w-5" />} />
+        <MetricCard title={t('asterisk.metrics.activeCalls')} value={channels?.activeCalls ?? 0} neutral icon={<PhoneCall className="h-5 w-5" />} />
+        <MetricCard title={t('asterisk.queues.title')} value={queues.length} ok={queues.length > 0} icon={<Activity className="h-5 w-5" />} />
+        <MetricCard title={t('asterisk.metrics.uptime')} value={formatDuration(status?.uptimeSec ?? 0)} ok icon={<CircleDot className="h-5 w-5" />} />
       </div>
 
-      <div className="flex gap-2 overflow-x-auto rounded-xl border bg-card p-2">
+      <div dir={i18n.dir()} className="flex w-full max-w-full min-w-0 gap-2 overflow-x-auto rounded-xl border bg-card p-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {([
-          ['overview', 'Overview'],
-          ['settings', 'Settings'],
-          ['tg400', 'TG400'],
-          ['security', 'Security'],
-          ['contacts', 'Contacts'],
-          ['endpoints', 'Endpoints'],
-          ['queues', 'Queues'],
-          ['channels', 'Channels'],
-          ['pjsip', 'PJSIP'],
-          ['console', 'Console'],
+          ['overview', t('asterisk.tabs.overview')],
+          ['settings', t('asterisk.tabs.settings')],
+          ['tg400', t('asterisk.tabs.tg400')],
+          ['security', t('asterisk.tabs.security')],
+          ['contacts', t('asterisk.tabs.contacts')],
+          ['endpoints', t('asterisk.tabs.endpoints')],
+          ['queues', t('asterisk.tabs.queues')],
+          ['channels', t('asterisk.tabs.channels')],
+          ['pjsip', t('asterisk.tabs.pjsip')],
+          ['console', t('asterisk.tabs.console')],
         ] as Array<[TabKey, string]>).map(([key, label]) => (
-          <Button key={key} variant={tab === key ? 'default' : 'ghost'} size="sm" onClick={() => setTab(key)} className="whitespace-nowrap">
+          <Button key={key} variant={tab === key ? 'default' : 'ghost'} size="sm" onClick={() => setTab(key)} className="shrink-0 whitespace-nowrap">
             {label}
           </Button>
         ))}
       </div>
 
       {tab === 'overview' && (
-        <div className="grid gap-6 xl:grid-cols-2">
-          <Card className="xl:col-span-2">
+        <div className="grid w-full min-w-0 gap-6 xl:grid-cols-2">
+          <Card className="min-w-0 overflow-hidden xl:col-span-2">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Router className="h-4 w-4" />
-                TG400 Monitor
+                {t('asterisk.tg400.monitor')}
               </CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-4">
-              <MiniInfo label="Endpoint" value={tg400?.endpoint || form.tg400Endpoint || '20001'} />
-              <MiniInfo label="State" value={tg400?.state || 'Unknown'} badge />
-              <MiniInfo label="Match Range" value={form.tg400Match || '45.128.123.0/24'} />
-              <MiniInfo label="Contact" value={tg400Contact ? `${tg400Contact.host} ${tg400Contact.transport}` : 'No TG400 registration'} />
+            <CardContent className="grid w-full min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <MiniInfo label={t('asterisk.fields.endpoint')} value={tg400?.endpoint || form.tg400Endpoint || '20001'} />
+              <MiniInfo label={t('asterisk.fields.state')} value={tg400?.state || t('common.unknown')} badge />
+              <MiniInfo label={t('asterisk.fields.matchRange')} value={form.tg400Match || '45.128.123.0/24'} />
+              <MiniInfo label={t('asterisk.fields.contact')} value={tg400Contact ? `${tg400Contact.host} ${tg400Contact.transport}` : t('asterisk.empty.noTg400Registration')} />
             </CardContent>
           </Card>
 
-          <ContactsTable contacts={contacts.slice(0, 8)} />
-          <EndpointsTable endpoints={endpoints.slice(0, 12)} />
-          <QueuesGrid queues={queues} />
-          <RawOutput title="Registrations" output={registrationsQ.data?.stdout || ''} />
+          <ContactsTable contacts={contacts.slice(0, 8)} t={t} />
+          <EndpointsTable endpoints={endpoints.slice(0, 12)} t={t} />
+          <QueuesGrid queues={queues} t={t} />
+          <RawOutput title={t('asterisk.raw.registrations')} output={registrationsQ.data?.stdout || ''} />
         </div>
       )}
 
       {tab === 'settings' && (
-        <div className="grid gap-6 xl:grid-cols-2">
-          <Section title="Server">
-            <FormRow label="Server IP">
+        <div className="grid w-full min-w-0 gap-6 xl:grid-cols-2">
+          <Section title={t('asterisk.sections.server')}>
+            <FormRow label={t('asterisk.fields.serverIp')}>
               <Input value={form.serverIp} disabled={!canEdit} onChange={(e) => set({ serverIp: e.target.value })} />
             </FormRow>
-            <FormRow label="SIP Port">
+            <FormRow label={t('asterisk.fields.sipPort')}>
               <Input type="number" value={form.sipPort} disabled={!canEdit} onChange={(e) => set({ sipPort: Number(e.target.value) })} />
             </FormRow>
             <div className="grid grid-cols-2 gap-3">
-              <FormRow label="RTP Start">
+              <FormRow label={t('asterisk.fields.rtpStart')}>
                 <Input type="number" value={form.rtpStart} disabled={!canEdit} onChange={(e) => set({ rtpStart: Number(e.target.value) })} />
               </FormRow>
-              <FormRow label="RTP End">
+              <FormRow label={t('asterisk.fields.rtpEnd')}>
                 <Input type="number" value={form.rtpEnd} disabled={!canEdit} onChange={(e) => set({ rtpEnd: Number(e.target.value) })} />
               </FormRow>
             </div>
           </Section>
 
-          <Section title="AMI / ARI">
+          <Section title={t('asterisk.sections.amiAri')}>
             <div className="grid grid-cols-2 gap-3">
-              <FormRow label="AMI Host">
+              <FormRow label={t('asterisk.fields.amiHost')}>
                 <Input value={form.amiHost} disabled={!canEdit} onChange={(e) => set({ amiHost: e.target.value })} />
               </FormRow>
-              <FormRow label="AMI Port">
+              <FormRow label={t('asterisk.fields.amiPort')}>
                 <Input type="number" value={form.amiPort} disabled={!canEdit} onChange={(e) => set({ amiPort: Number(e.target.value) })} />
               </FormRow>
             </div>
-            <FormRow label="AMI User">
+            <FormRow label={t('asterisk.fields.amiUser')}>
               <Input value={form.amiUser} disabled={!canEdit} onChange={(e) => set({ amiUser: e.target.value })} />
             </FormRow>
             <div className="grid grid-cols-2 gap-3">
-              <FormRow label="ARI Host">
+              <FormRow label={t('asterisk.fields.ariHost')}>
                 <Input value={form.ariHost} disabled={!canEdit} onChange={(e) => set({ ariHost: e.target.value })} />
               </FormRow>
-              <FormRow label="ARI Port">
+              <FormRow label={t('asterisk.fields.ariPort')}>
                 <Input type="number" value={form.ariPort} disabled={!canEdit} onChange={(e) => set({ ariPort: Number(e.target.value) })} />
               </FormRow>
             </div>
-            <FormRow label="ARI User">
+            <FormRow label={t('asterisk.fields.ariUser')}>
               <Input value={form.ariUser} disabled={!canEdit} onChange={(e) => set({ ariUser: e.target.value })} />
             </FormRow>
           </Section>
 
-          <Section title="Extensions & Recordings">
+          <Section title={t('asterisk.sections.extensionsRecordings')}>
             <div className="grid grid-cols-2 gap-3">
-              <FormRow label="Extension Start">
+              <FormRow label={t('asterisk.fields.extensionStart')}>
                 <Input type="number" value={form.extensionStart} disabled={!canEdit} onChange={(e) => set({ extensionStart: Number(e.target.value) })} />
               </FormRow>
-              <FormRow label="Extension End">
+              <FormRow label={t('asterisk.fields.extensionEnd')}>
                 <Input type="number" value={form.extensionEnd} disabled={!canEdit} onChange={(e) => set({ extensionEnd: Number(e.target.value) })} />
               </FormRow>
             </div>
-            <FormRow label="Recording Path">
+            <FormRow label={t('asterisk.fields.recordingPath')}>
               <Input value={form.recordingPath} disabled={!canEdit} onChange={(e) => set({ recordingPath: e.target.value })} />
             </FormRow>
-            <FormRow label="Codecs">
+            <FormRow label={t('asterisk.fields.codecs')}>
               <Input value={form.codecs.join(',')} disabled={!canEdit} onChange={(e) => set({ codecs: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })} />
             </FormRow>
           </Section>
 
-          <Section title="Config Files">
-            <FormRow label="pjsip.conf">
+          <Section title={t('asterisk.sections.configFiles')}>
+            <FormRow label={t('asterisk.fields.pjsipConf')}>
               <Input value={form.pjsipConfPath ?? '/etc/asterisk/pjsip.conf'} disabled={!canEdit} onChange={(e) => set({ pjsipConfPath: e.target.value })} />
             </FormRow>
-            <FormRow label="extensions.conf">
+            <FormRow label={t('asterisk.fields.extensionsConf')}>
               <Input value={form.extensionsConfPath ?? '/etc/asterisk/extensions.conf'} disabled={!canEdit} onChange={(e) => set({ extensionsConfPath: e.target.value })} />
             </FormRow>
           </Section>
@@ -356,98 +357,98 @@ export function AsteriskPage() {
       )}
 
       {tab === 'tg400' && (
-        <div className="grid gap-6 xl:grid-cols-2">
-          <Section title="TG400 Trunk Settings">
+        <div className="grid w-full min-w-0 gap-6 xl:grid-cols-2">
+          <Section title={t('asterisk.sections.tg400TrunkSettings')}>
             <div className="grid grid-cols-2 gap-3">
-              <FormRow label="Endpoint">
+              <FormRow label={t('asterisk.fields.endpoint')}>
                 <Input value={form.tg400Endpoint ?? '20001'} disabled={!canEdit} onChange={(e) => set({ tg400Endpoint: e.target.value })} />
               </FormRow>
-              <FormRow label="Context">
+              <FormRow label={t('asterisk.fields.context')}>
                 <Input value={form.tg400Context ?? 'from-tg400'} disabled={!canEdit} onChange={(e) => set({ tg400Context: e.target.value })} />
               </FormRow>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <FormRow label="Username">
+              <FormRow label={t('asterisk.fields.username')}>
                 <Input value={form.tg400Username ?? '20001'} disabled={!canEdit} onChange={(e) => set({ tg400Username: e.target.value })} />
               </FormRow>
-              <FormRow label="Password">
+              <FormRow label={t('asterisk.fields.password')}>
                 <Input type="password" value={form.tg400Password ?? ''} disabled={!canEdit} onChange={(e) => set({ tg400Password: e.target.value })} />
               </FormRow>
             </div>
-            <FormRow label="Match IP / Range">
+            <FormRow label={t('asterisk.fields.matchIpRange')}>
               <Input value={form.tg400Match ?? '45.128.123.0/24'} disabled={!canEdit} onChange={(e) => set({ tg400Match: e.target.value })} />
             </FormRow>
-            <FormRow label="Trunk Host">
+            <FormRow label={t('asterisk.fields.trunkHost')}>
               <Input value={form.trunkHost} disabled={!canEdit} onChange={(e) => set({ trunkHost: e.target.value })} />
             </FormRow>
-            <FormRow label="Transport">
+            <FormRow label={t('asterisk.fields.transport')}>
               <Input value={form.tg400Transport ?? 'udp,tcp'} disabled={!canEdit} onChange={(e) => set({ tg400Transport: e.target.value })} />
             </FormRow>
           </Section>
 
-          <Card>
+          <Card className="min-w-0 overflow-hidden">
             <CardHeader>
-              <CardTitle className="text-base">TG400 Live State</CardTitle>
+              <CardTitle className="text-base">{t('asterisk.tg400.liveState')}</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-3">
-              <MiniInfo label="Endpoint" value={tg400?.endpoint || '20001'} />
-              <MiniInfo label="State" value={tg400?.state || 'Unknown'} badge />
-              <MiniInfo label="Registered Contact" value={tg400Contact ? `${tg400Contact.host} ${tg400Contact.transport}` : 'No registration'} />
-              <MiniInfo label="Channels" value={tg400?.channels || '0 of inf'} />
+              <MiniInfo label={t('asterisk.fields.endpoint')} value={tg400?.endpoint || '20001'} />
+              <MiniInfo label={t('asterisk.fields.state')} value={tg400?.state || t('common.unknown')} badge />
+              <MiniInfo label={t('asterisk.fields.registeredContact')} value={tg400Contact ? `${tg400Contact.host} ${tg400Contact.transport}` : t('asterisk.empty.noRegistration')} />
+              <MiniInfo label={t('asterisk.fields.channels')} value={tg400?.channels || '0 of inf'} />
             </CardContent>
           </Card>
         </div>
       )}
 
       {tab === 'security' && (
-        <div className="grid gap-6 xl:grid-cols-2">
-          <Section title="PJSIP Global / NAT">
-            <FormRow label="Endpoint Identifier Order">
+        <div className="grid w-full min-w-0 gap-6 xl:grid-cols-2">
+          <Section title={t('asterisk.sections.pjsipGlobalNat')}>
+            <FormRow label={t('asterisk.fields.endpointIdentifierOrder')}>
               <Input value={form.endpointIdentifierOrder ?? 'username,ip,anonymous'} disabled={!canEdit} onChange={(e) => set({ endpointIdentifierOrder: e.target.value })} />
             </FormRow>
             <div className="grid grid-cols-2 gap-3">
-              <FormRow label="External Media Address">
+              <FormRow label={t('asterisk.fields.externalMediaAddress')}>
                 <Input value={form.externalMediaAddress ?? ''} disabled={!canEdit} onChange={(e) => set({ externalMediaAddress: e.target.value })} placeholder="82.39.115.217" />
               </FormRow>
-              <FormRow label="External Signaling Address">
+              <FormRow label={t('asterisk.fields.externalSignalingAddress')}>
                 <Input value={form.externalSignalingAddress ?? ''} disabled={!canEdit} onChange={(e) => set({ externalSignalingAddress: e.target.value })} placeholder="82.39.115.217" />
               </FormRow>
             </div>
-            <FormRow label="Local Network">
+            <FormRow label={t('asterisk.fields.localNetwork')}>
               <Input value={form.localNet ?? ''} disabled={!canEdit} onChange={(e) => set({ localNet: e.target.value })} placeholder="192.168.0.0/16" />
             </FormRow>
           </Section>
 
-          <Section title="SIP Firewall Notes">
-            <FormRow label="Allowed SIP Ranges">
+          <Section title={t('asterisk.sections.sipFirewallNotes')}>
+            <FormRow label={t('asterisk.fields.allowedSipRanges')}>
               <Input value={form.allowedSipRanges ?? '45.128.123.0/24'} disabled={!canEdit} onChange={(e) => set({ allowedSipRanges: e.target.value })} />
             </FormRow>
-            <FormRow label="Blocked SIP Ranges">
+            <FormRow label={t('asterisk.fields.blockedSipRanges')}>
               <Input value={form.blockedSipRanges ?? '5.135.0.0/16'} disabled={!canEdit} onChange={(e) => set({ blockedSipRanges: e.target.value })} />
             </FormRow>
           </Section>
         </div>
       )}
 
-      {tab === 'contacts' && <ContactsTable contacts={contacts} full />}
-      {tab === 'endpoints' && <EndpointsTable endpoints={endpoints} full />}
-      {tab === 'queues' && <QueuesGrid queues={queues} full />}
-      {tab === 'channels' && <RawOutput title="Live Channels" output={channels?.raw || 'No channels output'} />}
+      {tab === 'contacts' && <ContactsTable contacts={contacts} full t={t} />}
+      {tab === 'endpoints' && <EndpointsTable endpoints={endpoints} full t={t} />}
+      {tab === 'queues' && <QueuesGrid queues={queues} full t={t} />}
+      {tab === 'channels' && <RawOutput title={t('asterisk.raw.liveChannels')} output={channels?.raw || t('asterisk.empty.noChannelsOutput')} />}
 
       {tab === 'pjsip' && (
-        <div className="grid gap-6 xl:grid-cols-2">
-          <RawOutput title="PJSIP Global Settings" output={pjsipSettingsQ.data?.stdout || 'Loading...'} />
-          <RawOutput title="Transports" output={transportsQ.data?.stdout || 'Loading...'} />
-          <RawOutput title="Registrations" output={registrationsQ.data?.stdout || 'Loading...'} />
+        <div className="grid w-full min-w-0 gap-6 xl:grid-cols-2">
+          <RawOutput title={t('asterisk.raw.pjsipGlobalSettings')} output={pjsipSettingsQ.data?.stdout || t('common.loading')} />
+          <RawOutput title={t('asterisk.raw.transports')} output={transportsQ.data?.stdout || t('common.loading')} />
+          <RawOutput title={t('asterisk.raw.registrations')} output={registrationsQ.data?.stdout || t('common.loading')} />
         </div>
       )}
 
       {tab === 'console' && (
-        <Card>
+        <Card className="min-w-0 overflow-hidden">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <TerminalSquare className="h-4 w-4" />
-              Safe Asterisk Console
+              {t('asterisk.console.safeTitle')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -462,16 +463,16 @@ export function AsteriskPage() {
               <Input value={command} onChange={(e) => setCommand(e.target.value)} placeholder="pjsip show contacts" disabled={!canEdit} />
               <Button disabled={!canEdit || cliMut.isPending} onClick={() => cliMut.mutate(command)}>
                 {cliMut.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <TerminalSquare className="h-4 w-4" />}
-                Execute
+                {t('asterisk.console.execute')}
               </Button>
               {canEdit && (
                 <Button variant="outline" onClick={() => reloadConfigMut.mutate()} disabled={reloadConfigMut.isPending}>
                   <Settings className="h-4 w-4" />
-                  Reload Config
+                  {t('asterisk.reloadConfig')}
                 </Button>
               )}
             </div>
-            <RawOutput title="Output" output={cliOutput || 'Choose a command and press Execute.'} />
+            <RawOutput title={t('asterisk.raw.output')} output={cliOutput || t('asterisk.console.chooseCommand')} />
           </CardContent>
         </Card>
       )}
@@ -492,13 +493,13 @@ function invalidateAll(qc: ReturnType<typeof useQueryClient>) {
 
 function MetricCard({ title, value, ok, neutral, icon }: { title: string; value: string | number; ok?: boolean; neutral?: boolean; icon: ReactNode }) {
   return (
-    <Card>
-      <CardContent className="flex items-center justify-between p-4">
+    <Card className="min-w-0 overflow-hidden">
+      <CardContent className="min-h-[104px] flex flex-col items-start justify-between gap-2 p-3 sm:flex-row sm:items-center sm:p-4">
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">{title}</p>
-          <p className="truncate text-lg font-bold capitalize">{value}</p>
+          <p className="truncate text-xl font-bold capitalize leading-tight">{value}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center justify-between gap-2 sm:w-auto">
           <span className="text-muted-foreground">{icon}</span>
           {!neutral && (ok ? <CheckCircle2 className="h-6 w-6 text-success" /> : <XCircle className="h-6 w-6 text-destructive" />)}
         </div>
@@ -525,29 +526,29 @@ function MiniNumber({ label, value }: { label: string; value: number }) {
   );
 }
 
-function ContactsTable({ contacts, full }: { contacts: asteriskApi.AsteriskContactJson[]; full?: boolean }) {
+function ContactsTable({ contacts, full, t }: { contacts: asteriskApi.AsteriskContactJson[]; full?: boolean; t: (key: string) => string }) {
   return (
-    <Card className={full ? '' : 'xl:col-span-1'}>
+    <Card className={full ? "min-w-0 overflow-hidden" : "min-w-0 overflow-hidden xl:col-span-1"}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Network className="h-4 w-4" />
           SIP Contacts
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-w-0 overflow-hidden">
         {contacts.length === 0 ? (
-          <Empty text="No SIP contacts registered." />
+          <Empty text={t('asterisk.empty.noContacts')} />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[620px] text-sm">
+          <div className="w-full max-w-full min-w-0 overflow-x-auto">
+            <table className="w-full min-w-[520px] max-w-full text-sm">
               <thead className="text-xs text-muted-foreground">
                 <tr className="border-b">
-                  <th className="py-2 text-left">AOR</th>
-                  <th className="py-2 text-left">User</th>
-                  <th className="py-2 text-left">Host</th>
-                  <th className="py-2 text-left">Transport</th>
-                  <th className="py-2 text-left">Status</th>
-                  <th className="py-2 text-left">RTT</th>
+                  <th className="py-2 text-left">{t('asterisk.contacts.aor')}</th>
+                  <th className="py-2 text-left">{t('asterisk.contacts.user')}</th>
+                  <th className="py-2 text-left">{t('asterisk.contacts.host')}</th>
+                  <th className="py-2 text-left">{t('asterisk.contacts.transport')}</th>
+                  <th className="py-2 text-left">{t('asterisk.contacts.status')}</th>
+                  <th className="py-2 text-left">{t('asterisk.contacts.rtt')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -570,26 +571,26 @@ function ContactsTable({ contacts, full }: { contacts: asteriskApi.AsteriskConta
   );
 }
 
-function EndpointsTable({ endpoints, full }: { endpoints: asteriskApi.AsteriskEndpointJson[]; full?: boolean }) {
+function EndpointsTable({ endpoints, full, t }: { endpoints: asteriskApi.AsteriskEndpointJson[]; full?: boolean; t: (key: string) => string }) {
   return (
-    <Card className={full ? '' : 'xl:col-span-1'}>
+    <Card className={full ? "min-w-0 overflow-hidden" : "min-w-0 overflow-hidden xl:col-span-1"}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Users className="h-4 w-4" />
           Endpoints
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-w-0 overflow-hidden">
         {endpoints.length === 0 ? (
-          <Empty text="No endpoints found." />
+          <Empty text={t('asterisk.empty.noEndpoints')} />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[480px] text-sm">
+          <div className="w-full max-w-full min-w-0 overflow-x-auto">
+            <table className="w-full min-w-[420px] max-w-full text-sm">
               <thead className="text-xs text-muted-foreground">
                 <tr className="border-b">
-                  <th className="py-2 text-left">Endpoint</th>
-                  <th className="py-2 text-left">State</th>
-                  <th className="py-2 text-left">Channels</th>
+                  <th className="py-2 text-left">{t('asterisk.endpoints.endpoint')}</th>
+                  <th className="py-2 text-left">{t('asterisk.endpoints.state')}</th>
+                  <th className="py-2 text-left">{t('asterisk.endpoints.channels')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -609,32 +610,32 @@ function EndpointsTable({ endpoints, full }: { endpoints: asteriskApi.AsteriskEn
   );
 }
 
-function QueuesGrid({ queues, full }: { queues: asteriskApi.AsteriskQueueJson[]; full?: boolean }) {
+function QueuesGrid({ queues, full, t }: { queues: asteriskApi.AsteriskQueueJson[]; full?: boolean; t: (key: string) => string }) {
   return (
-    <Card className={full ? '' : 'xl:col-span-2'}>
+    <Card className={full ? "min-w-0 overflow-hidden" : "min-w-0 overflow-hidden xl:col-span-2"}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Activity className="h-4 w-4" />
           Queues
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-w-0 overflow-hidden">
         {queues.length === 0 ? (
-          <Empty text="No queues found." />
+          <Empty text={t('asterisk.empty.noQueues')} />
         ) : (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid w-full min-w-0 gap-3 md:grid-cols-2 xl:grid-cols-4">
             {queues.map((q) => (
-              <div key={q.queue} className="rounded-xl border bg-background/40 p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <p className="text-lg font-bold">{q.queue}</p>
-                  <Badge variant={q.calls > 0 ? 'default' : 'secondary'}>{q.calls} calls</Badge>
+              <div key={q.queue} className="min-w-0 overflow-hidden rounded-xl border bg-background/40 p-4">
+                <div className="mb-3 flex min-w-0 items-center justify-between gap-2">
+                  <p className="min-w-0 truncate text-lg font-bold">{q.queue}</p>
+                  <Badge variant={q.calls > 0 ? 'default' : 'secondary'}>{q.calls} {t('asterisk.queues.calls')}</Badge>
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-center">
-                  <MiniNumber label="Members" value={q.members} />
-                  <MiniNumber label="Waiting" value={q.callers} />
-                  <MiniNumber label="Calls" value={q.calls} />
+                  <MiniNumber label={t('asterisk.queues.members')} value={q.members} />
+                  <MiniNumber label={t('asterisk.queues.waiting')} value={q.callers} />
+                  <MiniNumber label={t('asterisk.queues.calls')} value={q.calls} />
                 </div>
-                <p className="mt-3 text-xs text-muted-foreground">Strategy: {q.strategy}</p>
+                <p className="mt-3 truncate text-xs text-muted-foreground">{t('asterisk.queues.strategy')}: {q.strategy}</p>
               </div>
             ))}
           </div>
@@ -646,11 +647,11 @@ function QueuesGrid({ queues, full }: { queues: asteriskApi.AsteriskQueueJson[];
 
 function RawOutput({ title, output }: { title: string; output: string }) {
   return (
-    <Card className="xl:col-span-2">
+    <Card className="min-w-0 overflow-hidden xl:col-span-2">
       <CardHeader>
         <CardTitle className="text-base">{title}</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-w-0 overflow-hidden">
         <pre className="max-h-[520px] overflow-auto rounded-xl bg-muted p-4 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
           {output || 'No output'}
         </pre>
@@ -673,7 +674,7 @@ function StatusBadgeText({ text }: { text: string }) {
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <Card>
+    <Card className="min-w-0 overflow-hidden">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Settings className="h-4 w-4" />
