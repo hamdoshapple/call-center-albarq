@@ -402,3 +402,273 @@ export async function channelsJson(_req: Request, res: Response) {
   const result = await ast('core show channels');
   res.json(parseChannelsText(result.stdout));
 }
+
+
+const RAW_FILES: Record<string, { path: string; reload: string }> = {
+  pjsip: { path: '/etc/asterisk/pjsip.conf', reload: 'pjsip reload' },
+  extensions: { path: '/etc/asterisk/extensions.conf', reload: 'dialplan reload' },
+  http: { path: '/etc/asterisk/http.conf', reload: 'core reload' },
+  manager: { path: '/etc/asterisk/manager.conf', reload: 'manager reload' },
+  rtp: { path: '/etc/asterisk/rtp.conf', reload: 'core reload' },
+  queues: { path: '/etc/asterisk/queues.conf', reload: 'queue reload all' },
+};
+
+function rawFileKey(req: Request) {
+  const key = String(req.params.file || '');
+  const item = RAW_FILES[key];
+  if (!item) throw new Error('Invalid raw file');
+  return { key, ...item };
+}
+
+export async function readRawFile(req: Request, res: Response) {
+  const { key, path } = rawFileKey(req);
+  const fs = await import('node:fs/promises');
+  const content = await fs.readFile(path, 'utf8');
+  res.json({ key, path, content });
+}
+
+export async function writeRawFile(req: Request, res: Response) {
+  const { key, path, reload } = rawFileKey(req);
+  const content = z.string().min(1).max(300000).parse(req.body?.content);
+  const fs = await import('node:fs/promises');
+
+  const old = await fs.readFile(path, 'utf8');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backup = `${path}.bak.raw.${stamp}`;
+  await fs.writeFile(backup, old, 'utf8');
+  await fs.writeFile(path, content, 'utf8');
+
+  const result = await ast(reload);
+  res.json({ ok: true, key, path, backup, reload, result });
+}
+
+
+type ConfSection = { name: string; body: string; type: string };
+
+function parseConfSections(content: string): ConfSection[] {
+  const sections: ConfSection[] = [];
+  const lines = content.split(/\r?\n/);
+  let currentName = '';
+  let currentLines: string[] = [];
+
+  function pushCurrent() {
+    if (!currentName) return;
+    const body = `[${currentName}]\n${currentLines.join('\n')}`.trimEnd() + '\n';
+    const type = body.match(/^\s*type\s*=\s*(.+?)\s*$/m)?.[1]?.trim() || '';
+    sections.push({ name: currentName, body, type });
+  }
+
+  for (const line of lines) {
+    const m = line.match(/^\[([^\]]+)\]\s*$/);
+    if (m) {
+      pushCurrent();
+      currentName = m[1].trim();
+      currentLines = [];
+    } else if (currentName) {
+      currentLines.push(line);
+    }
+  }
+
+  pushCurrent();
+  return sections;
+}
+
+function sectionValue(section: string, key: string) {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return section.match(new RegExp(`^\\s*${escaped}\\s*=\\s*(.*?)\\s*$`, 'm'))?.[1]?.trim() || '';
+}
+
+function setSectionValue(section: string, key: string, value: string) {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const line = `${key}=${value}`;
+  if (section.match(new RegExp(`^\\s*${escaped}\\s*=`, 'm'))) {
+    return section.replace(new RegExp(`^\\s*${escaped}\\s*=.*$`, 'm'), line);
+  }
+  return section.trimEnd() + `\n${line}\n`;
+}
+
+function replaceNamedTypedSection(content: string, name: string, type: string, next: string) {
+  const sections = parseConfSections(content);
+  let replaced = false;
+  let output = content;
+
+  for (const sec of sections) {
+    if (sec.name === name && sec.type === type) {
+      output = output.replace(sec.body, next.trimEnd() + '\n');
+      replaced = true;
+      break;
+    }
+  }
+
+  if (!replaced) throw new Error(`Section [${name}] type=${type} not found`);
+  return output;
+}
+
+function discoverTgGateway(pjsip: string) {
+  const sections = parseConfSections(pjsip);
+
+  let endpoint = sections.find((x) =>
+    x.type === 'endpoint' &&
+    (
+      sectionValue(x.body, 'context') === 'from-tg400' ||
+      sectionValue(x.body, 'identify_by') === 'ip' ||
+      sectionValue(x.body, 'from_user') !== ''
+    )
+  );
+
+  if (!endpoint) endpoint = sections.find((x) => x.type === 'endpoint' && sectionValue(x.body, 'identify_by') === 'ip');
+  if (!endpoint) throw new Error('No TG gateway endpoint discovered');
+
+  const endpointName = endpoint.name;
+  const aorName = sectionValue(endpoint.body, 'aors') || endpointName;
+  const authName = sectionValue(endpoint.body, 'auth') || endpointName;
+
+  const auth = sections.find((x) => x.name === authName && x.type === 'auth') || sections.find((x) => x.name === endpointName && x.type === 'auth');
+  const aor = sections.find((x) => x.name === aorName && x.type === 'aor') || sections.find((x) => x.name === endpointName && x.type === 'aor');
+  const identify = sections.find((x) => x.type === 'identify' && sectionValue(x.body, 'endpoint') === endpointName);
+
+  if (!auth) throw new Error(`Auth section for endpoint ${endpointName} not found`);
+  if (!aor) throw new Error(`AOR section for endpoint ${endpointName} not found`);
+  if (!identify) throw new Error(`Identify section for endpoint ${endpointName} not found`);
+
+  return { endpoint, auth, aor, identify, endpointName, authName, aorName };
+}
+
+export async function getDiscoveredSimpleRawSettings(_req: Request, res: Response) {
+  const fs = await import('node:fs/promises');
+
+  const pjsip = await fs.readFile('/etc/asterisk/pjsip.conf', 'utf8');
+  const http = await fs.readFile('/etc/asterisk/http.conf', 'utf8');
+  const rtp = await fs.readFile('/etc/asterisk/rtp.conf', 'utf8');
+
+  const d = discoverTgGateway(pjsip);
+  const global = pjsip.match(/^\[global\]\n(?:[^\[]|\n(?!\[))*/m)?.[0] || '';
+
+  res.json({
+    discovered: {
+      endpointSection: d.endpoint.name,
+      authSection: d.auth.name,
+      aorSection: d.aor.name,
+      identifySection: d.identify.name,
+    },
+    tg400: {
+      endpoint: d.endpoint.name,
+      context: sectionValue(d.endpoint.body, 'context'),
+      codecs: sectionValue(d.endpoint.body, 'allow'),
+      fromUser: sectionValue(d.endpoint.body, 'from_user'),
+      fromDomain: sectionValue(d.endpoint.body, 'from_domain'),
+      callerId: sectionValue(d.endpoint.body, 'callerid'),
+      identifyBy: sectionValue(d.endpoint.body, 'identify_by'),
+      match: sectionValue(d.identify.body, 'match'),
+      maxContacts: sectionValue(d.aor.body, 'max_contacts'),
+      qualifyFrequency: sectionValue(d.aor.body, 'qualify_frequency'),
+      username: sectionValue(d.auth.body, 'username'),
+      password: sectionValue(d.auth.body, 'password'),
+      rewriteContact: sectionValue(d.endpoint.body, 'rewrite_contact'),
+      forceRport: sectionValue(d.endpoint.body, 'force_rport'),
+      rtpSymmetric: sectionValue(d.endpoint.body, 'rtp_symmetric'),
+      directMedia: sectionValue(d.endpoint.body, 'direct_media'),
+    },
+    global: {
+      endpointIdentifierOrder: sectionValue(global, 'endpoint_identifier_order'),
+    },
+    http: {
+      enabled: sectionValue(http, 'enabled') || 'no',
+      bindaddr: sectionValue(http, 'bindaddr'),
+      bindport: sectionValue(http, 'bindport') || '8088',
+    },
+    rtp: {
+      rtpstart: sectionValue(rtp, 'rtpstart'),
+      rtpend: sectionValue(rtp, 'rtpend'),
+    },
+  });
+}
+
+export async function updateDiscoveredSimpleRawSettings(req: Request, res: Response) {
+  const fs = await import('node:fs/promises');
+  const body = z.object({
+    tg400: z.object({
+      context: z.string().min(1),
+      codecs: z.string().min(1),
+      fromUser: z.string().min(1),
+      fromDomain: z.string().optional().default(''),
+      callerId: z.string().optional().default(''),
+      identifyBy: z.string().min(1),
+      match: z.string().min(1),
+      maxContacts: z.string().min(1),
+      qualifyFrequency: z.string().min(1),
+      username: z.string().min(1),
+      password: z.string().min(1),
+      rewriteContact: z.string().min(1),
+      forceRport: z.string().min(1),
+      rtpSymmetric: z.string().min(1),
+      directMedia: z.string().min(1),
+    }),
+    global: z.object({ endpointIdentifierOrder: z.string().min(1) }),
+    http: z.object({
+      enabled: z.string().min(1),
+      bindaddr: z.string().min(1),
+      bindport: z.string().min(1),
+    }),
+    rtp: z.object({
+      rtpstart: z.string().min(1),
+      rtpend: z.string().min(1),
+    }),
+  }).parse(req.body);
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+  let pjsip = await fs.readFile('/etc/asterisk/pjsip.conf', 'utf8');
+  let http = await fs.readFile('/etc/asterisk/http.conf', 'utf8');
+  let rtp = await fs.readFile('/etc/asterisk/rtp.conf', 'utf8');
+
+  const d = discoverTgGateway(pjsip);
+
+  await fs.writeFile(`/etc/asterisk/pjsip.conf.bak.simple.${stamp}`, pjsip);
+  await fs.writeFile(`/etc/asterisk/http.conf.bak.simple.${stamp}`, http);
+  await fs.writeFile(`/etc/asterisk/rtp.conf.bak.simple.${stamp}`, rtp);
+
+  let endpoint = d.endpoint.body;
+  endpoint = setSectionValue(endpoint, 'context', body.tg400.context);
+  endpoint = setSectionValue(endpoint, 'allow', body.tg400.codecs);
+  endpoint = setSectionValue(endpoint, 'from_user', body.tg400.fromUser);
+  endpoint = setSectionValue(endpoint, 'from_domain', body.tg400.fromDomain);
+  endpoint = setSectionValue(endpoint, 'callerid', body.tg400.callerId || `${body.tg400.fromUser} <${body.tg400.fromUser}>`);
+  endpoint = setSectionValue(endpoint, 'identify_by', body.tg400.identifyBy);
+  endpoint = setSectionValue(endpoint, 'rewrite_contact', body.tg400.rewriteContact);
+  endpoint = setSectionValue(endpoint, 'force_rport', body.tg400.forceRport);
+  endpoint = setSectionValue(endpoint, 'rtp_symmetric', body.tg400.rtpSymmetric);
+  endpoint = setSectionValue(endpoint, 'direct_media', body.tg400.directMedia);
+  pjsip = replaceNamedTypedSection(pjsip, d.endpoint.name, 'endpoint', endpoint);
+
+  let auth = d.auth.body;
+  auth = setSectionValue(auth, 'username', body.tg400.username);
+  auth = setSectionValue(auth, 'password', body.tg400.password);
+  pjsip = replaceNamedTypedSection(pjsip, d.auth.name, 'auth', auth);
+
+  let aor = d.aor.body;
+  aor = setSectionValue(aor, 'max_contacts', body.tg400.maxContacts);
+  aor = setSectionValue(aor, 'qualify_frequency', body.tg400.qualifyFrequency);
+  pjsip = replaceNamedTypedSection(pjsip, d.aor.name, 'aor', aor);
+
+  let identify = d.identify.body;
+  identify = setSectionValue(identify, 'match', body.tg400.match);
+  pjsip = replaceNamedTypedSection(pjsip, d.identify.name, 'identify', identify);
+
+  pjsip = pjsip.replace(/^endpoint_identifier_order\s*=.*$/m, `endpoint_identifier_order=${body.global.endpointIdentifierOrder}`);
+
+  http = http.replace(/^enabled\s*=.*$/m, `enabled=${body.http.enabled}`);
+  http = http.replace(/^bindaddr\s*=.*$/m, `bindaddr=${body.http.bindaddr}`);
+  http = http.replace(/^bindport\s*=.*$/m, `bindport=${body.http.bindport}`);
+
+  rtp = rtp.replace(/^rtpstart\s*=.*$/m, `rtpstart=${body.rtp.rtpstart}`);
+  rtp = rtp.replace(/^rtpend\s*=.*$/m, `rtpend=${body.rtp.rtpend}`);
+
+  await fs.writeFile('/etc/asterisk/pjsip.conf', pjsip);
+  await fs.writeFile('/etc/asterisk/http.conf', http);
+  await fs.writeFile('/etc/asterisk/rtp.conf', rtp);
+
+  const reloads = [await ast('pjsip reload'), await ast('core reload')];
+
+  res.json({ ok: true, backups: stamp, discovered: d, reloads });
+}

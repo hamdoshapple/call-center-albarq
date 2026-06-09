@@ -377,7 +377,8 @@
       "queues": "Queues",
       "channels": "Channels",
       "pjsip": "PJSIP",
-      "console": "Console"
+      "console": "Console",
+      "simple": "Simple Editor"
     },
     "metrics": {
       "ami": "AMI",
@@ -475,6 +476,44 @@
       "noOutput": "No output",
       "noTg400Registration": "No TG400 registration",
       "noRegistration": "No registration"
+    },
+    "simple": {
+      "title": "Simple Asterisk Editor",
+      "endpointSection": "Endpoint Section",
+      "authSection": "Auth Section",
+      "aorSection": "AOR Section",
+      "identifySection": "Identify Section",
+      "tg400Gateway": "TG400 Gateway",
+      "natSipOptions": "TG400 NAT / SIP Options",
+      "globalHttpAri": "Global / HTTP / ARI",
+      "rtpPorts": "RTP Ports",
+      "reloadFromRaw": "Reload From Raw",
+      "saveToRaw": "Save To Raw + Reload",
+      "saved": "Simple settings saved",
+      "savedDesc": "Raw Asterisk files updated and reloaded.",
+      "fields": {
+        "context": "Context",
+        "codecs": "Codecs",
+        "fromUser": "From User",
+        "fromDomain": "From Domain",
+        "callerId": "Caller ID",
+        "username": "Username",
+        "password": "Password",
+        "matchIpRange": "Match IP / Range",
+        "identifyBy": "Identify By",
+        "maxContacts": "Max Contacts",
+        "qualifyFrequency": "Qualify Frequency",
+        "directMedia": "Direct Media",
+        "rewriteContact": "Rewrite Contact",
+        "forceRport": "Force RPort",
+        "rtpSymmetric": "RTP Symmetric",
+        "endpointIdentifierOrder": "Endpoint Identifier Order",
+        "httpEnabled": "HTTP Enabled",
+        "bindAddress": "Bind Address",
+        "bindPort": "Bind Port",
+        "rtpStart": "RTP Start",
+        "rtpEnd": "RTP End"
+      }
     }
   },
   "reports": {

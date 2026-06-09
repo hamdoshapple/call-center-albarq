@@ -162,3 +162,73 @@ export function getAsteriskQueuesJson() {
 export function getAsteriskChannelsJson() {
   return api<AsteriskChannelsJson>('/asterisk/channels-json');
 }
+
+
+export type AsteriskRawFileKey = 'pjsip' | 'extensions' | 'http' | 'manager' | 'rtp' | 'queues';
+
+export interface AsteriskRawFile {
+  key: AsteriskRawFileKey;
+  path: string;
+  content: string;
+}
+
+export function readAsteriskRawFile(file: AsteriskRawFileKey) {
+  return api<AsteriskRawFile>(`/asterisk/raw/${file}`);
+}
+
+export function writeAsteriskRawFile(file: AsteriskRawFileKey, content: string) {
+  return api<{ ok: boolean; backup: string; reload: string; result: AsteriskCliResult }>(`/asterisk/raw/${file}`, {
+    method: 'PUT',
+    body: JSON.stringify({ content }),
+  });
+}
+
+export interface AsteriskSimpleRawSettings {
+  discovered?: {
+    endpointSection: string;
+    authSection: string;
+    aorSection: string;
+    identifySection: string;
+  };
+  tg400: {
+    endpoint: string;
+    context: string;
+    codecs: string;
+    fromUser: string;
+    fromDomain: string;
+    callerId: string;
+    identifyBy: string;
+    match: string;
+    maxContacts: string;
+    qualifyFrequency: string;
+    username: string;
+    password: string;
+    rewriteContact: string;
+    forceRport: string;
+    rtpSymmetric: string;
+    directMedia: string;
+  };
+  global: {
+    endpointIdentifierOrder: string;
+  };
+  http: {
+    enabled: string;
+    bindaddr: string;
+    bindport: string;
+  };
+  rtp: {
+    rtpstart: string;
+    rtpend: string;
+  };
+}
+
+export function getSimpleRawSettings() {
+  return api<AsteriskSimpleRawSettings>('/asterisk/simple-raw-settings');
+}
+
+export function updateSimpleRawSettings(payload: AsteriskSimpleRawSettings) {
+  return api<{ ok: boolean; backups: string }>('/asterisk/simple-raw-settings', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}

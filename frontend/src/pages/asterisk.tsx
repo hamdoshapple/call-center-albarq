@@ -17,6 +17,8 @@ import {
   Users,
   XCircle,
   Zap,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { Loader } from '@/components/shared/loader';
@@ -24,6 +26,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { asteriskApi } from '@/api';
 import type { AsteriskSettings } from '@/types';
@@ -58,7 +61,9 @@ type TabKey =
   | 'queues'
   | 'channels'
   | 'pjsip'
-  | 'console';
+  | 'console'
+  | 'raw'
+  | 'simple';
 
 const REFRESH_MS = 5000;
 
@@ -83,6 +88,10 @@ export function AsteriskPage() {
   const [tab, setTab] = useState<TabKey>('overview');
   const [command, setCommand] = useState('pjsip show contacts');
   const [cliOutput, setCliOutput] = useState('');
+  const [rawFile, setRawFile] = useState<asteriskApi.AsteriskRawFileKey>('pjsip');
+  const [rawContent, setRawContent] = useState('');
+  const [simpleForm, setSimpleForm] = useState<asteriskApi.AsteriskSimpleRawSettings | null>(null);
+  const [showTgPassword, setShowTgPassword] = useState(false);
   const [form, setForm] = useState<AdvancedAsteriskSettings | null>(null);
 
   const settingsQ = useQuery({
@@ -167,6 +176,60 @@ export function AsteriskPage() {
     queryFn: () => asteriskApi.runAsteriskCli('manager show settings'),
     refetchInterval: REFRESH_MS,
   });
+
+  const simpleRawQ = useQuery({
+    queryKey: ['asterisk-simple-raw-settings'],
+    queryFn: asteriskApi.getSimpleRawSettings,
+    enabled: tab === 'simple',
+  });
+
+  const saveSimpleMut = useMutation({
+    mutationFn: () => asteriskApi.updateSimpleRawSettings(simpleForm!),
+    onSuccess: () => {
+      toast({ title: t('asterisk.simple.saved'), description: t('asterisk.simple.savedDesc') });
+      void qc.invalidateQueries({ queryKey: ['asterisk-simple-raw-settings'] });
+      invalidateAll(qc);
+    },
+  });
+
+  useEffect(() => {
+    if (simpleRawQ.data) setSimpleForm(simpleRawQ.data);
+  }, [simpleRawQ.data]);
+
+  const setTg = (patch: Partial<asteriskApi.AsteriskSimpleRawSettings['tg400']>) => {
+    setSimpleForm((f: asteriskApi.AsteriskSimpleRawSettings | null) => (f ? { ...f, tg400: { ...f.tg400, ...patch } } : f));
+  };
+
+  const setGlobalSimple = (patch: Partial<asteriskApi.AsteriskSimpleRawSettings['global']>) => {
+    setSimpleForm((f: asteriskApi.AsteriskSimpleRawSettings | null) => (f ? { ...f, global: { ...f.global, ...patch } } : f));
+  };
+
+  const setHttpSimple = (patch: Partial<asteriskApi.AsteriskSimpleRawSettings['http']>) => {
+    setSimpleForm((f: asteriskApi.AsteriskSimpleRawSettings | null) => (f ? { ...f, http: { ...f.http, ...patch } } : f));
+  };
+
+  const setRtpSimple = (patch: Partial<asteriskApi.AsteriskSimpleRawSettings['rtp']>) => {
+    setSimpleForm((f: asteriskApi.AsteriskSimpleRawSettings | null) => (f ? { ...f, rtp: { ...f.rtp, ...patch } } : f));
+  };
+
+  const rawFileQ = useQuery({
+    queryKey: ['asterisk-raw-file', rawFile],
+    queryFn: () => asteriskApi.readAsteriskRawFile(rawFile),
+    enabled: tab === 'raw',
+  });
+
+  const saveRawMut = useMutation({
+    mutationFn: () => asteriskApi.writeAsteriskRawFile(rawFile, rawContent),
+    onSuccess: (r) => {
+      toast({ title: 'Raw file saved', description: `Backup: ${r.backup}` });
+      void qc.invalidateQueries({ queryKey: ['asterisk-raw-file', rawFile] });
+      invalidateAll(qc);
+    },
+  });
+
+  useEffect(() => {
+    if (rawFileQ.data?.content !== undefined) setRawContent(rawFileQ.data.content);
+  }, [rawFileQ.data?.content]);
 
   useEffect(() => {
     if (settingsQ.data) setForm(settingsQ.data as AdvancedAsteriskSettings);
@@ -303,6 +366,8 @@ export function AsteriskPage() {
           ['channels', t('asterisk.tabs.channels')],
           ['pjsip', t('asterisk.tabs.pjsip')],
           ['console', t('asterisk.tabs.console')],
+          ['simple', t('asterisk.tabs.simple')],
+          ['raw', 'Raw Editor'],
         ] as Array<[TabKey, string]>).map(([key, label]) => (
           <Button key={key} variant={tab === key ? 'default' : 'ghost'} size="sm" onClick={() => setTab(key)} className="shrink-0 whitespace-nowrap">
             {label}
@@ -358,19 +423,19 @@ export function AsteriskPage() {
               <MiniInfo label="Endpoint" value={rawEndpoint} />
               <MiniInfo label="State" value={rawState} badge />
               <MiniInfo label="Channels" value={rawChannels} />
-              <MiniInfo label="Context" value={rawContext} />
+              <MiniInfo label={t('asterisk.simple.fields.context')} value={rawContext} />
               <MiniInfo label="AORs" value={rawAors} />
-              <MiniInfo label="From User" value={rawFromUser} />
-              <MiniInfo label="From Domain" value={rawFromDomain} />
+              <MiniInfo label={t('asterisk.simple.fields.fromUser')} value={rawFromUser} />
+              <MiniInfo label={t('asterisk.simple.fields.fromDomain')} value={rawFromDomain} />
               <MiniInfo label="Match" value={rawMatch} />
               <MiniInfo label="Transport" value={rawTransport} />
               <MiniInfo label="Allow Codecs" value={rawAllow} />
-              <MiniInfo label="Identify By" value={rawIdentifyBy} />
+              <MiniInfo label={t('asterisk.simple.fields.identifyBy')} value={rawIdentifyBy} />
               <MiniInfo label="DTMF Mode" value={rawDtmfMode} />
-              <MiniInfo label="Direct Media" value={rawDirectMedia} />
-              <MiniInfo label="RTP Symmetric" value={rawRtpSymmetric} />
-              <MiniInfo label="Force RPort" value={rawForceRport} />
-              <MiniInfo label="Rewrite Contact" value={rawRewriteContact} />
+              <MiniInfo label={t('asterisk.simple.fields.directMedia')} value={rawDirectMedia} />
+              <MiniInfo label={t('asterisk.simple.fields.rtpSymmetric')} value={rawRtpSymmetric} />
+              <MiniInfo label={t('asterisk.simple.fields.forceRport')} value={rawForceRport} />
+              <MiniInfo label={t('asterisk.simple.fields.rewriteContact')} value={rawRewriteContact} />
             </CardContent>
           </Card>
 
@@ -422,6 +487,205 @@ export function AsteriskPage() {
           <RawOutput title={t('asterisk.raw.transports')} output={transportsQ.data?.stdout || t('common.loading')} />
           <RawOutput title={t('asterisk.raw.registrations')} output={registrationsQ.data?.stdout || t('common.loading')} />
         </div>
+      )}
+
+      {tab === 'simple' && (
+        <div className="grid w-full min-w-0 gap-6 xl:grid-cols-2">
+          {!simpleForm ? (
+            <Card className="min-w-0 overflow-hidden xl:col-span-2">
+              <CardContent className="p-6">
+                <Loader />
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <Card className="min-w-0 overflow-hidden xl:col-span-2">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Settings className="h-4 w-4" />
+                    {t('asterisk.simple.title')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <MiniInfo label="{t('asterisk.simple.endpointSection')}" value={simpleForm.discovered?.endpointSection || simpleForm.tg400.endpoint || '—'} />
+                  <MiniInfo label="{t('asterisk.simple.authSection')}" value={simpleForm.discovered?.authSection || '—'} />
+                  <MiniInfo label="{t('asterisk.simple.aorSection')}" value={simpleForm.discovered?.aorSection || '—'} />
+                  <MiniInfo label="{t('asterisk.simple.identifySection')}" value={simpleForm.discovered?.identifySection || '—'} />
+                </CardContent>
+              </Card>
+
+              <Section title={t('asterisk.simple.tg400Gateway')}>
+                <div className="grid grid-cols-2 gap-3">
+                  <FormRow label={t('asterisk.simple.fields.context')}>
+                    <Input value={simpleForm.tg400.context} disabled={!canEdit} onChange={(e) => setTg({ context: e.target.value })} />
+                  </FormRow>
+                  <FormRow label={t('asterisk.simple.fields.codecs')}>
+                    <Input value={simpleForm.tg400.codecs} disabled={!canEdit} onChange={(e) => setTg({ codecs: e.target.value })} placeholder="alaw,ulaw" />
+                  </FormRow>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <FormRow label={t('asterisk.simple.fields.fromUser')}>
+                    <Input value={simpleForm.tg400.fromUser} disabled={!canEdit} onChange={(e) => setTg({ fromUser: e.target.value })} />
+                  </FormRow>
+                  <FormRow label={t('asterisk.simple.fields.fromDomain')}>
+                    <Input value={simpleForm.tg400.fromDomain} disabled={!canEdit} onChange={(e) => setTg({ fromDomain: e.target.value })} />
+                  </FormRow>
+                </div>
+
+                <FormRow label={t('asterisk.simple.fields.callerId')}>
+                  <Input value={simpleForm.tg400.callerId} disabled={!canEdit} onChange={(e) => setTg({ callerId: e.target.value })} />
+                </FormRow>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <FormRow label={t('asterisk.simple.fields.username')}>
+                    <Input value={simpleForm.tg400.username} disabled={!canEdit} onChange={(e) => setTg({ username: e.target.value })} />
+                  </FormRow>
+                  <FormRow label={t('asterisk.simple.fields.password')}>
+                    <div className="flex gap-2">
+                      <Input type={showTgPassword ? 'text' : 'password'} value={simpleForm.tg400.password} disabled={!canEdit} onChange={(e) => setTg({ password: e.target.value })} />
+                      <Button type="button" variant="outline" size="icon" onClick={() => setShowTgPassword((v) => !v)}>
+                        {showTgPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </FormRow>
+                </div>
+
+                <FormRow label={t('asterisk.simple.fields.matchIpRange')}>
+                  <Input value={simpleForm.tg400.match} disabled={!canEdit} onChange={(e) => setTg({ match: e.target.value })} />
+                </FormRow>
+              </Section>
+
+              <Section title={t('asterisk.simple.natSipOptions')}>
+                <div className="grid grid-cols-2 gap-3">
+                  <FormRow label={t('asterisk.simple.fields.identifyBy')}>
+                    <Input value={simpleForm.tg400.identifyBy} disabled={!canEdit} onChange={(e) => setTg({ identifyBy: e.target.value })} />
+                  </FormRow>
+                  <FormRow label={t('asterisk.simple.fields.maxContacts')}>
+                    <Input value={simpleForm.tg400.maxContacts} disabled={!canEdit} onChange={(e) => setTg({ maxContacts: e.target.value })} />
+                  </FormRow>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <FormRow label={t('asterisk.simple.fields.qualifyFrequency')}>
+                    <Input value={simpleForm.tg400.qualifyFrequency} disabled={!canEdit} onChange={(e) => setTg({ qualifyFrequency: e.target.value })} />
+                  </FormRow>
+                  <FormRow label={t('asterisk.simple.fields.directMedia')}>
+                    <Input value={simpleForm.tg400.directMedia} disabled={!canEdit} onChange={(e) => setTg({ directMedia: e.target.value })} />
+                  </FormRow>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <FormRow label={t('asterisk.simple.fields.rewriteContact')}>
+                    <Input value={simpleForm.tg400.rewriteContact} disabled={!canEdit} onChange={(e) => setTg({ rewriteContact: e.target.value })} />
+                  </FormRow>
+                  <FormRow label={t('asterisk.simple.fields.forceRport')}>
+                    <Input value={simpleForm.tg400.forceRport} disabled={!canEdit} onChange={(e) => setTg({ forceRport: e.target.value })} />
+                  </FormRow>
+                  <FormRow label={t('asterisk.simple.fields.rtpSymmetric')}>
+                    <Input value={simpleForm.tg400.rtpSymmetric} disabled={!canEdit} onChange={(e) => setTg({ rtpSymmetric: e.target.value })} />
+                  </FormRow>
+                </div>
+              </Section>
+
+              <Section title={t('asterisk.simple.globalHttpAri')}>
+                <FormRow label={t('asterisk.simple.fields.endpointIdentifierOrder')}>
+                  <Input value={simpleForm.global.endpointIdentifierOrder} disabled={!canEdit} onChange={(e) => setGlobalSimple({ endpointIdentifierOrder: e.target.value })} />
+                </FormRow>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <FormRow label={t('asterisk.simple.fields.httpEnabled')}>
+                    <Input value={simpleForm.http.enabled} disabled={!canEdit} onChange={(e) => setHttpSimple({ enabled: e.target.value })} />
+                  </FormRow>
+                  <FormRow label={t('asterisk.simple.fields.bindAddress')}>
+                    <Input value={simpleForm.http.bindaddr} disabled={!canEdit} onChange={(e) => setHttpSimple({ bindaddr: e.target.value })} />
+                  </FormRow>
+                  <FormRow label={t('asterisk.simple.fields.bindPort')}>
+                    <Input value={simpleForm.http.bindport} disabled={!canEdit} onChange={(e) => setHttpSimple({ bindport: e.target.value })} />
+                  </FormRow>
+                </div>
+              </Section>
+
+              <Section title={t('asterisk.simple.rtpPorts')}>
+                <div className="grid grid-cols-2 gap-3">
+                  <FormRow label={t('asterisk.simple.fields.rtpStart')}>
+                    <Input value={simpleForm.rtp.rtpstart} disabled={!canEdit} onChange={(e) => setRtpSimple({ rtpstart: e.target.value })} />
+                  </FormRow>
+                  <FormRow label={t('asterisk.simple.fields.rtpEnd')}>
+                    <Input value={simpleForm.rtp.rtpend} disabled={!canEdit} onChange={(e) => setRtpSimple({ rtpend: e.target.value })} />
+                  </FormRow>
+                </div>
+              </Section>
+
+              <Card className="min-w-0 overflow-hidden xl:col-span-2">
+                <CardContent className="flex flex-wrap gap-2 p-4">
+                  <Button variant="outline" onClick={() => simpleRawQ.refetch()} disabled={simpleRawQ.isFetching}>
+                    <RefreshCw className="h-4 w-4" />
+                    {t('asterisk.simple.reloadFromRaw')}
+                  </Button>
+                  {canEdit && (
+                    <Button onClick={() => saveSimpleMut.mutate()} disabled={saveSimpleMut.isPending || !simpleForm}>
+                      <Save className="h-4 w-4" />
+                      {t('asterisk.simple.saveToRaw')}
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </div>
+      )}
+
+      {tab === 'raw' && (
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <TerminalSquare className="h-4 w-4" />
+              Raw Asterisk Config Editor
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              {(['pjsip', 'extensions', 'http', 'manager', 'rtp', 'queues'] as asteriskApi.AsteriskRawFileKey[]).map((f) => (
+                <Button
+                  key={f}
+                  variant={rawFile === f ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setRawFile(f)}
+                >
+                  {f}.conf
+                </Button>
+              ))}
+            </div>
+
+            <div className="rounded-xl border bg-background/40 p-3 text-sm">
+              <p className="text-muted-foreground">Path</p>
+              <p className="break-all font-semibold">{rawFileQ.data?.path || `/etc/asterisk/${rawFile}.conf`}</p>
+            </div>
+
+            <Textarea
+              dir="ltr"
+              value={rawContent}
+              onChange={(e) => setRawContent(e.target.value)}
+              className="min-h-[520px] font-mono text-xs"
+              spellCheck={false}
+              disabled={!canEdit || rawFileQ.isLoading}
+            />
+
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => rawFileQ.refetch()} disabled={rawFileQ.isFetching}>
+                <RefreshCw className="h-4 w-4" />
+                Reload File
+              </Button>
+              {canEdit && (
+                <Button onClick={() => saveRawMut.mutate()} disabled={saveRawMut.isPending || !rawContent.trim()}>
+                  <Save className="h-4 w-4" />
+                  Save Raw + Reload Asterisk
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {tab === 'console' && (

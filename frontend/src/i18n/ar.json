@@ -377,7 +377,8 @@
       "queues": "الطوابير",
       "channels": "القنوات",
       "pjsip": "PJSIP",
-      "console": "الكونسول"
+      "console": "الكونسول",
+      "simple": "المحرر المبسط"
     },
     "metrics": {
       "ami": "AMI",
@@ -475,6 +476,44 @@
       "noOutput": "لا توجد مخرجات",
       "noTg400Registration": "لا يوجد تسجيل TG400",
       "noRegistration": "لا يوجد تسجيل"
+    },
+    "simple": {
+      "title": "محرر Asterisk المبسط",
+      "endpointSection": "قسم النقطة",
+      "authSection": "قسم المصادقة",
+      "aorSection": "قسم AOR",
+      "identifySection": "قسم التعريف",
+      "tg400Gateway": "بوابة TG400",
+      "natSipOptions": "خيارات NAT / SIP للبوابة",
+      "globalHttpAri": "الإعدادات العامة / HTTP / ARI",
+      "rtpPorts": "منافذ RTP",
+      "reloadFromRaw": "إعادة القراءة من الخام",
+      "saveToRaw": "حفظ على الخام + إعادة تحميل",
+      "saved": "تم حفظ الإعدادات المبسطة",
+      "savedDesc": "تم تحديث ملفات Asterisk الخام وإعادة تحميلها.",
+      "fields": {
+        "context": "السياق",
+        "codecs": "الترميزات",
+        "fromUser": "مستخدم الإرسال",
+        "fromDomain": "نطاق الإرسال",
+        "callerId": "هوية المتصل",
+        "username": "اسم المستخدم",
+        "password": "كلمة المرور",
+        "matchIpRange": "IP / نطاق المطابقة",
+        "identifyBy": "التعريف بواسطة",
+        "maxContacts": "أقصى عدد اتصالات",
+        "qualifyFrequency": "تردد الفحص",
+        "directMedia": "Direct Media",
+        "rewriteContact": "إعادة كتابة الاتصال",
+        "forceRport": "Force RPort",
+        "rtpSymmetric": "RTP متماثل",
+        "endpointIdentifierOrder": "ترتيب تعريف النقاط",
+        "httpEnabled": "تفعيل HTTP",
+        "bindAddress": "عنوان الربط",
+        "bindPort": "منفذ الربط",
+        "rtpStart": "بداية RTP",
+        "rtpEnd": "نهاية RTP"
+      }
     }
   },
   "reports": {
