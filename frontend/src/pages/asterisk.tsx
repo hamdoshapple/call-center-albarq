@@ -138,6 +138,36 @@ export function AsteriskPage() {
     enabled: tab === 'pjsip' || tab === 'overview',
   });
 
+  const tg400RawQ = useQuery({
+    queryKey: ['asterisk-tg400-endpoint-raw'],
+    queryFn: () => asteriskApi.runAsteriskCli('pjsip show endpoint 20001'),
+    refetchInterval: REFRESH_MS,
+  });
+
+  const tg400IdentifyQ = useQuery({
+    queryKey: ['asterisk-tg400-identify-raw'],
+    queryFn: () => asteriskApi.runAsteriskCli('pjsip show identify tg400'),
+    refetchInterval: REFRESH_MS,
+  });
+
+  const rtpRawQ = useQuery({
+    queryKey: ['asterisk-rtp-raw'],
+    queryFn: () => asteriskApi.runAsteriskCli('rtp show settings'),
+    refetchInterval: REFRESH_MS,
+  });
+
+  const httpRawQ = useQuery({
+    queryKey: ['asterisk-http-raw'],
+    queryFn: () => asteriskApi.runAsteriskCli('http show status'),
+    refetchInterval: REFRESH_MS,
+  });
+
+  const managerRawQ = useQuery({
+    queryKey: ['asterisk-manager-raw'],
+    queryFn: () => asteriskApi.runAsteriskCli('manager show settings'),
+    refetchInterval: REFRESH_MS,
+  });
+
   useEffect(() => {
     if (settingsQ.data) setForm(settingsQ.data as AdvancedAsteriskSettings);
   }, [settingsQ.data]);
@@ -194,7 +224,27 @@ export function AsteriskPage() {
   const tg400 = endpoints.find((e) => e.endpoint.includes('20001'));
   const tg400Contact = contacts.find((c) => c.aor === '20001');
 
-  if (settingsQ.isLoading || !form) return <Loader />;
+  if (settingsQ.isLoading) return <Loader />;
+
+  const liveForm = form ?? ({} as AdvancedAsteriskSettings);
+  const tg400Raw = tg400RawQ.data?.stdout || '';
+  const tg400IdentifyRaw = tg400IdentifyQ.data?.stdout || '';
+  const rawContext = tg400Raw.match(/context\s+:\s+([^\n]+)/)?.[1]?.trim() || liveForm.tg400Context || 'from-tg400';
+  const rawMatch = tg400IdentifyRaw.match(/match\s+:\s+([^\n]+)/i)?.[1]?.trim() || liveForm.tg400Match || '45.128.123.0/24';
+  const rawEndpoint = tg400?.endpoint || '20001';
+  const rawFromUser = tg400Raw.match(/from_user\s+:\s*([^\n]*)/i)?.[1]?.trim() || '—';
+  const rawFromDomain = tg400Raw.match(/from_domain\s+:\s*([^\n]*)/i)?.[1]?.trim() || '—';
+  const rawTransport = tg400Raw.match(/transport\s+:\s*([^\n]*)/i)?.[1]?.trim() || '—';
+  const rawAllow = tg400Raw.match(/allow\s+:\s*\(([^)]*)\)/i)?.[1]?.replace(/\|/g, ', ') || '—';
+  const rawAors = tg400Raw.match(/aors\s+:\s*([^\n]*)/i)?.[1]?.trim() || '—';
+  const rawIdentifyBy = tg400Raw.match(/identify_by\s+:\s*([^\n]*)/i)?.[1]?.trim() || '—';
+  const rawDtmfMode = tg400Raw.match(/dtmf_mode\s+:\s*([^\n]*)/i)?.[1]?.trim() || '—';
+  const rawDirectMedia = tg400Raw.match(/direct_media\s+:\s*([^\n]*)/i)?.[1]?.trim() || '—';
+  const rawRtpSymmetric = tg400Raw.match(/rtp_symmetric\s+:\s*([^\n]*)/i)?.[1]?.trim() || '—';
+  const rawForceRport = tg400Raw.match(/force_rport\s+:\s*([^\n]*)/i)?.[1]?.trim() || '—';
+  const rawRewriteContact = tg400Raw.match(/rewrite_contact\s+:\s*([^\n]*)/i)?.[1]?.trim() || '—';
+  const rawState = tg400?.state || t('common.unknown');
+  const rawChannels = tg400?.channels || '0 of inf';
 
   const set = (patch: Partial<AdvancedAsteriskSettings>) => setForm((f) => (f ? { ...f, ...patch } : f));
 
@@ -223,7 +273,7 @@ export function AsteriskPage() {
               </Button>
             )}
             {canEdit && (
-              <Button onClick={() => saveMut.mutate(form)} disabled={saveMut.isPending}>
+              <Button onClick={() => saveMut.mutate(liveForm)} disabled={saveMut.isPending}>
                 <Save className="h-4 w-4" />
                 {t('asterisk.saveSettings')}
               </Button>
@@ -270,9 +320,9 @@ export function AsteriskPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="grid w-full min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <MiniInfo label={t('asterisk.fields.endpoint')} value={tg400?.endpoint || form.tg400Endpoint || '20001'} />
-              <MiniInfo label={t('asterisk.fields.state')} value={tg400?.state || t('common.unknown')} badge />
-              <MiniInfo label={t('asterisk.fields.matchRange')} value={form.tg400Match || '45.128.123.0/24'} />
+              <MiniInfo label={t('asterisk.fields.endpoint')} value={rawEndpoint} />
+              <MiniInfo label={t('asterisk.fields.state')} value={rawState} badge />
+              <MiniInfo label={t('asterisk.fields.matchRange')} value={rawMatch} />
               <MiniInfo label={t('asterisk.fields.contact')} value={tg400Contact ? `${tg400Contact.host} ${tg400Contact.transport}` : t('asterisk.empty.noTg400Registration')} />
             </CardContent>
           </Card>
@@ -286,117 +336,48 @@ export function AsteriskPage() {
 
       {tab === 'settings' && (
         <div className="grid w-full min-w-0 gap-6 xl:grid-cols-2">
-          <Section title={t('asterisk.sections.server')}>
-            <FormRow label={t('asterisk.fields.serverIp')}>
-              <Input value={form.serverIp} disabled={!canEdit} onChange={(e) => set({ serverIp: e.target.value })} />
-            </FormRow>
-            <FormRow label={t('asterisk.fields.sipPort')}>
-              <Input type="number" value={form.sipPort} disabled={!canEdit} onChange={(e) => set({ sipPort: Number(e.target.value) })} />
-            </FormRow>
-            <div className="grid grid-cols-2 gap-3">
-              <FormRow label={t('asterisk.fields.rtpStart')}>
-                <Input type="number" value={form.rtpStart} disabled={!canEdit} onChange={(e) => set({ rtpStart: Number(e.target.value) })} />
-              </FormRow>
-              <FormRow label={t('asterisk.fields.rtpEnd')}>
-                <Input type="number" value={form.rtpEnd} disabled={!canEdit} onChange={(e) => set({ rtpEnd: Number(e.target.value) })} />
-              </FormRow>
-            </div>
-          </Section>
-
-          <Section title={t('asterisk.sections.amiAri')}>
-            <div className="grid grid-cols-2 gap-3">
-              <FormRow label={t('asterisk.fields.amiHost')}>
-                <Input value={form.amiHost} disabled={!canEdit} onChange={(e) => set({ amiHost: e.target.value })} />
-              </FormRow>
-              <FormRow label={t('asterisk.fields.amiPort')}>
-                <Input type="number" value={form.amiPort} disabled={!canEdit} onChange={(e) => set({ amiPort: Number(e.target.value) })} />
-              </FormRow>
-            </div>
-            <FormRow label={t('asterisk.fields.amiUser')}>
-              <Input value={form.amiUser} disabled={!canEdit} onChange={(e) => set({ amiUser: e.target.value })} />
-            </FormRow>
-            <div className="grid grid-cols-2 gap-3">
-              <FormRow label={t('asterisk.fields.ariHost')}>
-                <Input value={form.ariHost} disabled={!canEdit} onChange={(e) => set({ ariHost: e.target.value })} />
-              </FormRow>
-              <FormRow label={t('asterisk.fields.ariPort')}>
-                <Input type="number" value={form.ariPort} disabled={!canEdit} onChange={(e) => set({ ariPort: Number(e.target.value) })} />
-              </FormRow>
-            </div>
-            <FormRow label={t('asterisk.fields.ariUser')}>
-              <Input value={form.ariUser} disabled={!canEdit} onChange={(e) => set({ ariUser: e.target.value })} />
-            </FormRow>
-          </Section>
-
-          <Section title={t('asterisk.sections.extensionsRecordings')}>
-            <div className="grid grid-cols-2 gap-3">
-              <FormRow label={t('asterisk.fields.extensionStart')}>
-                <Input type="number" value={form.extensionStart} disabled={!canEdit} onChange={(e) => set({ extensionStart: Number(e.target.value) })} />
-              </FormRow>
-              <FormRow label={t('asterisk.fields.extensionEnd')}>
-                <Input type="number" value={form.extensionEnd} disabled={!canEdit} onChange={(e) => set({ extensionEnd: Number(e.target.value) })} />
-              </FormRow>
-            </div>
-            <FormRow label={t('asterisk.fields.recordingPath')}>
-              <Input value={form.recordingPath} disabled={!canEdit} onChange={(e) => set({ recordingPath: e.target.value })} />
-            </FormRow>
-            <FormRow label={t('asterisk.fields.codecs')}>
-              <Input value={form.codecs.join(',')} disabled={!canEdit} onChange={(e) => set({ codecs: e.target.value.split(',').map((x) => x.trim()).filter(Boolean) })} />
-            </FormRow>
-          </Section>
-
-          <Section title={t('asterisk.sections.configFiles')}>
-            <FormRow label={t('asterisk.fields.pjsipConf')}>
-              <Input value={form.pjsipConfPath ?? '/etc/asterisk/pjsip.conf'} disabled={!canEdit} onChange={(e) => set({ pjsipConfPath: e.target.value })} />
-            </FormRow>
-            <FormRow label={t('asterisk.fields.extensionsConf')}>
-              <Input value={form.extensionsConfPath ?? '/etc/asterisk/extensions.conf'} disabled={!canEdit} onChange={(e) => set({ extensionsConfPath: e.target.value })} />
-            </FormRow>
-          </Section>
+          <RawOutput title="Live PJSIP Global Settings" output={pjsipSettingsQ.data?.stdout || t('common.loading')} />
+          <RawOutput title="Live PJSIP Transports" output={transportsQ.data?.stdout || t('common.loading')} />
+          <RawOutput title="Live RTP Settings" output={rtpRawQ.data?.stdout || t('common.loading')} />
+          <RawOutput title="Live AMI / Manager Settings" output={managerRawQ.data?.stdout || t('common.loading')} />
+          <RawOutput title="Live HTTP / ARI Status" output={httpRawQ.data?.stdout || t('common.loading')} />
+          <RawOutput title="Live Core Uptime" output={status?.uptimeSec ? formatDuration(status.uptimeSec) : t('common.loading')} />
         </div>
       )}
 
       {tab === 'tg400' && (
         <div className="grid w-full min-w-0 gap-6 xl:grid-cols-2">
-          <Section title={t('asterisk.sections.tg400TrunkSettings')}>
-            <div className="grid grid-cols-2 gap-3">
-              <FormRow label={t('asterisk.fields.endpoint')}>
-                <Input value={form.tg400Endpoint ?? '20001'} disabled={!canEdit} onChange={(e) => set({ tg400Endpoint: e.target.value })} />
-              </FormRow>
-              <FormRow label={t('asterisk.fields.context')}>
-                <Input value={form.tg400Context ?? 'from-tg400'} disabled={!canEdit} onChange={(e) => set({ tg400Context: e.target.value })} />
-              </FormRow>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <FormRow label={t('asterisk.fields.username')}>
-                <Input value={form.tg400Username ?? '20001'} disabled={!canEdit} onChange={(e) => set({ tg400Username: e.target.value })} />
-              </FormRow>
-              <FormRow label={t('asterisk.fields.password')}>
-                <Input type="password" value={form.tg400Password ?? ''} disabled={!canEdit} onChange={(e) => set({ tg400Password: e.target.value })} />
-              </FormRow>
-            </div>
-            <FormRow label={t('asterisk.fields.matchIpRange')}>
-              <Input value={form.tg400Match ?? '45.128.123.0/24'} disabled={!canEdit} onChange={(e) => set({ tg400Match: e.target.value })} />
-            </FormRow>
-            <FormRow label={t('asterisk.fields.trunkHost')}>
-              <Input value={form.trunkHost} disabled={!canEdit} onChange={(e) => set({ trunkHost: e.target.value })} />
-            </FormRow>
-            <FormRow label={t('asterisk.fields.transport')}>
-              <Input value={form.tg400Transport ?? 'udp,tcp'} disabled={!canEdit} onChange={(e) => set({ tg400Transport: e.target.value })} />
-            </FormRow>
-          </Section>
-
           <Card className="min-w-0 overflow-hidden">
             <CardHeader>
-              <CardTitle className="text-base">{t('asterisk.tg400.liveState')}</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Router className="h-4 w-4" />
+                TG400 Raw Parsed
+              </CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-3">
-              <MiniInfo label={t('asterisk.fields.endpoint')} value={tg400?.endpoint || '20001'} />
-              <MiniInfo label={t('asterisk.fields.state')} value={tg400?.state || t('common.unknown')} badge />
-              <MiniInfo label={t('asterisk.fields.registeredContact')} value={tg400Contact ? `${tg400Contact.host} ${tg400Contact.transport}` : t('asterisk.empty.noRegistration')} />
-              <MiniInfo label={t('asterisk.fields.channels')} value={tg400?.channels || '0 of inf'} />
+            <CardContent className="grid gap-3 sm:grid-cols-2">
+              <MiniInfo label="Endpoint" value={rawEndpoint} />
+              <MiniInfo label="State" value={rawState} badge />
+              <MiniInfo label="Channels" value={rawChannels} />
+              <MiniInfo label="Context" value={rawContext} />
+              <MiniInfo label="AORs" value={rawAors} />
+              <MiniInfo label="From User" value={rawFromUser} />
+              <MiniInfo label="From Domain" value={rawFromDomain} />
+              <MiniInfo label="Match" value={rawMatch} />
+              <MiniInfo label="Transport" value={rawTransport} />
+              <MiniInfo label="Allow Codecs" value={rawAllow} />
+              <MiniInfo label="Identify By" value={rawIdentifyBy} />
+              <MiniInfo label="DTMF Mode" value={rawDtmfMode} />
+              <MiniInfo label="Direct Media" value={rawDirectMedia} />
+              <MiniInfo label="RTP Symmetric" value={rawRtpSymmetric} />
+              <MiniInfo label="Force RPort" value={rawForceRport} />
+              <MiniInfo label="Rewrite Contact" value={rawRewriteContact} />
             </CardContent>
           </Card>
+
+          <RawOutput title="Raw: pjsip show endpoint 20001" output={tg400Raw || t('common.loading')} />
+          <RawOutput title="Raw: pjsip show identify tg400" output={tg400IdentifyRaw || t('common.loading')} />
+          <RawOutput title="Raw: pjsip show transports" output={transportsQ.data?.stdout || t('common.loading')} />
+          <RawOutput title="Raw: dialplan show from-tg400" output="Use Console: dialplan show from-tg400" />
         </div>
       )}
 
@@ -404,27 +385,27 @@ export function AsteriskPage() {
         <div className="grid w-full min-w-0 gap-6 xl:grid-cols-2">
           <Section title={t('asterisk.sections.pjsipGlobalNat')}>
             <FormRow label={t('asterisk.fields.endpointIdentifierOrder')}>
-              <Input value={form.endpointIdentifierOrder ?? 'username,ip,anonymous'} disabled={!canEdit} onChange={(e) => set({ endpointIdentifierOrder: e.target.value })} />
+              <Input value={liveForm.endpointIdentifierOrder ?? 'username,ip,anonymous'} disabled={!canEdit} onChange={(e) => set({ endpointIdentifierOrder: e.target.value })} />
             </FormRow>
             <div className="grid grid-cols-2 gap-3">
               <FormRow label={t('asterisk.fields.externalMediaAddress')}>
-                <Input value={form.externalMediaAddress ?? ''} disabled={!canEdit} onChange={(e) => set({ externalMediaAddress: e.target.value })} placeholder="82.39.115.217" />
+                <Input value={liveForm.externalMediaAddress ?? ''} disabled={!canEdit} onChange={(e) => set({ externalMediaAddress: e.target.value })} placeholder="82.39.115.217" />
               </FormRow>
               <FormRow label={t('asterisk.fields.externalSignalingAddress')}>
-                <Input value={form.externalSignalingAddress ?? ''} disabled={!canEdit} onChange={(e) => set({ externalSignalingAddress: e.target.value })} placeholder="82.39.115.217" />
+                <Input value={liveForm.externalSignalingAddress ?? ''} disabled={!canEdit} onChange={(e) => set({ externalSignalingAddress: e.target.value })} placeholder="82.39.115.217" />
               </FormRow>
             </div>
             <FormRow label={t('asterisk.fields.localNetwork')}>
-              <Input value={form.localNet ?? ''} disabled={!canEdit} onChange={(e) => set({ localNet: e.target.value })} placeholder="192.168.0.0/16" />
+              <Input value={liveForm.localNet ?? ''} disabled={!canEdit} onChange={(e) => set({ localNet: e.target.value })} placeholder="192.168.0.0/16" />
             </FormRow>
           </Section>
 
           <Section title={t('asterisk.sections.sipFirewallNotes')}>
             <FormRow label={t('asterisk.fields.allowedSipRanges')}>
-              <Input value={form.allowedSipRanges ?? '45.128.123.0/24'} disabled={!canEdit} onChange={(e) => set({ allowedSipRanges: e.target.value })} />
+              <Input value={liveForm.allowedSipRanges ?? '45.128.123.0/24'} disabled={!canEdit} onChange={(e) => set({ allowedSipRanges: e.target.value })} />
             </FormRow>
             <FormRow label={t('asterisk.fields.blockedSipRanges')}>
-              <Input value={form.blockedSipRanges ?? '5.135.0.0/16'} disabled={!canEdit} onChange={(e) => set({ blockedSipRanges: e.target.value })} />
+              <Input value={liveForm.blockedSipRanges ?? '5.135.0.0/16'} disabled={!canEdit} onChange={(e) => set({ blockedSipRanges: e.target.value })} />
             </FormRow>
           </Section>
         </div>
