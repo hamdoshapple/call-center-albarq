@@ -11,6 +11,23 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { asteriskApi } from '@/api';
 import type { AsteriskSettings } from '@/types';
+
+type AdvancedAsteriskSettings = AsteriskSettings & {
+  endpointIdentifierOrder?: string;
+  pjsipConfPath?: string;
+  extensionsConfPath?: string;
+  tg400Endpoint?: string;
+  tg400Username?: string;
+  tg400Password?: string;
+  tg400Match?: string;
+  tg400Transport?: string;
+  tg400Context?: string;
+  externalMediaAddress?: string;
+  externalSignalingAddress?: string;
+  localNet?: string;
+  allowedSipRanges?: string;
+  blockedSipRanges?: string;
+};
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/components/ui/use-toast';
 import { formatDuration } from '@/lib/utils';
@@ -23,14 +40,14 @@ export function AsteriskPage() {
 
   const { data: settings, isLoading } = useQuery({ queryKey: ['asterisk'], queryFn: asteriskApi.getAsteriskSettings });
   const { data: conn } = useQuery({ queryKey: ['asterisk-conn'], queryFn: asteriskApi.getConnectionStatus });
-  const [form, setForm] = useState<AsteriskSettings | null>(null);
+  const [form, setForm] = useState<AdvancedAsteriskSettings | null>(null);
 
   useEffect(() => { if (settings) setForm(settings); }, [settings]);
 
   const canEdit = hasPermission('asterisk', 'edit');
 
   const saveMut = useMutation({
-    mutationFn: (s: AsteriskSettings) => asteriskApi.updateAsteriskSettings(s),
+    mutationFn: (s: AdvancedAsteriskSettings) => asteriskApi.updateAsteriskSettings(s as AsteriskSettings),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['asterisk'] }); toast({ title: t('common.save'), description: t('asterisk.subtitle') }); },
   });
   const reloadMut = useMutation({
@@ -40,7 +57,7 @@ export function AsteriskPage() {
 
   if (isLoading || !form) return <Loader />;
 
-  const set = (patch: Partial<AsteriskSettings>) => setForm((f) => (f ? { ...f, ...patch } : f));
+  const set = (patch: Partial<AdvancedAsteriskSettings>) => setForm((f) => (f ? { ...f, ...patch } : f));
 
   return (
     <div className="space-y-6">
@@ -86,9 +103,69 @@ export function AsteriskPage() {
           <FormRow label={t('asterisk.ari_user')}><Input value={form.ariUser} disabled={!canEdit} onChange={(e) => set({ ariUser: e.target.value })} /></FormRow>
         </Section>
 
-        <Section title={t('asterisk.trunk')}>
-          <FormRow label={t('asterisk.trunk_name')}><Input value={form.trunkName} disabled={!canEdit} onChange={(e) => set({ trunkName: e.target.value })} /></FormRow>
-          <FormRow label={t('asterisk.trunk_host')}><Input value={form.trunkHost} disabled={!canEdit} onChange={(e) => set({ trunkHost: e.target.value })} /></FormRow>
+        <Section title="PJSIP Global">
+          <FormRow label="Endpoint Identifier Order">
+            <Input
+              value={form.endpointIdentifierOrder ?? 'username,ip,anonymous'}
+              disabled={!canEdit}
+              onChange={(e) => set({ endpointIdentifierOrder: e.target.value })}
+              placeholder="username,ip,anonymous"
+            />
+          </FormRow>
+          <div className="grid grid-cols-2 gap-3">
+            <FormRow label="External Media Address">
+              <Input value={form.externalMediaAddress ?? ''} disabled={!canEdit} onChange={(e) => set({ externalMediaAddress: e.target.value })} placeholder="82.39.115.217" />
+            </FormRow>
+            <FormRow label="External Signaling Address">
+              <Input value={form.externalSignalingAddress ?? ''} disabled={!canEdit} onChange={(e) => set({ externalSignalingAddress: e.target.value })} placeholder="82.39.115.217" />
+            </FormRow>
+          </div>
+          <FormRow label="Local Network">
+            <Input value={form.localNet ?? ''} disabled={!canEdit} onChange={(e) => set({ localNet: e.target.value })} placeholder="192.168.0.0/16" />
+          </FormRow>
+        </Section>
+
+        <Section title="TG400 Trunk">
+          <div className="grid grid-cols-2 gap-3">
+            <FormRow label="Endpoint">
+              <Input value={form.tg400Endpoint ?? '20001'} disabled={!canEdit} onChange={(e) => set({ tg400Endpoint: e.target.value })} />
+            </FormRow>
+            <FormRow label="Context">
+              <Input value={form.tg400Context ?? 'from-tg400'} disabled={!canEdit} onChange={(e) => set({ tg400Context: e.target.value })} />
+            </FormRow>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FormRow label="Username">
+              <Input value={form.tg400Username ?? '20001'} disabled={!canEdit} onChange={(e) => set({ tg400Username: e.target.value })} />
+            </FormRow>
+            <FormRow label="Password">
+              <Input type="password" value={form.tg400Password ?? ''} disabled={!canEdit} onChange={(e) => set({ tg400Password: e.target.value })} />
+            </FormRow>
+          </div>
+          <FormRow label="Match IP / Range">
+            <Input value={form.tg400Match ?? '45.128.123.0/24'} disabled={!canEdit} onChange={(e) => set({ tg400Match: e.target.value })} />
+          </FormRow>
+          <FormRow label={t('asterisk.trunk_host')}>
+            <Input value={form.trunkHost} disabled={!canEdit} onChange={(e) => set({ trunkHost: e.target.value })} />
+          </FormRow>
+        </Section>
+
+        <Section title="Security">
+          <FormRow label="Allowed SIP Ranges">
+            <Input value={form.allowedSipRanges ?? '45.128.123.0/24'} disabled={!canEdit} onChange={(e) => set({ allowedSipRanges: e.target.value })} placeholder="45.128.123.0/24, 77.42.86.8" />
+          </FormRow>
+          <FormRow label="Blocked SIP Ranges">
+            <Input value={form.blockedSipRanges ?? '5.135.0.0/16'} disabled={!canEdit} onChange={(e) => set({ blockedSipRanges: e.target.value })} placeholder="5.135.0.0/16" />
+          </FormRow>
+        </Section>
+
+        <Section title="Config Files">
+          <FormRow label="pjsip.conf">
+            <Input value={form.pjsipConfPath ?? '/etc/asterisk/pjsip.conf'} disabled={!canEdit} onChange={(e) => set({ pjsipConfPath: e.target.value })} />
+          </FormRow>
+          <FormRow label="extensions.conf">
+            <Input value={form.extensionsConfPath ?? '/etc/asterisk/extensions.conf'} disabled={!canEdit} onChange={(e) => set({ extensionsConfPath: e.target.value })} />
+          </FormRow>
         </Section>
 
         <Section title={t('asterisk.extensions')}>

@@ -225,3 +225,86 @@ export async function heldCalls(_req: Request, res: Response) {
   const gw = getAsteriskGateway();
   res.json(await gw.getHeldCalls());
 }
+
+
+async function ast(command: string) {
+  const gw = getAsteriskGateway() as any;
+  const resp = await gw.action({
+    Action: 'Command',
+    Command: command,
+  });
+
+  const output = Array.isArray(resp.Output)
+    ? resp.Output.join('\n')
+    : String(resp.Output || '');
+
+  return {
+    command,
+    stdout: output,
+    stderr: resp.Message || '',
+  };
+}
+
+export async function cli(req: Request, res: Response) {
+  const command = z.string().min(1).max(120).parse(req.body?.command);
+
+  const allowed = [
+    'pjsip show contacts',
+    'pjsip show endpoints',
+    'pjsip show endpoint',
+    'pjsip show aors',
+    'pjsip show registrations',
+    'pjsip show transports',
+    'pjsip show settings',
+    'core show channels',
+    'core show uptime',
+    'queue show',
+    'dialplan show',
+  ];
+
+  if (!allowed.some((x) => command.startsWith(x))) {
+    return res.status(403).json({ error: 'Command not allowed' });
+  }
+
+  res.json(await ast(command));
+}
+
+export async function contacts(_req: Request, res: Response) {
+  res.json(await ast('pjsip show contacts'));
+}
+
+export async function endpoints(_req: Request, res: Response) {
+  res.json(await ast('pjsip show endpoints'));
+}
+
+export async function registrations(_req: Request, res: Response) {
+  res.json(await ast('pjsip show registrations'));
+}
+
+export async function transports(_req: Request, res: Response) {
+  res.json(await ast('pjsip show transports'));
+}
+
+export async function pjsipSettings(_req: Request, res: Response) {
+  res.json(await ast('pjsip show settings'));
+}
+
+export async function channels(_req: Request, res: Response) {
+  res.json(await ast('core show channels'));
+}
+
+export async function uptime(_req: Request, res: Response) {
+  res.json(await ast('core show uptime'));
+}
+
+export async function queues(_req: Request, res: Response) {
+  res.json(await ast('queue show'));
+}
+
+export async function reloadPjsip(_req: Request, res: Response) {
+  res.json(await ast('pjsip reload'));
+}
+
+export async function reloadDialplan(_req: Request, res: Response) {
+  res.json(await ast('dialplan reload'));
+}

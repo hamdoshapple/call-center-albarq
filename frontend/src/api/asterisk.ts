@@ -63,3 +63,52 @@ export interface HeldCall {
 export function listHeldCalls() {
   return api<HeldCall[]>('/asterisk/held-calls');
 }
+
+export interface AsteriskCliResult {
+  command: string;
+  stdout: string;
+  stderr?: string;
+}
+
+export function getAsteriskContacts() {
+  return api<AsteriskCliResult>('/asterisk/contacts');
+}
+
+export function getAsteriskEndpoints() {
+  return api<AsteriskCliResult>('/asterisk/endpoints');
+}
+
+export function getAsteriskRegistrations() {
+  return api<AsteriskCliResult>('/asterisk/registrations');
+}
+
+export function getAsteriskTransports() {
+  return api<AsteriskCliResult>('/asterisk/transports');
+}
+
+export function getAsteriskPjsipSettings() {
+  return api<AsteriskCliResult>('/asterisk/pjsip-settings');
+}
+
+export function getAsteriskChannels() {
+  return api<AsteriskCliResult>('/asterisk/channels');
+}
+
+export function getAsteriskQueues() {
+  return api<AsteriskCliResult>('/asterisk/queues');
+}
+
+export function reloadPjsip() {
+  return api<AsteriskCliResult>('/asterisk/reload-pjsip', { method: 'POST' });
+}
+
+export function reloadDialplan() {
+  return api<AsteriskCliResult>('/asterisk/reload-dialplan', { method: 'POST' });
+}
+
+export function runAsteriskCli(command: string) {
+  return api<AsteriskCliResult>('/asterisk/cli', {
+    method: 'POST',
+    body: JSON.stringify({ command }),
+  });
+}

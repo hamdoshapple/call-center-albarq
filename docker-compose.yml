@@ -61,6 +61,7 @@ services:
       - /var/lib/asterisk/sounds/custom:/var/lib/asterisk/sounds/custom:rw
       - /var/lib/asterisk/moh:/var/lib/asterisk/moh:rw
       - /etc/asterisk:/etc/asterisk:rw
+      - /var/run/asterisk:/var/run/asterisk:rw
       - /opt/scripts:/opt/scripts:rw
 
   frontend:

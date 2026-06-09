@@ -101,6 +101,19 @@ router.get('/asterisk/agent-statuses', perm('live_calls'), h(asterisk.agentStatu
 router.get('/asterisk/parked-calls', perm('live_calls'), h(asterisk.parkedCalls));
 router.get('/asterisk/held-calls', perm('live_calls'), h(asterisk.heldCalls));
 router.post('/asterisk/reload', perm('asterisk', 'edit'), h(asterisk.reload));
+
+router.get('/asterisk/contacts', perm('asterisk'), h(asterisk.contacts));
+router.get('/asterisk/endpoints', perm('asterisk'), h(asterisk.endpoints));
+router.get('/asterisk/registrations', perm('asterisk'), h(asterisk.registrations));
+router.get('/asterisk/transports', perm('asterisk'), h(asterisk.transports));
+router.get('/asterisk/pjsip-settings', perm('asterisk'), h(asterisk.pjsipSettings));
+router.get('/asterisk/channels', perm('asterisk'), h(asterisk.channels));
+router.get('/asterisk/uptime', perm('asterisk'), h(asterisk.uptime));
+router.get('/asterisk/queues', perm('asterisk'), h(asterisk.queues));
+router.post('/asterisk/cli', perm('asterisk', 'edit'), h(asterisk.cli));
+router.post('/asterisk/reload-pjsip', perm('asterisk', 'edit'), h(asterisk.reloadPjsip));
+router.post('/asterisk/reload-dialplan', perm('asterisk', 'edit'), h(asterisk.reloadDialplan));
+
 router.post('/asterisk/control/:action', perm('live_calls', 'edit'), h(asterisk.control));
 
 // ---------- Reports ----------
