@@ -18,6 +18,7 @@ import * as asterisk from '../controllers/asterisk.controller.js';
 import * as reports from '../controllers/reports.controller.js';
 import * as misc from '../controllers/misc.controller.js';
 import * as vpn from '../controllers/vpn.controller.js';
+import * as dataSource from '../controllers/data-source.controller.js';
 
 export const router = Router();
 
@@ -73,6 +74,11 @@ router.get('/tg400', perm('tg400'), h(tg400.list));
 router.post('/tg400', perm('tg400', 'create'), h(tg400.create));
 router.put('/tg400/:id', perm('tg400', 'edit'), h(tg400.update));
 router.delete('/tg400/:id', perm('tg400', 'delete'), h(tg400.remove));
+
+// ---------- Data source / subscriber cache ----------
+router.get('/data-source/status', perm('subscribers'), h(dataSource.status));
+router.post('/data-source/refresh', perm('subscribers', 'edit'), h(dataSource.refresh));
+router.put('/data-source/settings', perm('subscribers', 'edit'), h(dataSource.update));
 
 // ---------- Subscribers ----------
 router.get('/subscribers', perm('subscribers'), h(subscribers.search));

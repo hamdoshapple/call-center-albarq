@@ -407,3 +407,43 @@ model VpnLog {
 
   @@index([vpnUserId])
 }
+
+model SubscriberCache {
+  id             String   @id @default(cuid())
+  externalId     String   @unique
+  name           String
+  phone          String
+  normalizedPhone String
+  pppoeUsername  String?
+  status         String   @default("active")
+  package        String?
+  speed          String?
+  expiration     DateTime?
+  debt           Float    @default(0)
+  lastActivation DateTime?
+  address        String?
+  notes          String?  @db.Text
+  source         String   @default("mynet")
+  raw            Json?
+  cachedAt       DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([normalizedPhone])
+  @@index([phone])
+  @@index([pppoeUsername])
+  @@index([cachedAt])
+}
+
+model DataSourceSetting {
+  id                String   @id @default(cuid())
+  sourceName        String   @unique
+  enabled           Boolean  @default(true)
+  cacheTtlMinutes   Int      @default(30)
+  fallbackToCache   Boolean  @default(true)
+  manualCacheOnly   Boolean  @default(false)
+  lastSyncAt        DateTime?
+  lastError         String?  @db.Text
+  lastStatus        String   @default("unknown")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}

@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../config/prisma.js';
 import { getAsteriskGateway } from '../asterisk/index.js';
-import { searchExternalSubscribers } from '../services/external-subscriber.service.js';
+import { searchSubscribersCached } from '../services/subscriber-cache.service.js';
 
 export async function listLogs(req: Request, res: Response) {
   const { search, direction, disposition, agentId, queueId, from, to } = req.query as Record<string, string | undefined>;
@@ -63,9 +63,18 @@ export async function getLive(req: Request, res: Response) {
 
   const phones = [...new Set(calls.map((c) => normalizePhone(c.callerNumber)).filter(Boolean))];
 
-  const externalSubscribers = process.env.EXTERNAL_MSSQL_ENABLED === 'true'
-    ? (await Promise.all(phones.map((phone) => searchExternalSubscribers(phone)))).flat()
+  const externalResults = process.env.EXTERNAL_MSSQL_ENABLED === 'true'
+    ? await Promise.all(phones.map((phone) => searchSubscribersCached(phone)))
     : [];
+
+  const externalSubscribers = externalResults.flatMap((x) => x.rows);
+  const sourceByPhone = new Map(
+    externalResults.flatMap((x) => x.rows.map((s) => [normalizePhone(s.phone), {
+      source: x.source,
+      cacheFresh: x.cacheFresh,
+      warning: x.warning,
+    }]))
+  );
 
   const externalByPhone = new Map(
     externalSubscribers.map((s) => [normalizePhone(s.phone), s])
@@ -144,6 +153,7 @@ export async function getLive(req: Request, res: Response) {
     calls.map((c) => {
       const phoneKey = normalizePhone(c.callerNumber);
       const externalSub = externalByPhone.get(phoneKey);
+      const sourceInfo = sourceByPhone.get(phoneKey);
       const localMatches = subsByPhone.get(phoneKey) ?? [];
       const subscriberMatches = externalSub ? [externalSub] : localMatches;
       const sub = subscriberMatches.length === 1 ? subscriberMatches[0] : null;
@@ -178,6 +188,7 @@ export async function getLive(req: Request, res: Response) {
           address: x.address,
         })),
         hasMultipleSubscribers: subscriberMatches.length > 1,
+        dataSource: sourceInfo ?? null,
         crm: sub ? {
           ticketsCount: externalSub ? 0 : (ticketCount.get(sub.id) ?? 0),
           callsCount: externalSub ? 0 : (callCount.get(sub.id) ?? 0),
