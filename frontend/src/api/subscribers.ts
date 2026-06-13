@@ -47,9 +47,12 @@ export async function listSubscribers(): Promise<Subscriber[]> {
   return rows.map(mapSubscriber);
 }
 
-export async function searchSubscribers(query: string): Promise<Subscriber[]> {
+export type SubscriberSearchSource = 'auto' | 'live' | 'cache';
+
+export async function searchSubscribers(query: string, source: SubscriberSearchSource = 'auto'): Promise<Subscriber[]> {
   const q = encodeURIComponent(query || '');
-  const rows = await api<any[]>(`/subscribers?q=${q}`);
+  const src = encodeURIComponent(source);
+  const rows = await api<any[]>(`/subscribers?q=${q}&source=${src}`);
   return rows.map(mapSubscriber);
 }
 

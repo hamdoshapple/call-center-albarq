@@ -70,13 +70,31 @@ export function SubscribersPage() {
   const { toast } = useToast();
 
   const [query, setQuery] = useState('');
+  const [searchSource, setSearchSource] = useState<'auto' | 'live' | 'cache'>('auto');
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Subscriber | null>(null);
   const [form, setForm] = useState<Omit<Subscriber, 'id'>>(emptyForm);
 
   const { data: results, isLoading } = useQuery({
-    queryKey: ['subscribers', query],
-    queryFn: () => subscribersApi.searchSubscribers(query),
+    queryKey: ['subscribers', query, searchSource],
+    queryFn: () => subscribersApi.searchSubscribers(query, searchSource),
+    staleTime: 1000 * 60 * 5,
+  });
+
+  const { data: cacheStatus } = useQuery({
+    queryKey: ['subscribers-cache-status'],
+    queryFn: subscribersApi.getSubscriberCacheStatus,
+    refetchInterval: 1000 * 60,
+  });
+
+  const refreshCacheMutation = useMutation({
+    mutationFn: () => subscribersApi.refreshSubscriberCache(),
+    onSuccess: (data) => {
+      toast({ title: `تم تحديث الكاش: ${data.count.toLocaleString('en-US')} مشترك` });
+      qc.invalidateQueries({ queryKey: ['subscribers-cache-status'] });
+      qc.invalidateQueries({ queryKey: ['subscribers'] });
+    },
+    onError: () => toast({ title: 'فشل تحديث الكاش', variant: 'destructive' }),
   });
 
   const { data: selected } = useQuery({
@@ -89,21 +107,6 @@ export function SubscribersPage() {
     queryKey: ['subscriber-tickets', id],
     queryFn: () => subscribersApi.getSubscriberTickets(id!),
     enabled: !!id,
-  });
-  const { data: cacheStatus } = useQuery({
-    queryKey: ['subscriber-cache-status'],
-    queryFn: subscribersApi.getSubscriberCacheStatus,
-    refetchInterval: 60000,
-  });
-
-  const refreshCacheMutation = useMutation({
-    mutationFn: () => subscribersApi.refreshSubscriberCache(50000),
-    onSuccess: (data) => {
-      toast({ title: 'تم تحديث كاش المشتركين', description: `تم حفظ ${data.count} مشترك بالكاش` });
-      qc.invalidateQueries({ queryKey: ['subscriber-cache-status'] });
-      qc.invalidateQueries({ queryKey: ['subscribers'] });
-    },
-    onError: () => toast({ title: 'فشل تحديث الكاش', description: 'تأكد من اتصال قاعدة البيانات الخارجية.', variant: 'destructive' }),
   });
 
   const refresh = () => {
@@ -190,32 +193,47 @@ export function SubscribersPage() {
       />
 
       <Card>
-        <CardContent className="p-3">
-          <div className="relative">
-            <Search className="absolute start-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder={t('subscribers.search_placeholder')} className="h-12 ps-10 text-base" value={query} onChange={(e) => setQuery(e.target.value)} />
-          </div>
-        </CardContent>
-      </Card>
+        <CardContent className="space-y-3 p-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="relative flex-1">
+              <Search className="absolute start-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+              <Input placeholder={t('subscribers.search_placeholder')} className="h-12 ps-10 text-base" value={query} onChange={(e) => setQuery(e.target.value)} />
+            </div>
 
-      <Card className="border-primary/20 bg-primary/5">
-        <CardContent className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3 text-sm">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-background text-primary">
-              <Database className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="font-semibold">كاش بيانات المشتركين</p>
-              <p className="text-muted-foreground">
-                المحفوظ: {cacheStatus?.count ?? 0} مشترك
-                {cacheStatus?.newestCachedAt ? ` • آخر تحديث: ${new Date(cacheStatus.newestCachedAt).toLocaleString('ar-IQ')}` : ''}
-              </p>
-            </div>
+            <Select value={searchSource} onValueChange={(v) => setSearchSource(v as 'auto' | 'live' | 'cache')}>
+              <SelectTrigger className="h-12 w-full lg:w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">تلقائي</SelectItem>
+                <SelectItem value="live">مباشر</SelectItem>
+                <SelectItem value="cache">كاش فقط</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Button
+              variant="outline"
+              className="h-12"
+              disabled={refreshCacheMutation.isPending}
+              onClick={() => refreshCacheMutation.mutate()}
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshCacheMutation.isPending ? 'animate-spin' : ''}`} />
+              تحديث الكاش
+            </Button>
           </div>
-          <Button variant="outline" disabled={refreshCacheMutation.isPending} onClick={() => refreshCacheMutation.mutate()}>
-            <RefreshCw className={`h-4 w-4 ${refreshCacheMutation.isPending ? 'animate-spin' : ''}`} />
-            {refreshCacheMutation.isPending ? 'جاري السحب...' : 'سحب كاش الآن'}
-          </Button>
+
+          <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/40 p-3 text-sm">
+            <Database className="h-4 w-4 text-primary" />
+            <span>الكاش:</span>
+            <b>{Number(cacheStatus?.count || 0).toLocaleString('en-US')}</b>
+            <span>مشترك</span>
+            <span className="text-muted-foreground">
+              آخر تحديث: {cacheStatus?.newestCachedAt ? new Date(cacheStatus.newestCachedAt).toLocaleString('ar-IQ') : '—'}
+            </span>
+            <Badge variant={searchSource === 'cache' ? 'default' : 'secondary'}>
+              {searchSource === 'cache' ? 'كاش فقط' : searchSource === 'live' ? 'مباشر' : 'تلقائي'}
+            </Badge>
+          </div>
         </CardContent>
       </Card>
 

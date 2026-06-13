@@ -20,6 +20,11 @@ const schema = z.object({
 
 export async function search(req: Request, res: Response) {
   const q = String(req.query.q ?? '').trim();
+  const source = String(req.query.source ?? 'auto');
+
+  if (source === 'cache') {
+    return res.json(await searchSubscriberCache(q));
+  }
 
   if (process.env.EXTERNAL_MSSQL_ENABLED === 'true') {
     const externalRows = await searchExternalSubscribers(q);
