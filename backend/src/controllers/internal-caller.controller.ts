@@ -15,11 +15,6 @@ function variants(phone: string) {
   return [...set].filter(Boolean);
 }
 
-function money(v: unknown) {
-  const n = Number(v || 0);
-  return n > 0 ? n.toLocaleString('en-US') : '0';
-}
-
 function clean(v: unknown, max = 80) {
   return String(v || '')
     .replace(/NULL/gi, '')
@@ -62,7 +57,7 @@ export async function callerName(req: Request, res: Response) {
   if (!name) name = phone;
 
   const display = debt > 0
-    ? `${name} | دين: ${money(debt)}`
+    ? `${name} - دين ${Math.trunc(debt)}`
     : name;
 
   res.type('text/plain').send(clean(display, 80));
