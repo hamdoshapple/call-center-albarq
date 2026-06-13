@@ -134,7 +134,7 @@ async function optionDialplan(option: any) {
       return [
         ` same => n,NoOp(IVR ${option.key}: ${label} -> agent ${ext || value})`,
         ` same => n,Set(CALLERID(num)=\${REAL_CALLER})`,
-        ` same => n,Set(CALLERID(name)=\${REAL_CALLER})`,
+        ` same => n,Set(CALLERID(name)=\${IF($["\${CRM_CALLER_NAME}"!=""]?\${CRM_CALLER_NAME}:\${REAL_CALLER})})`,
         ` same => n,Dial(PJSIP/${ext || value || '101'},30,b(set-real-cid^s^1(\${REAL_CALLER})))`,
         ' same => n,Playback(vm-nobodyavail)',
         ' same => n,Hangup()',
@@ -176,7 +176,7 @@ async function optionDialplan(option: any) {
       return [
         ` same => n,NoOp(IVR ${option.key}: ${label} -> REAL Queue ${qnum})`,
         ` same => n,Set(CALLERID(num)=\${REAL_CALLER})`,
-        ` same => n,Set(CALLERID(name)=\${REAL_CALLER})`,
+        ` same => n,Set(CALLERID(name)=\${IF($["\${CRM_CALLER_NAME}"!=""]?\${CRM_CALLER_NAME}:\${REAL_CALLER})})`,
         ` same => n,Queue(${qnum},t,,,${wait})`,
         ' same => n,Playback(vm-nobodyavail)',
         ' same => n,Hangup()',
@@ -188,7 +188,7 @@ async function optionDialplan(option: any) {
       return [
         ` same => n,NoOp(IVR ${option.key}: ${label} -> DB department ${value})`,
         ` same => n,Set(CALLERID(num)=\${REAL_CALLER})`,
-        ` same => n,Set(CALLERID(name)=\${REAL_CALLER})`,
+        ` same => n,Set(CALLERID(name)=\${IF($["\${CRM_CALLER_NAME}"!=""]?\${CRM_CALLER_NAME}:\${REAL_CALLER})})`,
         ` same => n,Dial(${dialTarget},30,b(set-real-cid^s^1(\${REAL_CALLER})))`,
         ' same => n,Playback(vm-nobodyavail)',
         ' same => n,Hangup()',

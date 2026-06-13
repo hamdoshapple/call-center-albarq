@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../config/prisma.js';
+import { searchSubscriberCache } from '../services/subscriber-cache.service.js';
 
 function norm(v: unknown) {
   return String(v || '').replace(/[^\d+]/g, '');
@@ -14,6 +15,20 @@ function variants(phone: string) {
   return [...set].filter(Boolean);
 }
 
+function money(v: unknown) {
+  const n = Number(v || 0);
+  return n > 0 ? n.toLocaleString('en-US') : '0';
+}
+
+function clean(v: unknown, max = 80) {
+  return String(v || '')
+    .replace(/NULL/gi, '')
+    .replace(/[\r\n"<>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
 export async function callerName(req: Request, res: Response) {
   const expected = process.env.INTERNAL_CALLER_TOKEN || '';
   const provided = String(req.query.t || req.get('x-internal-token') || '');
@@ -25,17 +40,30 @@ export async function callerName(req: Request, res: Response) {
   const phone = norm(req.query.phone || req.query.caller);
   if (!phone) return res.type('text/plain').send('');
 
-  const sub = await prisma.subscriber.findFirst({
+  const local = await prisma.subscriber.findFirst({
     where: {
       OR: variants(phone).map((v) => ({ phone: { contains: v } })),
     },
-    select: { name: true, pppoeUsername: true },
+    select: { name: true, pppoeUsername: true, debt: true },
   });
 
-  const name = (sub?.name || sub?.pppoeUsername || phone)
-    .replace(/[\r\n"<>]/g, ' ')
-    .trim()
-    .slice(0, 60);
+  let name = clean(local?.name || local?.pppoeUsername || '');
+  let debt = Number(local?.debt || 0);
 
-  res.type('text/plain').send(name);
+  if (!name && process.env.EXTERNAL_MSSQL_ENABLED === 'true') {
+    const cached = await searchSubscriberCache(phone);
+    const sub = cached[0];
+    if (sub) {
+      name = clean(sub.name || sub.pppoeUsername || '');
+      debt = Number(sub.debt || 0);
+    }
+  }
+
+  if (!name) name = phone;
+
+  const display = debt > 0
+    ? `${name} | دين: ${money(debt)}`
+    : name;
+
+  res.type('text/plain').send(clean(display, 80));
 }
