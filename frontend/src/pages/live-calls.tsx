@@ -202,34 +202,68 @@ export function LiveCallsPage() {
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-lg font-bold">
-                      {incomingCall.callerName || incomingCall.subscriber?.name || incomingCall.callerNumber}
+                      {incomingSubscriber?.name || incomingCall.callerName || incomingCall.callerNumber}
                     </p>
                     <StatusBadge status={incomingCall.status} pulse />
                   </div>
                   <p className="font-mono text-sm text-muted-foreground">{incomingCall.callerNumber}</p>
                   {incomingCall.subscriberMatches && incomingCall.subscriberMatches.length > 1 && (
-                    <div className="mt-3 rounded-lg border border-warning/40 bg-warning/10 p-3">
-                      <div className="mb-2 font-medium text-warning">
-                        هذا الرقم مرتبط بـ {incomingCall.subscriberMatches.length} حسابات — اسأل الزبون: على أي حساب حضرتك تحب أراجع؟
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                        <span>يوجد {incomingCall.subscriberMatches.length} حسابات على نفس الرقم</span>
+                        <span className="text-xs">اختر الحساب المطلوب</span>
                       </div>
-                      <Select
-                        value={selectedSubscribers[incomingCall.id] ?? ''}
-                        onValueChange={(v) => setSelectedSubscribers((prev) => ({ ...prev, [incomingCall.id]: v }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="اختيار حساب المشترك" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {incomingCall.subscriberMatches.map((s) => (
-                            <SelectItem key={s.id} value={s.id}>
-                              {s.name || 'بدون اسم'} — {s.pppoeUsername || 'بدون يوزر'} — {s.package || 'بدون باقة'} — {Number(s.debt || 0).toLocaleString('en-US')} د.ع
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {incomingCall.subscriberMatches.map((s) => {
+                          const active = selectedSubscribers[incomingCall.id]
+                            ? selectedSubscribers[incomingCall.id] === s.id
+                            : incomingCall.subscriber?.id === s.id;
+
+                          return (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => setSelectedSubscribers((prev) => ({ ...prev, [incomingCall.id]: s.id }))}
+                              className={`rounded-xl border bg-background p-3 text-start shadow-sm transition ${
+                                active
+                                  ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                                  : 'hover:border-primary/50'
+                              }`}
+                            >
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="truncate text-base font-bold">{s.name || 'بدون اسم'}</p>
+                                  <p className="font-mono text-xs text-muted-foreground">{s.pppoeUsername || 'بدون يوزر'}</p>
+                                </div>
+                                {active && <Badge>مختار</Badge>}
+                              </div>
+
+                              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                                <div className="rounded-lg bg-muted/50 p-2">
+                                  <div className="text-muted-foreground">الباقة</div>
+                                  <div className="mt-1 font-semibold">{s.package || '—'}</div>
+                                </div>
+                                <div className="rounded-lg bg-muted/50 p-2">
+                                  <div className="text-muted-foreground">الدين</div>
+                                  <div className={Number(s.debt || 0) > 0 ? 'mt-1 font-bold text-destructive' : 'mt-1 font-bold'}>
+                                    {Number(s.debt || 0).toLocaleString('en-US')}
+                                  </div>
+                                </div>
+                                <div className="rounded-lg bg-muted/50 p-2">
+                                  <div className="text-muted-foreground">الانتهاء</div>
+                                  <div className="mt-1 font-semibold">
+                                    {s.expiration ? new Date(s.expiration).toLocaleDateString('ar-IQ') : '—'}
+                                  </div>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
-                  {incomingCall.subscriber ? (
+                                    {incomingSubscriber ? (
                     <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
                       <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
                         <Wifi className="h-4 w-4 text-primary" />
@@ -267,7 +301,7 @@ export function LiveCallsPage() {
                       )}
                     </div>
                   ) : (
-                    <p className="mt-2 text-sm text-muted-foreground">المتصل غير موجود في سجل المشتركين</p>
+                    <p className="mt-2 text-sm text-muted-foreground">اختر حساب المشترك من البطاقات أعلاه</p>
                   )}
                 </div>
               </div>
