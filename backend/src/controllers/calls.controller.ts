@@ -3,7 +3,8 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../config/prisma.js';
 import { getAsteriskGateway } from '../asterisk/index.js';
-import { searchSubscribersCached } from '../services/subscriber-cache.service.js';
+import { searchExternalSubscribers } from '../services/external-subscriber.service.js';
+import { searchSubscriberCache, upsertExternalSubscriberCache } from '../services/subscriber-cache.service.js';
 
 export async function listLogs(req: Request, res: Response) {
   const { search, direction, disposition, agentId, queueId, from, to } = req.query as Record<string, string | undefined>;
@@ -65,15 +66,34 @@ export async function getLive(req: Request, res: Response) {
   const phones = [...new Set(calls.map((c) => normalizePhone(c.callerNumber)).filter(Boolean))];
 
   const externalResults = process.env.EXTERNAL_MSSQL_ENABLED === 'true'
-    ? await Promise.all(phones.map((phone) => searchSubscribersCached(phone)))
+    ? await Promise.all(phones.map(async (phone) => {
+        const liveRows = await searchExternalSubscribers(phone);
+
+        if (liveRows.length) {
+          await upsertExternalSubscriberCache(liveRows);
+          return {
+            rows: liveRows,
+            source: 'live',
+            warning: null,
+          };
+        }
+
+        const cachedRows = await searchSubscriberCache(phone);
+        return {
+          rows: cachedRows,
+          source: cachedRows.length ? 'cache' : 'none',
+          warning: cachedRows.length ? 'using_subscriber_cache' : 'not_found',
+        };
+      }))
     : [];
 
   const externalSubscribers = externalResults.flatMap((x) => x.rows);
   const sourceByPhone = new Map(
     externalResults.flatMap((x) => x.rows.map((s) => [normalizePhone(s.phone), {
       source: x.source,
-      cacheFresh: x.cacheFresh,
       warning: x.warning,
+      cachedAt: s.cache?.cachedAt ?? null,
+      ageSec: s.cache?.ageSec ?? null,
     }]))
   );
 
