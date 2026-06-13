@@ -97,7 +97,14 @@ export async function getLive(req: Request, res: Response) {
       })
     : [];
 
-  const subByPhone = new Map(subscribers.map((s) => [normalizePhone(s.phone), s]));
+  const subsByPhone = new Map<string, typeof subscribers>();
+  for (const s of subscribers) {
+    const key = normalizePhone(s.phone);
+    const arr = subsByPhone.get(key) ?? [];
+    arr.push(s);
+    subsByPhone.set(key, arr);
+  }
+
   const subscriberIds = subscribers.map((s) => s.id);
 
   const [ticketGroups, callGroups, lastTickets, lastCalls] = subscriberIds.length
@@ -135,8 +142,11 @@ export async function getLive(req: Request, res: Response) {
 
   res.json(
     calls.map((c) => {
-      const externalSub = externalByPhone.get(normalizePhone(c.callerNumber));
-      const sub = externalSub ?? subByPhone.get(normalizePhone(c.callerNumber));
+      const phoneKey = normalizePhone(c.callerNumber);
+      const externalSub = externalByPhone.get(phoneKey);
+      const localMatches = subsByPhone.get(phoneKey) ?? [];
+      const subscriberMatches = externalSub ? [externalSub] : localMatches;
+      const sub = subscriberMatches.length === 1 ? subscriberMatches[0] : null;
 
       return {
         id: c.uniqueId,
@@ -155,6 +165,19 @@ export async function getLive(req: Request, res: Response) {
           debt: sub.debt,
           address: sub.address,
         } : null,
+        subscriberMatches: subscriberMatches.map((x) => ({
+          id: x.id,
+          name: x.name,
+          phone: x.phone,
+          pppoeUsername: x.pppoeUsername,
+          status: x.status,
+          package: x.package,
+          speed: x.speed,
+          expiration: x.expiration,
+          debt: x.debt,
+          address: x.address,
+        })),
+        hasMultipleSubscribers: subscriberMatches.length > 1,
         crm: sub ? {
           ticketsCount: externalSub ? 0 : (ticketCount.get(sub.id) ?? 0),
           callsCount: externalSub ? 0 : (callCount.get(sub.id) ?? 0),

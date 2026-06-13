@@ -46,6 +46,8 @@ type BackendLiveCall = {
   callerName?: string | null;
   subscriberId?: string | null;
   subscriber?: any | null;
+  subscriberMatches?: any[];
+  hasMultipleSubscribers?: boolean;
   crm?: any | null;
 };
 
@@ -64,6 +66,8 @@ function mapCall(c: BackendLiveCall): LiveCall {
     onHold: false,
     subscriberId: c.subscriberId || undefined,
     subscriber: c.subscriber || undefined,
+    subscriberMatches: c.subscriberMatches || [],
+    hasMultipleSubscribers: !!c.hasMultipleSubscribers,
     crm: c.crm || undefined,
   };
 }

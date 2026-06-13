@@ -123,24 +123,26 @@ export function LiveCallsPage() {
   });
 
   const [transferCall, setTransferCall] = useState<LiveCall | null>(null);
+  const [selectedSubscribers, setSelectedSubscribers] = useState<Record<string, string>>({});
   const [ticketCall, setTicketCall] = useState<LiveCall | null>(null);
   const [ticketSubject, setTicketSubject] = useState('');
   const [ticketPriority, setTicketPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
 
   const createTicket = useMutation({
     mutationFn: () => {
-      if (!ticketCall?.subscriberId) throw new Error('Subscriber not found');
-      return subscribersApi.createSubscriberTicket(ticketCall.subscriberId, {
+      const subscriberId = selectedSubscriberIdFor(ticketCall);
+      if (!subscriberId) throw new Error('Subscriber not found');
+      return subscribersApi.createSubscriberTicket(subscriberId, {
         subject: ticketSubject,
         priority: ticketPriority,
         call: {
-          callerNumber: ticketCall.callerNumber,
-          callerName: ticketCall.callerName,
-          startedAt: ticketCall.startedAt,
-          agentExtension: ticketCall.agentId,
-          line: ticketCall.simLineId,
-          destinationNumber: ticketCall.callerName,
-          status: ticketCall.status,
+          callerNumber: ticketCall?.callerNumber,
+          callerName: ticketCall?.callerName,
+          startedAt: ticketCall?.startedAt,
+          agentExtension: ticketCall?.agentId,
+          line: ticketCall?.simLineId,
+          destinationNumber: ticketCall?.callerName,
+          status: ticketCall?.status,
         },
       });
     },
@@ -164,6 +166,19 @@ export function LiveCallsPage() {
   );
 
   const incomingCall = calls.find((c) => c.status === 'ringing' || c.status === 'waiting') ?? calls[0];
+
+  const selectedSubscriberFor = (call?: LiveCall | null) => {
+    if (!call) return null;
+    return call.subscriberMatches?.find((s) => s.id === selectedSubscribers[call.id]) ?? call.subscriber ?? null;
+  };
+
+  const selectedSubscriberIdFor = (call?: LiveCall | null) => {
+    const sub = selectedSubscriberFor(call);
+    return sub?.id ?? call?.subscriberId;
+  };
+
+  const incomingSubscriber = selectedSubscriberFor(incomingCall);
+  const incomingSubscriberId = selectedSubscriberIdFor(incomingCall);
 
   return (
     <div className="space-y-6">
@@ -192,23 +207,45 @@ export function LiveCallsPage() {
                     <StatusBadge status={incomingCall.status} pulse />
                   </div>
                   <p className="font-mono text-sm text-muted-foreground">{incomingCall.callerNumber}</p>
+                  {incomingCall.subscriberMatches && incomingCall.subscriberMatches.length > 1 && (
+                    <div className="mt-3 rounded-lg border border-warning/40 bg-warning/10 p-3">
+                      <div className="mb-2 font-medium text-warning">
+                        هذا الرقم مرتبط بـ {incomingCall.subscriberMatches.length} حسابات — اسأل الزبون: على أي حساب حضرتك تحب أراجع؟
+                      </div>
+                      <Select
+                        value={selectedSubscribers[incomingCall.id] ?? ''}
+                        onValueChange={(v) => setSelectedSubscribers((prev) => ({ ...prev, [incomingCall.id]: v }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="اختيار حساب المشترك" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {incomingCall.subscriberMatches.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>
+                              {s.name || 'بدون اسم'} — {s.pppoeUsername || 'بدون يوزر'} — {s.package || 'بدون باقة'} — {Number(s.debt || 0).toLocaleString('en-US')} د.ع
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                   {incomingCall.subscriber ? (
                     <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
                       <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
                         <Wifi className="h-4 w-4 text-primary" />
-                        <span>{incomingCall.subscriber.pppoeUsername || '—'}</span>
+                        <span>{incomingSubscriber!.pppoeUsername || '—'}</span>
                       </div>
                       <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
-                        <Badge variant="secondary">{incomingCall.subscriber.package || '—'}</Badge>
-                        <span>{incomingCall.subscriber.speed || ''}</span>
+                        <Badge variant="secondary">{incomingSubscriber!.package || '—'}</Badge>
+                        <span>{incomingSubscriber!.speed || ''}</span>
                       </div>
                       <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
                         <Wallet className="h-4 w-4 text-destructive" />
-                        <span>{Number(incomingCall.subscriber.debt || 0).toLocaleString('en-US')} د.ع</span>
+                        <span>{Number(incomingSubscriber!.debt || 0).toLocaleString('en-US')} د.ع</span>
                       </div>
                       <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
                         <Calendar className="h-4 w-4 text-muted-foreground" />
-                        <span>{incomingCall.subscriber.expiration ? new Date(incomingCall.subscriber.expiration).toLocaleDateString('ar-IQ') : '—'}</span>
+                        <span>{incomingSubscriber!.expiration ? new Date(incomingSubscriber!.expiration).toLocaleDateString('ar-IQ') : '—'}</span>
                       </div>
                       <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
                         <StickyNote className="h-4 w-4 text-primary" />
@@ -235,13 +272,13 @@ export function LiveCallsPage() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                {incomingCall.subscriberId && (
-                  <Button onClick={() => navigate(`/subscribers/${incomingCall.subscriberId}`)}>
+                {incomingSubscriberId && (
+                  <Button onClick={() => navigate(`/subscribers/${incomingSubscriberId}`)}>
                     <UserSearch className="h-4 w-4" />
                     فتح المشترك
                   </Button>
                 )}
-                {incomingCall.subscriberId && (
+                {incomingSubscriberId && (
                   <Button variant="outline" onClick={() => { setTicketCall(incomingCall); setTicketSubject(''); }}>
                     <TicketPlus className="h-4 w-4" />
                     إنشاء تذكرة
@@ -431,7 +468,7 @@ export function LiveCallsPage() {
               <div>الرقم: {ticketCall?.callerNumber}</div>
               <div>الخط: {ticketCall?.simLineId}</div>
               <div>الموظف: {ticketCall?.agentId || '—'}</div>
-              <div>وقت الاتصال: {ticketCall?.startedAt ? new Date(ticketCall.startedAt).toLocaleString('ar-IQ') : '—'}</div>
+              <div>وقت الاتصال: {ticketCall?.startedAt ? new Date(ticketCall?.startedAt).toLocaleString('ar-IQ') : '—'}</div>
             </div>
 
             <div className="space-y-2">
