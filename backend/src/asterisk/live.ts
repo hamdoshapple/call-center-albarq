@@ -736,45 +736,53 @@ export class LiveAsteriskGateway extends EventEmitter implements AsteriskGateway
   private async refreshContacts(): Promise<void> {
     if (!this.loggedIn) return;
 
-    const [resp, extensions] = await Promise.all([
-      this.action({ Action: 'Command', Command: 'pjsip show contacts' }),
-      prisma.extension.findMany({ select: { number: true } }),
-    ]);
+    try {
+      const resp = await this.action({ Action: 'Command', Command: 'pjsip show contacts' });
 
-    const output = resp.Output || '';
-    const registered = new Set<string>();
+      let extensions: Array<{ number: string }> = [];
+      try {
+        extensions = await prisma.extension.findMany({ select: { number: true } });
+      } catch (err) {
+        console.error('[asterisk] refreshContacts database read failed:', err);
+      }
 
-    for (const line of output.split('\n')) {
-      const m = line.match(/Contact:\s+(\d+)\/sip:\1@/);
-      if (!m) continue;
+      const output = resp.Output || '';
+      const registered = new Set<string>();
 
-      const extension = m[1];
-      const unavailable = /Unavail|Unavailable/i.test(line);
-      if (!unavailable) registered.add(extension);
-    }
+      for (const line of output.split('\n')) {
+        const m = line.match(/Contact:\s+(\d+)\/sip:\1@/);
+        if (!m) continue;
 
-    const knownExtensions = new Set<string>([
-      ...extensions.map((e) => String(e.number)).filter(Boolean),
-      ...registered,
-      ...this.agents.keys(),
-    ]);
+        const extension = m[1];
+        const unavailable = /Unavail|Unavailable/i.test(line);
+        if (!unavailable) registered.add(extension);
+      }
 
-    for (const extension of knownExtensions) {
-      if (isTrunkExtension(extension)) continue;
+      const knownExtensions = new Set<string>([
+        ...extensions.map((e) => String(e.number)).filter(Boolean),
+        ...registered,
+        ...this.agents.keys(),
+      ]);
 
-      const inCall = [...this.calls.values()].some((c) =>
-        c.agentExtension === extension &&
-        ['active', 'ringing'].includes(String(c.status))
-      );
+      for (const extension of knownExtensions) {
+        if (isTrunkExtension(extension)) continue;
 
-      const agent: AsteriskAgentStatus = {
-        extension,
-        status: inCall ? 'busy' : (registered.has(extension) ? 'online' : 'offline'),
-        inCall,
-      };
+        const inCall = [...this.calls.values()].some((c) =>
+          c.agentExtension === extension &&
+          ['active', 'ringing'].includes(String(c.status))
+        );
 
-      this.agents.set(extension, agent);
-      this.emit('agent:update', agent);
+        const agent: AsteriskAgentStatus = {
+          extension,
+          status: inCall ? 'busy' : (registered.has(extension) ? 'online' : 'offline'),
+          inCall,
+        };
+
+        this.agents.set(extension, agent);
+        this.emit('agent:update', agent);
+      }
+    } catch (err) {
+      console.error('[asterisk] refreshContacts failed:', err);
     }
   }
 
