@@ -121,3 +121,19 @@ export async function addSubscriberTicketComment(
     body: JSON.stringify({ body }),
   });
 }
+
+export async function getSubscriberCacheStatus() {
+  return api<{
+    count: number;
+    newestCachedAt: string | null;
+    oldestCachedAt: string | null;
+    enabled: boolean;
+  }>('/subscribers-cache/status');
+}
+
+export async function refreshSubscriberCache(limit = 50000) {
+  return api<{ count: number; refreshedAt: string }>('/subscribers-cache/refresh', {
+    method: 'POST',
+    body: JSON.stringify({ limit }),
+  });
+}

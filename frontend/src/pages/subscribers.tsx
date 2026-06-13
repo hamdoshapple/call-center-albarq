@@ -15,6 +15,8 @@ import {
   ArrowLeft,
   Plus,
   Pencil,
+  Database,
+  RefreshCw,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { StatusBadge } from '@/components/shared/status-badge';
@@ -87,6 +89,21 @@ export function SubscribersPage() {
     queryKey: ['subscriber-tickets', id],
     queryFn: () => subscribersApi.getSubscriberTickets(id!),
     enabled: !!id,
+  });
+  const { data: cacheStatus } = useQuery({
+    queryKey: ['subscriber-cache-status'],
+    queryFn: subscribersApi.getSubscriberCacheStatus,
+    refetchInterval: 60000,
+  });
+
+  const refreshCacheMutation = useMutation({
+    mutationFn: () => subscribersApi.refreshSubscriberCache(50000),
+    onSuccess: (data) => {
+      toast({ title: 'تم تحديث كاش المشتركين', description: `تم حفظ ${data.count} مشترك بالكاش` });
+      qc.invalidateQueries({ queryKey: ['subscriber-cache-status'] });
+      qc.invalidateQueries({ queryKey: ['subscribers'] });
+    },
+    onError: () => toast({ title: 'فشل تحديث الكاش', description: 'تأكد من اتصال قاعدة البيانات الخارجية.', variant: 'destructive' }),
   });
 
   const refresh = () => {
@@ -178,6 +195,27 @@ export function SubscribersPage() {
             <Search className="absolute start-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
             <Input placeholder={t('subscribers.search_placeholder')} className="h-12 ps-10 text-base" value={query} onChange={(e) => setQuery(e.target.value)} />
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3 text-sm">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-background text-primary">
+              <Database className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="font-semibold">كاش بيانات المشتركين</p>
+              <p className="text-muted-foreground">
+                المحفوظ: {cacheStatus?.count ?? 0} مشترك
+                {cacheStatus?.newestCachedAt ? ` • آخر تحديث: ${new Date(cacheStatus.newestCachedAt).toLocaleString('ar-IQ')}` : ''}
+              </p>
+            </div>
+          </div>
+          <Button variant="outline" disabled={refreshCacheMutation.isPending} onClick={() => refreshCacheMutation.mutate()}>
+            <RefreshCw className={`h-4 w-4 ${refreshCacheMutation.isPending ? 'animate-spin' : ''}`} />
+            {refreshCacheMutation.isPending ? 'جاري السحب...' : 'سحب كاش الآن'}
+          </Button>
         </CardContent>
       </Card>
 

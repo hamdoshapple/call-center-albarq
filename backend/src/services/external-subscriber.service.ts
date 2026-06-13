@@ -170,3 +170,40 @@ export async function getExternalSubscriberById(id: string): Promise<ExternalSub
     return null;
   }
 }
+
+export async function listExternalSubscribersForCache(limit = 50000): Promise<ExternalSubscriber[]> {
+  if (!enabled) return [];
+
+  try {
+    const pool = await getPool();
+    const result = await pool.request()
+      .input('limit', sql.Int, limit)
+      .query(`
+        SELECT TOP (@limit)
+          c.cost_id,
+          c.cost_name,
+          c.cost_phone,
+          c.cost_user,
+          c.cost_state,
+          c.cost_address,
+          c.cost_note,
+          c.cost_dateFrom,
+          c.cost_dateTo,
+          ISNULL(SUM(ISNULL(s.Sand_money,0) - ISNULL(s.Sand_moneyin,0)),0) AS debt
+        FROM dbo.costumer c
+        LEFT JOIN dbo.Sand s
+          ON s.Sand_cosFk = c.cost_id
+         AND ISNULL(s.Sand_isdel,0)=0
+        WHERE ISNULL(c.cost_isdel,0)=0
+        GROUP BY
+          c.cost_id,c.cost_name,c.cost_phone,c.cost_user,c.cost_state,
+          c.cost_address,c.cost_note,c.cost_dateFrom,c.cost_dateTo
+        ORDER BY c.cost_id DESC
+      `);
+
+    return result.recordset.map(mapRow);
+  } catch (err) {
+    console.error('[external-subscriber] cache list failed:', err);
+    return [];
+  }
+}

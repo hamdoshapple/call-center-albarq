@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../config/prisma.js';
 import { ApiError } from '../utils/ApiError.js';
 import { getExternalSubscriberById, searchExternalSubscribers } from '../services/external-subscriber.service.js';
+import { getCachedExternalSubscriberById, refreshExternalSubscriberCache, searchSubscriberCache, subscriberCacheStatus, upsertExternalSubscriberCache } from '../services/subscriber-cache.service.js';
 
 const schema = z.object({
   name: z.string().min(1),
@@ -20,9 +21,16 @@ const schema = z.object({
 export async function search(req: Request, res: Response) {
   const q = String(req.query.q ?? '').trim();
 
-  const externalRows = await searchExternalSubscribers(q);
-  if (externalRows.length || process.env.EXTERNAL_MSSQL_ENABLED === 'true') {
-    return res.json(externalRows);
+  if (process.env.EXTERNAL_MSSQL_ENABLED === 'true') {
+    const externalRows = await searchExternalSubscribers(q);
+    if (externalRows.length) {
+      await upsertExternalSubscriberCache(externalRows);
+      return res.json(externalRows.map((x) => ({ ...x, cache: { source: 'live' } })));
+    }
+
+    const cachedRows = await searchSubscriberCache(q);
+    if (cachedRows.length) return res.json(cachedRows);
+    return res.json([]);
   }
 
   const rows = await prisma.subscriber.findMany({
@@ -38,8 +46,14 @@ export async function search(req: Request, res: Response) {
 export async function getOne(req: Request, res: Response) {
   if (req.params.id.startsWith('ext-')) {
     const external = await getExternalSubscriberById(req.params.id);
-    if (!external) throw ApiError.notFound('Subscriber not found');
-    return res.json({ ...external, tickets: [] });
+    if (external) {
+      await upsertExternalSubscriberCache([external]);
+      return res.json({ ...external, cache: { source: 'live' }, tickets: [] });
+    }
+
+    const cached = await getCachedExternalSubscriberById(req.params.id);
+    if (!cached) throw ApiError.notFound('Subscriber not found');
+    return res.json({ ...cached, tickets: [] });
   }
 
   const row = await prisma.subscriber.findUnique({
@@ -105,6 +119,17 @@ export async function getTickets(req: Request, res: Response) {
       ),
     }))
   );
+}
+
+
+export async function cacheStatus(_req: Request, res: Response) {
+  res.json(await subscriberCacheStatus());
+}
+
+export async function refreshCache(req: Request, res: Response) {
+  const limit = Math.min(100000, Math.max(1, Number(req.body?.limit || 50000)));
+  const result = await refreshExternalSubscriberCache(limit);
+  res.json(result);
 }
 
 export async function create(req: Request, res: Response) {

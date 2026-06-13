@@ -82,6 +82,8 @@ router.put('/data-source/settings', perm('subscribers', 'edit'), h(dataSource.up
 
 // ---------- Subscribers ----------
 router.get('/subscribers', perm('subscribers'), h(subscribers.search));
+router.get('/subscribers-cache/status', perm('subscribers'), h(subscribers.cacheStatus));
+router.post('/subscribers-cache/refresh', perm('subscribers', 'edit'), h(subscribers.refreshCache));
 router.get('/subscribers/:id', perm('subscribers'), h(subscribers.getOne));
 router.get('/subscribers/:id/tickets', perm('subscribers'), h(subscribers.getTickets));
 router.post('/subscribers/:id/tickets', perm('subscribers', 'edit'), h(subscribers.createTicket));
