@@ -1,6 +1,9 @@
-import { api } from './client';
-
 export async function getPublicConfig() {
-  const { data } = await api.get('/subscriber-portal/app-config');
-  return data;
+  const res = await fetch('/api/subscriber-portal/app-config');
+
+  if (!res.ok) {
+    throw new Error('Failed to load subscriber app config');
+  }
+
+  return res.json();
 }

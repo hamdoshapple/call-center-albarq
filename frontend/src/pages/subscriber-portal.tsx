@@ -77,6 +77,12 @@ function phoneLink(v?: string | null) {
   return String(v).replace(/[^\d+]/g, '');
 }
 
+function assetUrl(v?: string | null) {
+  if (!v) return '';
+  if (v.startsWith('http')) return v;
+  return v;
+}
+
 function waLink(v?: string | null, msg = '') {
   if (!v) return '';
   let n = String(v).replace(/[^\d]/g, '');
@@ -191,7 +197,11 @@ export function SubscriberPortalPage() {
           <div className="mt-8 text-center">
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center overflow-hidden rounded-[2rem] bg-white shadow-lg">
               {config.logoUrl ? (
-                <img src={config.logoUrl} className="h-full w-full object-contain" />
+                <img
+                  src={assetUrl(config.logoUrl)}
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  className="h-full w-full object-contain"
+                />
               ) : (
                 <span className="text-3xl font-black">⚡</span>
               )}
@@ -314,7 +324,11 @@ export function SubscriberPortalPage() {
         <header className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {config.logoUrl && (
-              <img src={config.logoUrl} className="h-12 w-12 rounded-2xl bg-white object-contain p-1 shadow-sm" />
+              <img
+                src={assetUrl(config.logoUrl)}
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                className="h-12 w-12 rounded-2xl bg-white object-contain p-1 shadow-sm"
+              />
             )}
             <div>
               <h1 className="text-3xl font-black">مرحباً</h1>
@@ -332,24 +346,6 @@ export function SubscriberPortalPage() {
 
         {tab === 'home' && (
           <main className="mt-6 space-y-5">
-            {banners.length > 0 && (
-              <section className="space-y-3">
-                {banners.map((b) => (
-                  <a
-                    key={b.id}
-                    href={b.linkUrl || '#'}
-                    className="block overflow-hidden rounded-3xl bg-white shadow-sm"
-                  >
-                    {b.imageUrl && <img src={b.imageUrl} className="h-44 w-full object-cover" />}
-                    <div className="p-4">
-                      <h3 className="font-black">{b.title}</h3>
-                      {b.description && <p className="mt-1 text-sm text-slate-500">{b.description}</p>}
-                    </div>
-                  </a>
-                ))}
-              </section>
-            )}
-
             <section className="relative overflow-hidden rounded-[28px] p-5 text-white shadow-lg" style={{ background: `linear-gradient(135deg, ${cardColor}, ${secondary})` }}>
               <div className="pointer-events-none absolute -left-12 -top-12 h-40 w-40 rounded-full bg-white/10" />
               <div className="pointer-events-none absolute -bottom-16 right-16 h-48 w-48 rounded-full bg-white/10" />
@@ -381,17 +377,48 @@ export function SubscriberPortalPage() {
             </section>
 
             <div className="grid grid-cols-2 gap-3">
-              {config.enablePayments && <ActionCard title="تجديد الاشتراك" icon={RefreshCw} color={primary} />}
-              <ActionCard title="تفاصيل الاشتراك" icon={Wifi} color={primary} />
+              <ActionCard title="تفاصيل الاشتراك" icon={Wifi} color={primary} onClick={() => setTab('accounts')} />
+
+              <button
+                onClick={() => setTab('accounts')}
+                className="flex h-24 flex-col items-start justify-center rounded-3xl bg-white p-5 text-start shadow-sm"
+              >
+                <span className="text-sm text-slate-500">إجمالي الدين</span>
+                <span className="mt-1 text-3xl font-black" style={{ color: totalDebt > 0 ? expiredColor : primary }}>
+                  {money(totalDebt)} د.ع
+                </span>
+              </button>
+
+              {config.enablePayments && (
+                <ActionCard title="تجديد الاشتراك" icon={RefreshCw} color={primary} />
+              )}
             </div>
 
-            <section className="rounded-3xl bg-white p-5 shadow-sm">
-              <p className="text-sm text-slate-500">إجمالي الدين لكل الحسابات</p>
-              <h3 className="mt-2 text-4xl font-black" style={{ color: totalDebt > 0 ? expiredColor : primary }}>
-                {money(totalDebt)} د.ع
-              </h3>
-              <p className="mt-2 text-sm text-slate-400">عدد الحسابات المرتبطة: {accounts.length}</p>
-            </section>
+            {banners.length > 0 && (
+              <section className="space-y-3">
+                {banners.map((b) => (
+                  <a
+                    key={b.id}
+                    href={b.linkUrl || '#'}
+                    className="block overflow-hidden rounded-[26px] bg-white shadow-sm"
+                  >
+                    {b.imageUrl && (
+                      <img
+                        src={assetUrl(b.imageUrl)}
+                        className="h-36 w-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    )}
+                    <div className="p-4">
+                      <h3 className="text-lg font-black">{b.title}</h3>
+                      {b.description && <p className="mt-1 text-sm text-slate-500">{b.description}</p>}
+                    </div>
+                  </a>
+                ))}
+              </section>
+            )}
 
             {config.enableTickets !== false && (
               <section className="rounded-3xl p-4" style={{ backgroundColor: `${primary}14`, color: primary }}>
@@ -423,10 +450,18 @@ export function SubscriberPortalPage() {
                     </Badge>
                   </div>
 
-                  <div className="mt-5 grid grid-cols-3 gap-2 text-center">
+                  <div className="mt-5 grid grid-cols-2 gap-2 text-center">
                     <Mini label="الباقة" value={a.package || '—'} />
-                    <Mini label="الدين" value={money(a.debt)} danger />
+                    <Mini label="السرعة" value={a.speed || '—'} />
+                    <Mini label="الدين" value={`${money(a.debt)} د.ع`} danger />
                     <Mini label="الانتهاء" value={a.expiration ? new Date(a.expiration).toLocaleDateString('ar-IQ') : '—'} />
+                    <Mini label="الهاتف" value={a.phone || '—'} />
+                    <Mini label="العنوان" value={a.address || '—'} />
+                  </div>
+
+                  <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">
+                    <div className="font-bold text-slate-700">المدفوعات والتفاصيل</div>
+                    <div className="mt-1">سيتم ربط سجل المدفوعات من النظام الخارجي هنا لكل حساب.</div>
                   </div>
                 </button>
               );
@@ -496,9 +531,9 @@ function IconButton({ icon: Icon }: any) {
   );
 }
 
-function ActionCard({ title, icon: Icon, color = '#4f46e5' }: any) {
+function ActionCard({ title, icon: Icon, color = '#4f46e5', onClick }: any) {
   return (
-    <button className="flex h-24 items-center justify-between rounded-3xl bg-white p-5 text-start font-black shadow-sm">
+    <button onClick={onClick} className="flex h-24 items-center justify-between rounded-3xl bg-white p-5 text-start font-black shadow-sm">
       <span>{title}</span>
       <Icon className="h-6 w-6" style={{ color }} />
     </button>
