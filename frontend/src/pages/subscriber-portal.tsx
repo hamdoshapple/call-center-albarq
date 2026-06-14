@@ -71,6 +71,21 @@ type PaymentsData = {
   rows: PaymentRow[];
 };
 
+type PortalTicket = {
+  id: string;
+  subject: string;
+  status: 'open' | 'pending' | 'resolved' | 'closed' | string;
+  priority: 'low' | 'medium' | 'high' | 'urgent' | string;
+  createdAt: string;
+  updatedAt: string;
+  notes?: Array<{
+    id: string;
+    body: string;
+    createdAt: string;
+    author?: { fullName?: string; username?: string } | null;
+  }>;
+};
+
 type Account = {
   id: string;
   name: string;
@@ -131,6 +146,14 @@ export function SubscriberPortalPage() {
   const [paymentsLoading, setPaymentsLoading] = useState(false);
   const [paymentsAccountId, setPaymentsAccountId] = useState('');
 
+  const [tickets, setTickets] = useState<PortalTicket[]>([]);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
+  const [ticketSubject, setTicketSubject] = useState('انقطاع خدمة');
+  const [ticketBody, setTicketBody] = useState('');
+  const [selectedTicketId, setSelectedTicketId] = useState('');
+  const [ticketsAccountId, setTicketsAccountId] = useState('');
+  const [accountPickerOpen, setAccountPickerOpen] = useState(false);
+
   const primary = config.primaryColor || '#4f46e5';
   const secondary = config.secondaryColor || '#06b6d4';
   const expiredColor = config.expiredColor || '#dc2626';
@@ -138,6 +161,7 @@ export function SubscriberPortalPage() {
 
   const active = accounts.find((a) => a.id === activeId) || accounts[0];
   const totalDebt = useMemo(() => accounts.reduce((s, a) => s + Number(a.debt || 0), 0), [accounts]);
+  const latestTicket = ticketsAccountId === active?.id ? tickets[0] : undefined;
   const left = daysLeft(active?.expiration);
   const isExpired = left !== null && left < 0;
   const isWarning = left !== null && left >= 0 && left <= 5;
@@ -192,8 +216,13 @@ export function SubscriberPortalPage() {
     const rows = Array.isArray(data) ? data : [];
     setAccounts(rows);
     if (rows[0] && !activeId) {
-      setActiveId(rows[0].id);
-      loadPayments(rows[0].id);
+      const savedId = localStorage.getItem('subscriber_active_account') || '';
+      const chosen = rows.find((x: Account) => x.id === savedId) || rows[0];
+
+      setActiveId(chosen.id);
+      localStorage.setItem('subscriber_active_account', chosen.id);
+      loadPayments(chosen.id);
+      loadTickets(chosen.id);
     }
     setLoading(false);
   }
@@ -208,7 +237,10 @@ export function SubscriberPortalPage() {
   }, [step, token]);
 
   useEffect(() => {
-    if (step === 'home' && activeId) loadPayments(activeId);
+    if (step === 'home' && activeId) {
+      loadPayments(activeId);
+      loadTickets(activeId);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, token, activeId]);
 
@@ -234,6 +266,57 @@ export function SubscriberPortalPage() {
       setPayments(null);
     } finally {
       setPaymentsLoading(false);
+    }
+  }
+
+  async function loadTickets(accountId?: string) {
+    const id = accountId || active?.id;
+    if (!token || !id) return;
+
+    setTickets([]);
+    setTicketsAccountId(id);
+
+    try {
+      setTicketsLoading(true);
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(id)}/tickets`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setTickets(Array.isArray(data) ? data : []);
+    } catch {
+      setTickets([]);
+    } finally {
+      setTicketsLoading(false);
+    }
+  }
+
+  async function createTicket() {
+    const id = active?.id;
+    if (!token || !id || !ticketSubject.trim()) return;
+
+    setTicketsLoading(true);
+    try {
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(id)}/tickets`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          subject: ticketSubject,
+          body: ticketBody,
+          priority: ticketSubject.includes('انقطاع') ? 'high' : 'medium',
+        }),
+      });
+
+      const data = await res.json();
+      if (data?.id) {
+        setTicketBody('');
+        setSelectedTicketId(data.id);
+        await loadTickets(id);
+      }
+    } finally {
+      setTicketsLoading(false);
     }
   }
 
@@ -393,7 +476,12 @@ export function SubscriberPortalPage() {
             )}
             <div>
               <h1 className="text-3xl font-black">مرحباً</h1>
-              <p className="text-sm text-slate-500">{active?.name || config.appName || 'مشترك البرق'}</p>
+              <button
+                onClick={() => setAccountPickerOpen(true)}
+                className="mt-1 line-clamp-2 text-start text-sm font-bold text-slate-500"
+              >
+                {active?.name || config.appName || 'مشترك البرق'} <span style={{ color: primary }}>⌄</span>
+              </button>
             </div>
           </div>
           <div className="flex gap-2">
@@ -532,9 +620,29 @@ export function SubscriberPortalPage() {
             />
 
             {config.enableTickets !== false && (
-              <section className="rounded-3xl p-4" style={{ backgroundColor: `${primary}14`, color: primary }}>
-                بعض معلوماتك غير مكتملة، افتح تذكرة لتحديث بياناتك.
-              </section>
+              latestTicket ? (
+                <button
+                  onClick={() => { setSelectedTicketId(latestTicket.id); setTab('support'); }}
+                  className="w-full rounded-3xl bg-white p-4 text-start shadow-sm"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm text-slate-500">آخر تذكرة</div>
+                      <div className="mt-1 line-clamp-1 text-lg font-black">{latestTicket.subject}</div>
+                      <div className="mt-1 text-xs text-slate-400">{new Date(latestTicket.createdAt).toLocaleDateString('ar-IQ')}</div>
+                    </div>
+                    <TicketBadge status={latestTicket.status} primary={primary} />
+                  </div>
+                </button>
+              ) : (
+                <button
+                  onClick={() => setTab('support')}
+                  className="w-full rounded-3xl p-4 text-start"
+                  style={{ backgroundColor: `${primary}14`, color: primary }}
+                >
+                  بعض معلوماتك غير مكتملة، افتح تذكرة لتحديث بياناتك.
+                </button>
+              )
             )}
           </main>
         )}
@@ -547,7 +655,13 @@ export function SubscriberPortalPage() {
               return (
                 <button
                   key={`${a.source}-${a.id}`}
-                  onClick={() => { setActiveId(a.id); loadPayments(a.id); }}
+                  onClick={() => {
+                    setActiveId(a.id);
+                    localStorage.setItem('subscriber_active_account', a.id);
+                    setSelectedTicketId('');
+                    loadPayments(a.id);
+                    loadTickets(a.id);
+                  }}
                   className="w-full rounded-[24px] bg-white p-5 text-start shadow-sm transition"
                   style={{ boxShadow: selected ? `0 0 0 2px ${primary}` : undefined }}
                 >
@@ -594,13 +708,46 @@ export function SubscriberPortalPage() {
 
             <section className="rounded-[28px] p-6 text-white" style={{ backgroundColor: primary }}>
               <h3 className="text-3xl font-black">تحتاج مساعدة؟</h3>
-              <p className="mt-2 text-white/80">تواصل معنا أو افتح تذكرة وسيتم متابعتها من فريق الدعم</p>
-              {config.enableTickets !== false && (
-                <Button className="mt-6 rounded-2xl bg-white hover:bg-white" style={{ color: primary }}>
-                  فتح تذكرة
-                </Button>
-              )}
+              <p className="mt-2 text-white/80">افتح تذكرة وسيتم متابعتها من فريق الدعم</p>
             </section>
+
+            {config.enableTickets !== false && (
+              <section className="rounded-[28px] bg-white p-5 shadow-sm">
+                <h3 className="text-xl font-black">فتح تذكرة جديدة</h3>
+
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  {['انقطاع خدمة', 'بطء الإنترنت', 'مشكلة فاتورة', 'أخرى'].map((x) => (
+                    <button
+                      key={x}
+                      onClick={() => setTicketSubject(x)}
+                      className="rounded-2xl px-3 py-3 text-sm font-bold"
+                      style={{
+                        backgroundColor: ticketSubject === x ? primary : '#f1f5f9',
+                        color: ticketSubject === x ? 'white' : '#334155',
+                      }}
+                    >
+                      {x}
+                    </button>
+                  ))}
+                </div>
+
+                <textarea
+                  className="mt-3 min-h-28 w-full rounded-2xl border-0 bg-slate-100 p-4 text-sm outline-none"
+                  placeholder="اكتب تفاصيل المشكلة..."
+                  value={ticketBody}
+                  onChange={(e) => setTicketBody(e.target.value)}
+                />
+
+                <Button
+                  disabled={ticketsLoading || !ticketSubject.trim()}
+                  onClick={createTicket}
+                  className="mt-3 h-12 w-full rounded-2xl text-white"
+                  style={{ backgroundColor: primary }}
+                >
+                  {ticketsLoading ? 'جاري الإرسال...' : 'إرسال التذكرة'}
+                </Button>
+              </section>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               {config.supportWhatsapp && (
@@ -616,6 +763,53 @@ export function SubscriberPortalPage() {
                 </a>
               )}
             </div>
+
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-2xl font-black">تذاكري</h3>
+                <button onClick={() => loadTickets(active?.id)} className="text-sm font-bold" style={{ color: primary }}>
+                  تحديث
+                </button>
+              </div>
+
+              {ticketsLoading && !tickets.length ? (
+                <div className="rounded-3xl bg-white p-5 text-slate-500 shadow-sm">جاري تحميل التذاكر...</div>
+              ) : tickets.length ? (
+                tickets.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setSelectedTicketId(selectedTicketId === t.id ? '' : t.id)}
+                    className="w-full rounded-3xl bg-white p-5 text-start shadow-sm"
+                    style={{ boxShadow: selectedTicketId === t.id ? `0 0 0 2px ${primary}` : undefined }}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-lg font-black">{t.subject}</div>
+                        <div className="mt-1 text-xs text-slate-400">
+                          {new Date(t.createdAt).toLocaleString('ar-IQ')}
+                        </div>
+                      </div>
+                      <TicketBadge status={t.status} primary={primary} />
+                    </div>
+
+                    {selectedTicketId === t.id && (
+                      <div className="mt-4 space-y-2 border-t pt-4">
+                        {(t.notes || []).map((n: any) => (
+                          <div key={n.id} className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-600">
+                            <div className="mb-1 text-xs font-bold text-slate-400">
+                              {n.author?.fullName || 'المشترك'} • {new Date(n.createdAt).toLocaleString('ar-IQ')}
+                            </div>
+                            <pre className="whitespace-pre-wrap font-sans leading-6">{n.body}</pre>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </button>
+                ))
+              ) : (
+                <div className="rounded-3xl bg-white p-5 text-slate-500 shadow-sm">لا توجد تذاكر حالياً.</div>
+              )}
+            </section>
           </main>
         )}
 
@@ -629,6 +823,57 @@ export function SubscriberPortalPage() {
           </main>
         )}
       </div>
+
+      {accountPickerOpen && (
+        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/40 p-4" onClick={() => setAccountPickerOpen(false)}>
+          <div className="w-full max-w-md rounded-t-[32px] bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-2xl font-black">اختر الحساب</h3>
+              <button onClick={() => setAccountPickerOpen(false)} className="rounded-full bg-slate-100 px-3 py-1 font-bold">إغلاق</button>
+            </div>
+
+            <div className="max-h-[55vh] space-y-2 overflow-y-auto pb-2">
+              {accounts.map((a) => {
+                const selected = activeId === a.id;
+                return (
+                  <button
+                    key={`${a.source}-${a.id}-picker`}
+                    onClick={() => {
+                      setActiveId(a.id);
+                      localStorage.setItem('subscriber_active_account', a.id);
+                      setSelectedTicketId('');
+                      setAccountPickerOpen(false);
+                      loadPayments(a.id);
+                      loadTickets(a.id);
+                    }}
+                    className="relative w-full overflow-hidden rounded-3xl p-4 text-start"
+                    style={{
+                      backgroundColor: selected ? `${primary}10` : '#f8fafc',
+                      boxShadow: selected ? '0 10px 25px rgba(15,23,42,0.08)' : undefined,
+                    }}
+                  >
+                    {selected && (
+                      <span
+                        className="absolute bottom-4 right-0 top-4 w-1 rounded-full"
+                        style={{ backgroundColor: primary }}
+                      />
+                    )}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0 pr-3">
+                        <div className="line-clamp-1 font-black">{a.name}</div>
+                        <div className="mt-1 font-mono text-xs text-slate-400">{a.pppoeUsername || '—'}</div>
+                      </div>
+                      <span className="shrink-0 rounded-full px-3 py-1 text-xs font-black" style={{ backgroundColor: selected ? primary : '#e2e8f0', color: selected ? 'white' : '#64748b' }}>
+                        {selected ? 'مختار' : 'اختيار'}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       <nav className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md border-t bg-white/95 px-5 py-3 backdrop-blur">
         <div className="grid grid-cols-4 gap-1">
@@ -759,6 +1004,23 @@ function PaymentItem({
         )}
       </div>
     </div>
+  );
+}
+
+function TicketBadge({ status, primary }: { status: string; primary: string }) {
+  const map: Record<string, { label: string; color: string; bg: string }> = {
+    open: { label: 'مفتوحة', color: primary, bg: `${primary}18` },
+    pending: { label: 'قيد المتابعة', color: '#d97706', bg: '#fef3c7' },
+    resolved: { label: 'تم الحل', color: '#16a34a', bg: '#dcfce7' },
+    closed: { label: 'مغلقة', color: '#64748b', bg: '#f1f5f9' },
+  };
+
+  const x = map[status] || { label: status, color: '#64748b', bg: '#f1f5f9' };
+
+  return (
+    <span className="shrink-0 rounded-full px-3 py-1 text-xs font-black" style={{ color: x.color, backgroundColor: x.bg }}>
+      {x.label}
+    </span>
   );
 }
 
