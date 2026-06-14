@@ -35,15 +35,15 @@ export async function callerName(req: Request, res: Response) {
   const phone = norm(req.query.phone || req.query.caller);
   if (!phone) return res.type('text/plain').send('');
 
-  const local = await prisma.subscriber.findFirst({
+  const locals = await prisma.subscriber.findMany({
     where: {
       OR: variants(phone).map((v) => ({ phone: { contains: v } })),
     },
     select: { name: true, pppoeUsername: true, debt: true },
   });
 
-  let name = clean(local?.name || local?.pppoeUsername || '');
-  let debt = Number(local?.debt || 0);
+  let name = clean(locals[0]?.name || locals[0]?.pppoeUsername || '');
+  let debt = locals.reduce((sum, s) => sum + Number(s.debt || 0), 0);
 
   if (!name && process.env.EXTERNAL_MSSQL_ENABLED === 'true') {
     const cached = await searchSubscriberCache(phone);

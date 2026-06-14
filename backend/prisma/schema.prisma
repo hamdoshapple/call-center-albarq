@@ -283,7 +283,7 @@ model Recording {
 model Subscriber {
   id             String   @id @default(cuid())
   name           String
-  phone          String   @unique
+  phone          String
   pppoeUsername  String?
   status         String   @default("active") // active, expired, suspended, disabled
   package        String?

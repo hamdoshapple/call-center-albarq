@@ -13,6 +13,7 @@ import * as tg400 from '../controllers/tg400.controller.js';
 import * as subscribers from '../controllers/subscribers.controller.js';
 import * as recordings from '../controllers/recordings.controller.js';
 import * as calls from '../controllers/calls.controller.js';
+import * as subscriberPortal from '../controllers/subscriber-portal.controller.js';
 import * as internalCaller from '../controllers/internal-caller.controller.js';
 import * as asterisk from '../controllers/asterisk.controller.js';
 import * as reports from '../controllers/reports.controller.js';
@@ -24,6 +25,11 @@ export const router = Router();
 
 // ---------- Auth (public + protected) ----------
 router.post('/auth/login', h(auth.login));
+router.post('/subscriber-portal/request-code', h(subscriberPortal.requestCode));
+router.post('/subscriber-portal/login', h(subscriberPortal.login));
+router.get('/subscriber-portal/me', h(subscriberPortal.me));
+router.get('/subscriber-portal/accounts', h(subscriberPortal.accounts));
+
 router.get('/internal/caller-name', h(internalCaller.callerName));
 router.get('/auth/me', authenticate, h(auth.me));
 

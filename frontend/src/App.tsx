@@ -13,6 +13,7 @@ import { CallTransferPage } from '@/pages/call-transfer';
 import { CallLogsPage } from '@/pages/call-logs';
 import { RecordingsPage } from '@/pages/recordings';
 import { SubscribersPage } from '@/pages/subscribers';
+import { SubscriberPortalPage } from '@/pages/subscriber-portal';
 import { TG400Page } from '@/pages/tg400';
 import { AsteriskPage } from '@/pages/asterisk';
 import { ReportsPage } from '@/pages/reports';
@@ -24,6 +25,7 @@ import { VpnPage } from '@/pages/vpn';
 export function App() {
   return (
     <Routes>
+        <Route path="/my" element={<SubscriberPortalPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route
         element={
