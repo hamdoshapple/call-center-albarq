@@ -20,6 +20,7 @@ import * as reports from '../controllers/reports.controller.js';
 import * as misc from '../controllers/misc.controller.js';
 import * as vpn from '../controllers/vpn.controller.js';
 import * as dataSource from '../controllers/data-source.controller.js';
+import * as subscriberApp from '../controllers/subscriber-app.controller.js';
 
 export const router = Router();
 
@@ -168,6 +169,13 @@ router.put('/permissions', perm('permissions', 'edit'), h(misc.setPermission));
 // ---------- Company settings ----------
 router.get('/company', perm('company_settings'), h(misc.getCompany));
 router.put('/company', perm('company_settings', 'edit'), h(misc.updateCompany));
+
+// ---------- Subscriber App ----------
+router.get('/subscriber-app/config', perm('company_settings'), h(subscriberApp.getConfig));
+router.put('/subscriber-app/config', perm('company_settings','edit'), h(subscriberApp.updateConfig));
+router.get('/subscriber-app/banners', perm('company_settings'), h(subscriberApp.listBanners));
+router.post('/subscriber-app/banners', perm('company_settings','edit'), h(subscriberApp.createBanner));
+router.delete('/subscriber-app/banners/:id', perm('company_settings','edit'), h(subscriberApp.deleteBanner));
 
 // ---------- Notifications ----------
 router.get('/notifications', h(misc.listNotifications));

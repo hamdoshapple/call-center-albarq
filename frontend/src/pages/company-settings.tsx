@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Settings, Save, Plus, Trash2 } from 'lucide-react';
+import { Settings, Save, Plus, Trash2, Smartphone, ImagePlus, MessageCircle } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { Loader } from '@/components/shared/loader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,6 +18,87 @@ import { useToast } from '@/components/ui/use-toast';
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
 const COLORS = ['#0ea5e9', '#2563eb', '#16a34a', '#9333ea', '#dc2626', '#f59e0b', '#0d9488'];
+
+type SubscriberAppConfig = {
+  id?: string;
+  appName: string;
+  logoUrl?: string | null;
+  splashLogoUrl?: string | null;
+  primaryColor: string;
+  secondaryColor: string;
+  expiredColor: string;
+  warningColor: string;
+  supportPhone?: string | null;
+  supportWhatsapp?: string | null;
+  supportTelegram?: string | null;
+  welcomeMessage?: string | null;
+  expiredMessage?: string | null;
+  bannerTitle?: string | null;
+  bannerText?: string | null;
+  bannerImage?: string | null;
+  bannerLink?: string | null;
+  popupEnabled: boolean;
+  popupTitle?: string | null;
+  popupMessage?: string | null;
+  enablePayments: boolean;
+  enableTickets: boolean;
+  enableNotifications: boolean;
+};
+
+type SubscriberAppBanner = {
+  id: string;
+  title: string;
+  description?: string | null;
+  imageUrl?: string | null;
+  linkUrl?: string | null;
+  active: boolean;
+  sortOrder: number;
+};
+
+const authHeaders = () => ({
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}`,
+});
+
+const subscriberAppApi = {
+  getConfig: async (): Promise<SubscriberAppConfig> => {
+    const r = await fetch('/api/subscriber-app/config', { headers: authHeaders() });
+    if (!r.ok) throw new Error('Failed to load subscriber app config');
+    return r.json();
+  },
+  updateConfig: async (data: SubscriberAppConfig): Promise<SubscriberAppConfig> => {
+    const r = await fetch('/api/subscriber-app/config', {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!r.ok) throw new Error('Failed to save subscriber app config');
+    return r.json();
+  },
+  listBanners: async (): Promise<SubscriberAppBanner[]> => {
+    const r = await fetch('/api/subscriber-app/banners', { headers: authHeaders() });
+    if (!r.ok) throw new Error('Failed to load banners');
+    return r.json();
+  },
+  createBanner: async (data: Partial<SubscriberAppBanner>): Promise<SubscriberAppBanner> => {
+    const r = await fetch('/api/subscriber-app/banners', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!r.ok) throw new Error('Failed to create banner');
+    return r.json();
+  },
+  deleteBanner: async (id: string) => {
+    const r = await fetch(`/api/subscriber-app/banners/${id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    if (!r.ok) throw new Error('Failed to delete banner');
+    return r.json();
+  },
+};
+
 
 export function CompanySettingsPage() {
   const { t } = useTranslation();
@@ -126,6 +207,238 @@ export function CompanySettingsPage() {
             </div>
           </CardContent>
         </Card>
+      </div>
+      <SubscriberAppSettingsPanel canEdit={canEdit} />
+
+    </div>
+  );
+}
+
+
+function SubscriberAppSettingsPanel({ canEdit }: { canEdit: boolean }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['subscriber-app-config'],
+    queryFn: subscriberAppApi.getConfig,
+  });
+
+  const { data: banners = [] } = useQuery({
+    queryKey: ['subscriber-app-banners'],
+    queryFn: subscriberAppApi.listBanners,
+  });
+
+  const [form, setForm] = useState<SubscriberAppConfig | null>(null);
+  const [bannerForm, setBannerForm] = useState({
+    title: '',
+    description: '',
+    imageUrl: '',
+    linkUrl: '',
+    sortOrder: 0,
+    active: true,
+  });
+
+  useEffect(() => {
+    if (data) setForm(data);
+  }, [data]);
+
+  const save = useMutation({
+    mutationFn: (x: SubscriberAppConfig) => subscriberAppApi.updateConfig(x),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['subscriber-app-config'] });
+      toast({ title: 'تم حفظ إعدادات تطبيق المشتركين' });
+    },
+  });
+
+  const addBanner = useMutation({
+    mutationFn: subscriberAppApi.createBanner,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['subscriber-app-banners'] });
+      setBannerForm({ title: '', description: '', imageUrl: '', linkUrl: '', sortOrder: 0, active: true });
+      toast({ title: 'تم إضافة الإعلان' });
+    },
+  });
+
+  const removeBanner = useMutation({
+    mutationFn: subscriberAppApi.deleteBanner,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['subscriber-app-banners'] });
+      toast({ title: 'تم حذف الإعلان' });
+    },
+  });
+
+  if (isLoading || !form) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <Loader />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const setApp = (patch: Partial<SubscriberAppConfig>) => setForm((f) => (f ? { ...f, ...patch } : f));
+
+  return (
+    <Card className="border-primary/20">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Smartphone className="h-5 w-5 text-primary" />
+          إعدادات تطبيق المشتركين
+        </CardTitle>
+      </CardHeader>
+
+      <CardContent className="space-y-6">
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="space-y-3 rounded-xl border p-4">
+            <div className="flex items-center gap-2 font-bold">
+              <ImagePlus className="h-4 w-4 text-primary" />
+              الهوية والواجهة
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>اسم التطبيق</Label>
+              <Input disabled={!canEdit} value={form.appName || ''} onChange={(e) => setApp({ appName: e.target.value })} />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>رابط الشعار Logo</Label>
+              <Input disabled={!canEdit} value={form.logoUrl || ''} onChange={(e) => setApp({ logoUrl: e.target.value })} placeholder="/logo.png أو رابط صورة" />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>رابط شعار Splash</Label>
+              <Input disabled={!canEdit} value={form.splashLogoUrl || ''} onChange={(e) => setApp({ splashLogoUrl: e.target.value })} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <ColorField label="اللون الرئيسي" value={form.primaryColor} disabled={!canEdit} onChange={(v) => setApp({ primaryColor: v })} />
+              <ColorField label="اللون الثانوي" value={form.secondaryColor} disabled={!canEdit} onChange={(v) => setApp({ secondaryColor: v })} />
+              <ColorField label="لون المنتهي" value={form.expiredColor} disabled={!canEdit} onChange={(v) => setApp({ expiredColor: v })} />
+              <ColorField label="لون التحذير" value={form.warningColor} disabled={!canEdit} onChange={(v) => setApp({ warningColor: v })} />
+            </div>
+          </div>
+
+          <div className="space-y-3 rounded-xl border p-4">
+            <div className="flex items-center gap-2 font-bold">
+              <MessageCircle className="h-4 w-4 text-primary" />
+              التواصل والرسائل
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>رقم الاتصال</Label>
+                <Input disabled={!canEdit} value={form.supportPhone || ''} onChange={(e) => setApp({ supportPhone: e.target.value })} />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>واتساب الدعم</Label>
+                <Input disabled={!canEdit} value={form.supportWhatsapp || ''} onChange={(e) => setApp({ supportWhatsapp: e.target.value })} />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>رسالة الترحيب</Label>
+              <Textarea rows={2} disabled={!canEdit} value={form.welcomeMessage || ''} onChange={(e) => setApp({ welcomeMessage: e.target.value })} />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>رسالة انتهاء الاشتراك</Label>
+              <Textarea rows={3} disabled={!canEdit} value={form.expiredMessage || ''} onChange={(e) => setApp({ expiredMessage: e.target.value })} />
+            </div>
+
+            <label className="flex items-center gap-2 rounded-lg border p-3 text-sm">
+              <input type="checkbox" disabled={!canEdit} checked={!!form.popupEnabled} onChange={(e) => setApp({ popupEnabled: e.target.checked })} />
+              تفعيل نافذة منبثقة عند انتهاء الاشتراك
+            </label>
+
+            <div className="space-y-1.5">
+              <Label>عنوان النافذة المنبثقة</Label>
+              <Input disabled={!canEdit} value={form.popupTitle || ''} onChange={(e) => setApp({ popupTitle: e.target.value })} />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>نص النافذة المنبثقة</Label>
+              <Textarea rows={3} disabled={!canEdit} value={form.popupMessage || ''} onChange={(e) => setApp({ popupMessage: e.target.value })} />
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border p-4">
+          <div className="mb-3 font-bold">الميزات</div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <label className="flex items-center gap-2 rounded-lg bg-muted/40 p-3 text-sm">
+              <input type="checkbox" disabled={!canEdit} checked={!!form.enablePayments} onChange={(e) => setApp({ enablePayments: e.target.checked })} />
+              الدفع الإلكتروني
+            </label>
+            <label className="flex items-center gap-2 rounded-lg bg-muted/40 p-3 text-sm">
+              <input type="checkbox" disabled={!canEdit} checked={!!form.enableTickets} onChange={(e) => setApp({ enableTickets: e.target.checked })} />
+              التذاكر
+            </label>
+            <label className="flex items-center gap-2 rounded-lg bg-muted/40 p-3 text-sm">
+              <input type="checkbox" disabled={!canEdit} checked={!!form.enableNotifications} onChange={(e) => setApp({ enableNotifications: e.target.checked })} />
+              الإشعارات
+            </label>
+          </div>
+        </div>
+
+        <div className="rounded-xl border p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="font-bold">إعلانات تطبيق المشترك</div>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-5">
+            <Input disabled={!canEdit} placeholder="عنوان الإعلان" value={bannerForm.title} onChange={(e) => setBannerForm({ ...bannerForm, title: e.target.value })} />
+            <Input disabled={!canEdit} placeholder="الوصف" value={bannerForm.description} onChange={(e) => setBannerForm({ ...bannerForm, description: e.target.value })} />
+            <Input disabled={!canEdit} placeholder="رابط الصورة" value={bannerForm.imageUrl} onChange={(e) => setBannerForm({ ...bannerForm, imageUrl: e.target.value })} />
+            <Input disabled={!canEdit} placeholder="رابط عند الضغط" value={bannerForm.linkUrl} onChange={(e) => setBannerForm({ ...bannerForm, linkUrl: e.target.value })} />
+            <Button disabled={!canEdit || !bannerForm.title.trim() || addBanner.isPending} onClick={() => addBanner.mutate(bannerForm)}>
+              <Plus className="h-4 w-4" />
+              إضافة
+            </Button>
+          </div>
+
+          <div className="mt-4 space-y-2">
+            {banners.length === 0 ? (
+              <div className="rounded-lg bg-muted/40 p-3 text-sm text-muted-foreground">لا توجد إعلانات حالياً</div>
+            ) : banners.map((b) => (
+              <div key={b.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background p-3">
+                <div>
+                  <div className="font-bold">{b.title}</div>
+                  {b.description && <div className="text-sm text-muted-foreground">{b.description}</div>}
+                  {b.linkUrl && <div className="text-xs text-muted-foreground">{b.linkUrl}</div>}
+                </div>
+                {canEdit && (
+                  <Button size="icon" variant="ghost" className="text-destructive" onClick={() => removeBanner.mutate(b.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {canEdit && (
+          <div className="flex justify-end">
+            <Button disabled={save.isPending} onClick={() => save.mutate(form)}>
+              <Save className="h-4 w-4" />
+              حفظ إعدادات تطبيق المشتركين
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ColorField({ label, value, disabled, onChange }: { label: string; value: string; disabled?: boolean; onChange: (v: string) => void }) {
+  return (
+    <div className="space-y-1.5">
+      <Label>{label}</Label>
+      <div className="flex gap-2">
+        <Input type="color" className="h-10 w-14 p-1" disabled={disabled} value={value || '#000000'} onChange={(e) => onChange(e.target.value)} />
+        <Input disabled={disabled} value={value || ''} onChange={(e) => onChange(e.target.value)} />
       </div>
     </div>
   );

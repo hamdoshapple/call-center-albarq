@@ -472,3 +472,79 @@ model ExternalSubscriberCache {
   @@index([pppoeUsername])
   @@index([cachedAt])
 }
+
+// ===================== Subscriber Portal =====================
+
+model SubscriberAppConfig {
+  id                   String   @id @default(cuid())
+
+  appName              String   @default("Albarq")
+  logoUrl              String?
+  splashLogoUrl        String?
+
+  primaryColor         String   @default("#4f46e5")
+  secondaryColor       String   @default("#06b6d4")
+
+  expiredColor         String   @default("#dc2626")
+  warningColor         String   @default("#f59e0b")
+
+  supportPhone         String?
+  supportWhatsapp      String?
+  supportTelegram      String?
+
+  welcomeMessage       String?  @db.Text
+  expiredMessage       String?  @db.Text
+
+  bannerTitle          String?
+  bannerText           String?  @db.Text
+  bannerImage          String?
+  bannerLink           String?
+
+  popupEnabled         Boolean  @default(false)
+  popupTitle           String?
+  popupMessage         String?  @db.Text
+
+  enablePayments       Boolean  @default(false)
+  enableTickets        Boolean  @default(true)
+  enableNotifications  Boolean  @default(true)
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model SubscriberAppBanner {
+  id          String   @id @default(cuid())
+
+  title       String
+  description String?  @db.Text
+
+  imageUrl    String?
+  linkUrl     String?
+
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SubscriberPayment {
+  id                     String   @id @default(cuid())
+
+  externalSubscriberId   String
+
+  amount                 Float
+
+  paymentMethod          String
+
+  referenceNumber        String?
+
+  status                 String   @default("pending")
+
+  paidAt                 DateTime?
+
+  createdAt              DateTime @default(now())
+
+  @@index([externalSubscriberId])
+  @@index([status])
+}
