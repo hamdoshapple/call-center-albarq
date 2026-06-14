@@ -30,6 +30,7 @@ router.post('/subscriber-portal/request-code', h(subscriberPortal.requestCode));
 router.post('/subscriber-portal/login', h(subscriberPortal.login));
 router.get('/subscriber-portal/me', h(subscriberPortal.me));
 router.get('/subscriber-portal/accounts', h(subscriberPortal.accounts));
+router.get('/subscriber-portal/accounts/:id/payments', h(subscriberPortal.accountPayments));
 router.get('/subscriber-portal/app-config', h(subscriberPortal.appConfig));
 
 router.get('/internal/caller-name', h(internalCaller.callerName));

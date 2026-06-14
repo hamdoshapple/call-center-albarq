@@ -234,3 +234,92 @@ export async function listExternalSubscribersForCache(limit = 50000): Promise<Ex
     return [];
   }
 }
+
+export type ExternalPaymentRow = {
+  id: number;
+  date: Date | null;
+  amount: number;
+  type: 'payment' | 'debt' | 'activation' | 'other';
+  title: string;
+  notes: string;
+  package: string;
+  dateFrom: Date | null;
+  dateTo: Date | null;
+  moneyIn: number;
+  moneyOut: number;
+};
+
+export async function getExternalSubscriberPayments(id: string, limit = 30): Promise<ExternalPaymentRow[]> {
+  if (!enabled || !id.startsWith('ext-')) return [];
+
+  const costId = Number(id.replace('ext-', ''));
+  if (!costId) return [];
+
+  try {
+    const pool = await getPool();
+    const result = await pool.request()
+      .input('id', sql.Int, costId)
+      .input('limit', sql.Int, limit)
+      .query(`
+        SELECT TOP (@limit)
+          Sand_id,
+          Sand_date,
+          Sand_notes,
+          Sand_datefrom,
+          Sand_dateto,
+          ISNULL(Sand_money,0) AS Sand_money,
+          ISNULL(Sand_moneyin,0) AS Sand_moneyin,
+          Sand_moneyType,
+          Sand_cardtype,
+          Sand_desc,
+          Sand_operation,
+          Sand_pushType,
+          Sand_month
+        FROM dbo.Sand
+        WHERE Sand_cosFk = @id
+          AND ISNULL(Sand_isdel,0)=0
+        ORDER BY Sand_date DESC, Sand_id DESC
+      `);
+
+    return result.recordset.map((r: any) => {
+      const moneyIn = Number(r.Sand_moneyin || 0);
+      const moneyOut = Number(r.Sand_money || 0);
+      const operation = String(r.Sand_operation || r.Sand_pushType || r.Sand_desc || '').trim();
+
+      let type: ExternalPaymentRow['type'] = 'other';
+      let amount = 0;
+      let title = operation || 'حركة حساب';
+
+      if (moneyIn > 0) {
+        type = 'payment';
+        amount = moneyIn;
+        title = 'دفعة';
+      } else if (moneyOut > 0 && r.Sand_dateto) {
+        type = 'activation';
+        amount = moneyOut;
+        title = 'تفعيل اشتراك';
+      } else if (moneyOut > 0) {
+        type = 'debt';
+        amount = moneyOut;
+        title = 'دين / مستحقات';
+      }
+
+      return {
+        id: Number(r.Sand_id),
+        date: r.Sand_date || null,
+        amount,
+        type,
+        title,
+        notes: String(r.Sand_notes || r.Sand_desc || r.Sand_operation || '').trim(),
+        package: String(r.Sand_cardtype || '').trim(),
+        dateFrom: r.Sand_datefrom || null,
+        dateTo: r.Sand_dateto || null,
+        moneyIn,
+        moneyOut,
+      };
+    });
+  } catch (err) {
+    console.error('[external-subscriber] payments failed:', err);
+    return [];
+  }
+}

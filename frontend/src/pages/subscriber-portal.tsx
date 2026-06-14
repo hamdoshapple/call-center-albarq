@@ -47,6 +47,30 @@ type Banner = {
   linkUrl?: string | null;
 };
 
+type PaymentRow = {
+  id: number;
+  date: string | null;
+  amount: number;
+  type: 'payment' | 'debt' | 'activation' | 'other';
+  title: string;
+  notes: string;
+  package: string;
+  dateFrom: string | null;
+  dateTo: string | null;
+  moneyIn: number;
+  moneyOut: number;
+};
+
+type PaymentsData = {
+  summary: {
+    totalPaid: number;
+    totalActivations: number;
+    totalDebtRows: number;
+    paymentsCount: number;
+  };
+  rows: PaymentRow[];
+};
+
 type Account = {
   id: string;
   name: string;
@@ -103,6 +127,8 @@ export function SubscriberPortalPage() {
   const [config, setConfig] = useState<SubscriberAppConfig>({});
   const [banners, setBanners] = useState<Banner[]>([]);
   const [expiredPopupClosed, setExpiredPopupClosed] = useState(false);
+  const [payments, setPayments] = useState<PaymentsData | null>(null);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
 
   const primary = config.primaryColor || '#4f46e5';
   const secondary = config.secondaryColor || '#06b6d4';
@@ -176,6 +202,29 @@ export function SubscriberPortalPage() {
     if (step === 'home') loadAccounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, token]);
+
+  useEffect(() => {
+    if (step === 'home' && activeId) loadPayments(activeId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, token, activeId]);
+
+  async function loadPayments(accountId?: string) {
+    const id = accountId || active?.id;
+    if (!token || !id) return;
+
+    try {
+      setPaymentsLoading(true);
+      const res = await fetch(`${API}/accounts/${encodeURIComponent(id)}/payments`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setPayments(data);
+    } catch {
+      setPayments(null);
+    } finally {
+      setPaymentsLoading(false);
+    }
+  }
 
   function logout() {
     localStorage.removeItem('subscriber_token');
@@ -463,20 +512,12 @@ export function SubscriberPortalPage() {
               </section>
             )}
 
-            <section className="space-y-3">
-              <h2 className="text-2xl font-black">آخر المدفوعات</h2>
-              <div className="rounded-[26px] bg-white p-5 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-black">قريباً</div>
-                    <div className="mt-1 text-sm text-slate-500">
-                      سيتم ربط سجل المدفوعات لكل حساب من النظام الخارجي.
-                    </div>
-                  </div>
-                  <Wallet className="h-7 w-7" style={{ color: primary }} />
-                </div>
-              </div>
-            </section>
+            <PaymentsPanel
+              payments={payments}
+              loading={paymentsLoading}
+              primary={primary}
+              expiredColor={expiredColor}
+            />
 
             {config.enableTickets !== false && (
               <section className="rounded-3xl p-4" style={{ backgroundColor: `${primary}14`, color: primary }}>
@@ -494,7 +535,7 @@ export function SubscriberPortalPage() {
               return (
                 <button
                   key={`${a.source}-${a.id}`}
-                  onClick={() => setActiveId(a.id)}
+                  onClick={() => { setActiveId(a.id); loadPayments(a.id); }}
                   className="w-full rounded-[24px] bg-white p-5 text-start shadow-sm transition"
                   style={{ boxShadow: selected ? `0 0 0 2px ${primary}` : undefined }}
                 >
@@ -518,8 +559,16 @@ export function SubscriberPortalPage() {
                   </div>
 
                   <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">
-                    <div className="font-bold text-slate-700">المدفوعات والتفاصيل</div>
-                    <div className="mt-1">سيتم ربط سجل المدفوعات من النظام الخارجي هنا لكل حساب.</div>
+                    <div className="font-bold text-slate-700">آخر الحركات</div>
+                    {selected && payments?.rows?.length ? (
+                      <div className="mt-2 space-y-2">
+                        {payments.rows.slice(0, 5).map((x) => (
+                          <PaymentItem key={x.id} row={x} primary={primary} expiredColor={expiredColor} compact />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-1">لا توجد حركات لهذا الحساب.</div>
+                    )}
                   </div>
                 </button>
               );
@@ -577,6 +626,119 @@ export function SubscriberPortalPage() {
           <NavItem active={tab === 'profile'} icon={User} label="حسابي" color={primary} onClick={() => setTab('profile')} />
         </div>
       </nav>
+    </div>
+  );
+}
+
+
+function formatDate(v?: string | null) {
+  if (!v) return '—';
+  return new Date(v).toLocaleDateString('ar-IQ');
+}
+
+function paymentTone(type: PaymentRow['type'], primary: string, expiredColor: string) {
+  if (type === 'payment') return '#16a34a';
+  if (type === 'activation') return primary;
+  if (type === 'debt') return expiredColor;
+  return '#64748b';
+}
+
+function PaymentsPanel({
+  payments,
+  loading,
+  primary,
+  expiredColor,
+}: {
+  payments: PaymentsData | null;
+  loading: boolean;
+  primary: string;
+  expiredColor: string;
+}) {
+  const rows = payments?.rows || [];
+  const paidRows = rows.filter((x) => x.type === 'payment');
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-black">آخر المدفوعات</h2>
+        <Wallet className="h-6 w-6" style={{ color: primary }} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-[22px] bg-white p-4 shadow-sm">
+          <div className="text-xs text-slate-500">إجمالي المدفوع</div>
+          <div className="mt-1 text-2xl font-black text-green-600">
+            {money(payments?.summary?.totalPaid || 0)}
+          </div>
+        </div>
+        <div className="rounded-[22px] bg-white p-4 shadow-sm">
+          <div className="text-xs text-slate-500">عدد الدفعات</div>
+          <div className="mt-1 text-2xl font-black" style={{ color: primary }}>
+            {payments?.summary?.paymentsCount || 0}
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-[26px] bg-white p-4 shadow-sm">
+        {loading ? (
+          <div className="text-sm text-slate-500">جاري تحميل المدفوعات...</div>
+        ) : paidRows.length ? (
+          <div className="space-y-3">
+            {paidRows.slice(0, 4).map((x) => (
+              <PaymentItem key={x.id} row={x} primary={primary} expiredColor={expiredColor} />
+            ))}
+          </div>
+        ) : (
+          <div className="text-sm text-slate-500">لا توجد دفعات لهذا الحساب.</div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function PaymentItem({
+  row,
+  primary,
+  expiredColor,
+  compact,
+}: {
+  row: PaymentRow;
+  primary: string;
+  expiredColor: string;
+  compact?: boolean;
+}) {
+  const color = paymentTone(row.type, primary, expiredColor);
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 p-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+          <div className="truncate font-black">{row.title}</div>
+        </div>
+
+        <div className="mt-1 text-xs text-slate-500">
+          {formatDate(row.date)}
+          {row.package ? ` • ${row.package}` : ''}
+        </div>
+
+        {!compact && row.notes && (
+          <div className="mt-1 line-clamp-1 text-xs text-slate-400">
+            {row.notes}
+          </div>
+        )}
+      </div>
+
+      <div className="shrink-0 text-left">
+        <div className="font-black" style={{ color }}>
+          {money(row.amount)} د.ع
+        </div>
+        {row.dateFrom && row.dateTo && (
+          <div className="text-[10px] text-slate-400">
+            {formatDate(row.dateFrom)} - {formatDate(row.dateTo)}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

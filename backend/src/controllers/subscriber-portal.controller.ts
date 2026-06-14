@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../config/prisma.js';
 import { searchSubscriberCache } from '../services/subscriber-cache.service.js';
-import { searchExternalSubscribers } from '../services/external-subscriber.service.js';
+import { searchExternalSubscribers, getExternalSubscriberPayments } from '../services/external-subscriber.service.js';
 
 const CODE = '123456';
 
@@ -115,5 +115,35 @@ export async function appConfig(_req: Request, res: Response) {
   res.json({
     config: cfg,
     banners,
+  });
+}
+
+
+export async function accountPayments(req: Request, res: Response) {
+  const payload = verify(req);
+  const phone = norm(payload.phone);
+  const id = String(req.params.id || '');
+
+  const accountsRows = await searchExternalSubscribers(phone);
+  const allowed = accountsRows.some((x: any) => String(x.id) === id);
+
+  if (!allowed) {
+    return res.status(403).json({ error: 'Account not allowed' });
+  }
+
+  const rows = await getExternalSubscriberPayments(id, 50);
+
+  const payments = rows.filter((x) => x.type === 'payment');
+  const activations = rows.filter((x) => x.type === 'activation');
+  const debts = rows.filter((x) => x.type === 'debt');
+
+  res.json({
+    summary: {
+      totalPaid: payments.reduce((s, x) => s + Number(x.amount || 0), 0),
+      totalActivations: activations.reduce((s, x) => s + Number(x.amount || 0), 0),
+      totalDebtRows: debts.reduce((s, x) => s + Number(x.amount || 0), 0),
+      paymentsCount: payments.length,
+    },
+    rows,
   });
 }
