@@ -1,3 +1,15 @@
+#!/bin/bash
+set -e
+
+cd /opt/call-center-albarq
+
+echo "[1/4] Backup..."
+cp frontend/src/pages/subscriber-portal.tsx \
+frontend/src/pages/subscriber-portal.tsx.bak.my-dynamic.$(date +%s)
+
+echo "[2/4] Patch /my page..."
+
+cat > frontend/src/pages/subscriber-portal.tsx <<'EOF'
 import { useEffect, useMemo, useState } from 'react';
 import {
   Bell,
@@ -534,3 +546,12 @@ function NavItem({ active, icon: Icon, label, onClick, color = '#4f46e5' }: any)
     </button>
   );
 }
+EOF
+
+echo "[3/4] Build frontend..."
+docker compose build frontend
+
+echo "[4/4] Restart frontend..."
+docker compose up -d frontend
+
+echo "DONE"

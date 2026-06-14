@@ -100,3 +100,20 @@ export async function me(req: Request, res: Response) {
   const payload = verify(req);
   res.json({ phone: payload.phone });
 }
+
+export async function appConfig(_req: Request, res: Response) {
+  const cfg = await prisma.subscriberAppConfig.findFirst();
+
+  const banners = await prisma.subscriberAppBanner.findMany({
+    where: { active: true },
+    orderBy: [
+      { sortOrder: 'asc' },
+      { createdAt: 'desc' },
+    ],
+  });
+
+  res.json({
+    config: cfg,
+    banners,
+  });
+}

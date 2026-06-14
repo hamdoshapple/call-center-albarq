@@ -30,9 +30,15 @@ router.post('/subscriber-portal/request-code', h(subscriberPortal.requestCode));
 router.post('/subscriber-portal/login', h(subscriberPortal.login));
 router.get('/subscriber-portal/me', h(subscriberPortal.me));
 router.get('/subscriber-portal/accounts', h(subscriberPortal.accounts));
+router.get('/subscriber-portal/app-config', h(subscriberPortal.appConfig));
 
 router.get('/internal/caller-name', h(internalCaller.callerName));
 router.get('/auth/me', authenticate, h(auth.me));
+
+
+// ---------- Subscriber App Public ----------
+router.get('/subscriber-app/public-config', h(subscriberApp.getConfig));
+router.get('/subscriber-app/public-banners', h(subscriberApp.listBanners));
 
 // All routes below require authentication.
 router.use(authenticate);
