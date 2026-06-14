@@ -4,7 +4,7 @@ import multer from 'multer';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const UPLOAD_DIR = '/opt/call-center-albarq/uploads/subscriber-app';
+const UPLOAD_DIR = '/app/uploads/subscriber-app';
 
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 

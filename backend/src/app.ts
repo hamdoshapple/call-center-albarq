@@ -26,12 +26,16 @@ export function createApp() {
   app.use(cors({ origin: env.corsOrigin }));
   app.use(express.json({ limit: '2mb' }));
   app.use(express.urlencoded({ extended: true }));
+
+  app.use('/uploads', express.static('/app/uploads'));
   if (env.nodeEnv !== 'test') app.use(morgan('dev'));
 
   app.get('/health', (_req, res) => res.json({ status: 'ok', demoMode: env.demoMode, asterisk: env.asterisk.mode }));
 
   app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));
   app.get('/api/openapi.json', (_req, res) => res.json(openApiDocument));
+
+  app.use('/api/uploads', express.static('/app/uploads'));
 
   app.use('/api', router);
 

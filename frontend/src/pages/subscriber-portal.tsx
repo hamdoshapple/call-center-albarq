@@ -80,6 +80,7 @@ function phoneLink(v?: string | null) {
 function assetUrl(v?: string | null) {
   if (!v) return '';
   if (v.startsWith('http')) return v;
+  if (v.startsWith('/uploads/')) return `/api${v}`;
   return v;
 }
 
@@ -396,29 +397,86 @@ export function SubscriberPortalPage() {
 
             {banners.length > 0 && (
               <section className="space-y-3">
-                {banners.map((b) => (
+                <h2 className="text-2xl font-black">العروض والإعلانات</h2>
+
+                {banners.slice(0, 1).map((b) => (
                   <a
                     key={b.id}
                     href={b.linkUrl || '#'}
-                    className="block overflow-hidden rounded-[26px] bg-white shadow-sm"
+                    className="relative block h-44 overflow-hidden rounded-[28px] bg-slate-900 shadow-sm"
                   >
                     {b.imageUrl && (
                       <img
                         src={assetUrl(b.imageUrl)}
-                        className="h-36 w-full object-cover"
+                        className="absolute inset-0 h-full w-full object-cover"
                         onError={(e) => {
                           e.currentTarget.style.display = 'none';
                         }}
                       />
                     )}
-                    <div className="p-4">
-                      <h3 className="text-lg font-black">{b.title}</h3>
-                      {b.description && <p className="mt-1 text-sm text-slate-500">{b.description}</p>}
+
+                    <div className="absolute inset-0 bg-gradient-to-l from-black/75 via-black/35 to-black/10" />
+
+                    <div className="relative z-10 flex h-full flex-col justify-end p-5 text-white">
+                      <h3 className="text-2xl font-black">{b.title}</h3>
+                      {b.description && (
+                        <p className="mt-2 line-clamp-2 text-sm text-white/85">
+                          {b.description}
+                        </p>
+                      )}
+                      <div className="mt-3 flex items-center gap-2 text-sm font-bold">
+                        عرض التفاصيل
+                        <span>←</span>
+                      </div>
                     </div>
                   </a>
                 ))}
+
+                {banners.length > 1 && (
+                  <div>
+                    <h3 className="mb-3 mt-5 text-xl font-black">اكتشف المزيد</h3>
+                    <div className="flex gap-3 overflow-x-auto pb-2">
+                      {banners.slice(1).map((b) => (
+                        <a
+                          key={b.id}
+                          href={b.linkUrl || '#'}
+                          className="relative h-40 w-28 shrink-0 overflow-hidden rounded-[22px] bg-slate-900 shadow-sm"
+                        >
+                          {b.imageUrl && (
+                            <img
+                              src={assetUrl(b.imageUrl)}
+                              className="absolute inset-0 h-full w-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                              }}
+                            />
+                          )}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
+                          <div className="absolute bottom-3 right-3 left-3 text-white">
+                            <div className="line-clamp-2 text-sm font-black">{b.title}</div>
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </section>
             )}
+
+            <section className="space-y-3">
+              <h2 className="text-2xl font-black">آخر المدفوعات</h2>
+              <div className="rounded-[26px] bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-black">قريباً</div>
+                    <div className="mt-1 text-sm text-slate-500">
+                      سيتم ربط سجل المدفوعات لكل حساب من النظام الخارجي.
+                    </div>
+                  </div>
+                  <Wallet className="h-7 w-7" style={{ color: primary }} />
+                </div>
+              </div>
+            </section>
 
             {config.enableTickets !== false && (
               <section className="rounded-3xl p-4" style={{ backgroundColor: `${primary}14`, color: primary }}>
