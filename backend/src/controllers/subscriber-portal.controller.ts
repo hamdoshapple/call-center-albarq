@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../config/prisma.js';
-import { searchSubscriberCache } from '../services/subscriber-cache.service.js';
+import { searchSubscriberCache, cacheSubscriberPayments, getCachedSubscriberPayments } from '../services/subscriber-cache.service.js';
 import { searchExternalSubscribers, getExternalSubscriberPayments } from '../services/external-subscriber.service.js';
 
 const CODE = '123456';
@@ -131,7 +131,20 @@ export async function accountPayments(req: Request, res: Response) {
     return res.status(403).json({ error: 'Account not allowed' });
   }
 
-  const rows = await getExternalSubscriberPayments(id, 50);
+  let rows: any[] = [];
+
+  try {
+    rows = await getExternalSubscriberPayments(id, 50);
+    if (rows.length) {
+      try { await cacheSubscriberPayments(id, 50); } catch {}
+    }
+  } catch {
+    rows = [];
+  }
+
+  if (!rows.length) {
+    return res.json(await getCachedSubscriberPayments(id, 50));
+  }
 
   const payments = rows.filter((x) => x.type === 'payment');
   const activations = rows.filter((x) => x.type === 'activation');
@@ -143,6 +156,7 @@ export async function accountPayments(req: Request, res: Response) {
       totalActivations: activations.reduce((s, x) => s + Number(x.amount || 0), 0),
       totalDebtRows: debts.reduce((s, x) => s + Number(x.amount || 0), 0),
       paymentsCount: payments.length,
+      source: 'live',
     },
     rows,
   });

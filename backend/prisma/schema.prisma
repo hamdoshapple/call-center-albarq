@@ -548,3 +548,26 @@ model SubscriberPayment {
   @@index([externalSubscriberId])
   @@index([status])
 }
+
+model ExternalSubscriberPaymentCache {
+  id             String   @id @default(cuid())
+  externalId     String
+  sandId         Int
+  date           DateTime?
+  amount         Float    @default(0)
+  type           String   @default("other")
+  title          String
+  notes          String?  @db.Text
+  package        String?
+  dateFrom       DateTime?
+  dateTo         DateTime?
+  moneyIn        Float    @default(0)
+  moneyOut       Float    @default(0)
+  cachedAt       DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([externalId, sandId])
+  @@index([externalId])
+  @@index([date])
+  @@index([type])
+}

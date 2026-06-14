@@ -1,6 +1,6 @@
 import { prisma } from '../config/prisma.js';
 import type { ExternalSubscriber } from './external-subscriber.service.js';
-import { listExternalSubscribersForCache } from './external-subscriber.service.js';
+import { listExternalSubscribersForCache, getExternalSubscriberPayments } from './external-subscriber.service.js';
 
 function phoneNorm(v?: string | null) {
   const digits = String(v || '').replace(/\D/g, '');
@@ -65,7 +65,15 @@ export async function upsertExternalSubscriberCache(rows: ExternalSubscriber[]) 
 export async function refreshExternalSubscriberCache(limit = 50000) {
   const rows = await listExternalSubscribersForCache(limit);
   const count = await upsertExternalSubscriberCache(rows);
-  return { count, refreshedAt: new Date().toISOString() };
+
+  let paymentsCached = 0;
+  for (const s of rows) {
+    try {
+      paymentsCached += await cacheSubscriberPayments(s.id, 50);
+    } catch {}
+  }
+
+  return { count, paymentsCached, refreshedAt: new Date().toISOString() };
 }
 
 export async function searchSubscriberCache(q = '') {
@@ -119,4 +127,88 @@ export const cacheStats = subscriberCacheStatus;
 
 export async function updateCacheSetting(_data: any) {
   return { success: true };
+}
+
+
+export async function cacheSubscriberPayments(externalId: string, limit = 50) {
+  const rows = await getExternalSubscriberPayments(externalId, limit);
+
+  for (const r of rows) {
+    await prisma.externalSubscriberPaymentCache.upsert({
+      where: {
+        externalId_sandId: {
+          externalId,
+          sandId: r.id,
+        },
+      },
+      create: {
+        externalId,
+        sandId: r.id,
+        date: r.date ? new Date(r.date) : null,
+        amount: Number(r.amount || 0),
+        type: r.type,
+        title: r.title || 'حركة حساب',
+        notes: r.notes || null,
+        package: r.package || null,
+        dateFrom: r.dateFrom ? new Date(r.dateFrom) : null,
+        dateTo: r.dateTo ? new Date(r.dateTo) : null,
+        moneyIn: Number(r.moneyIn || 0),
+        moneyOut: Number(r.moneyOut || 0),
+        cachedAt: new Date(),
+      },
+      update: {
+        date: r.date ? new Date(r.date) : null,
+        amount: Number(r.amount || 0),
+        type: r.type,
+        title: r.title || 'حركة حساب',
+        notes: r.notes || null,
+        package: r.package || null,
+        dateFrom: r.dateFrom ? new Date(r.dateFrom) : null,
+        dateTo: r.dateTo ? new Date(r.dateTo) : null,
+        moneyIn: Number(r.moneyIn || 0),
+        moneyOut: Number(r.moneyOut || 0),
+        cachedAt: new Date(),
+      },
+    });
+  }
+
+  return rows.length;
+}
+
+export async function getCachedSubscriberPayments(externalId: string, limit = 50) {
+  const rows = await prisma.externalSubscriberPaymentCache.findMany({
+    where: { externalId },
+    orderBy: [{ date: 'desc' }, { sandId: 'desc' }],
+    take: limit,
+  });
+
+  const mapped = rows.map((r) => ({
+    id: r.sandId,
+    date: r.date,
+    amount: Number(r.amount || 0),
+    type: r.type,
+    title: r.title,
+    notes: r.notes || '',
+    package: r.package || '',
+    dateFrom: r.dateFrom,
+    dateTo: r.dateTo,
+    moneyIn: Number(r.moneyIn || 0),
+    moneyOut: Number(r.moneyOut || 0),
+    source: 'cache',
+  }));
+
+  const payments = mapped.filter((x) => x.type === 'payment');
+  const activations = mapped.filter((x) => x.type === 'activation');
+  const debts = mapped.filter((x) => x.type === 'debt');
+
+  return {
+    summary: {
+      totalPaid: payments.reduce((sum, x) => sum + Number(x.amount || 0), 0),
+      totalActivations: activations.reduce((sum, x) => sum + Number(x.amount || 0), 0),
+      totalDebtRows: debts.reduce((sum, x) => sum + Number(x.amount || 0), 0),
+      paymentsCount: payments.length,
+      source: 'cache',
+    },
+    rows: mapped,
+  };
 }
