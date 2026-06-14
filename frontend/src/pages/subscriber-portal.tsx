@@ -356,7 +356,7 @@ export function SubscriberPortalPage() {
           </div>
 
           <div className="mt-24 text-center">
-            <h1 className="text-5xl font-black" style={{ color: primary }}>
+            <h1 className="glitch-text text-5xl font-black" style={{ color: primary }}>
               {config.welcomeMessage || 'أهلاً وسهلاً'}
             </h1>
             <p className="mt-5 text-xl leading-9 text-slate-700">
@@ -423,7 +423,7 @@ export function SubscriberPortalPage() {
   }
 
   return (
-    <div dir="rtl" className="min-h-screen bg-slate-100 pb-24 text-slate-950">
+    <div dir="rtl" className="min-h-screen bg-slate-100 pb-40 pt-[116px] text-slate-950">
       {isExpired && config.popupEnabled && !expiredPopupClosed && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-5">
           <div className="w-full max-w-sm rounded-[28px] bg-white p-5 shadow-xl">
@@ -464,8 +464,8 @@ export function SubscriberPortalPage() {
         </div>
       )}
 
-      <div className="mx-auto max-w-md px-5 py-6">
-        <header className="flex items-center justify-between">
+      <div className="mx-auto max-w-md px-5">
+        <header className="fixed inset-x-0 top-0 z-50 mx-auto flex max-w-md items-center justify-between bg-slate-100/95 px-5 pb-4 pt-[calc(env(safe-area-inset-top)+16px)] backdrop-blur">
           <div className="flex items-center gap-3">
             {config.logoUrl && (
               <img
@@ -475,12 +475,15 @@ export function SubscriberPortalPage() {
               />
             )}
             <div>
-              <h1 className="text-3xl font-black">مرحباً</h1>
+              <h1 className="glitch-text text-3xl font-black">مرحباً</h1>
               <button
                 onClick={() => setAccountPickerOpen(true)}
-                className="mt-1 line-clamp-2 text-start text-sm font-bold text-slate-500"
+                className="mt-1 flex max-w-[185px] items-center gap-1 text-start text-sm font-bold text-slate-500"
               >
-                {active?.name || config.appName || 'مشترك البرق'} <span style={{ color: primary }}>⌄</span>
+                <span className="block min-w-0 truncate">
+                  {active?.name || config.appName || 'مشترك البرق'}
+                </span>
+                <span className="shrink-0" style={{ color: primary }}>⌄</span>
               </button>
             </div>
           </div>
