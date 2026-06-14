@@ -55,13 +55,21 @@ function mapRow(r: any): ExternalSubscriber {
     phone: r.cost_phone ? `0${cleanPhone(r.cost_phone)}` : '',
     pppoeUsername: r.cost_user || '',
     status: mapStatus(r.cost_state),
-    package: r.cost_state || '—',
+    package: r.package_name || r.Sand_cardtype || r.cost_state || '—',
     speed: '—',
-    expiration: r.cost_dateTo || null,
+    expiration:
+      r.last_expiration ||
+      r.Sand_dateto ||
+      r.cost_dateTo ||
+      null,
     debt: Number(r.debt || 0),
     address: r.cost_address || '—',
     notes: r.cost_note || '',
-    lastActivation: r.cost_dateFrom || null,
+    lastActivation:
+      r.last_activation ||
+      r.Sand_datefrom ||
+      r.cost_dateFrom ||
+      null,
     externalSource: 'mynet',
   };
 }
@@ -98,8 +106,24 @@ export async function searchExternalSubscribers(q = ''): Promise<ExternalSubscri
         c.cost_note,
         c.cost_dateFrom,
         c.cost_dateTo,
+        lastSand.Sand_cardtype,
+        lastSand.Sand_datefrom AS last_activation,
+        lastSand.Sand_dateto AS last_expiration,
         ISNULL(SUM(ISNULL(s.Sand_money,0) - ISNULL(s.Sand_moneyin,0)),0) AS debt
       FROM dbo.costumer c
+
+      OUTER APPLY (
+          SELECT TOP 1
+              Sand_cardtype,
+              Sand_datefrom,
+              Sand_dateto
+          FROM dbo.Sand
+          WHERE Sand_cosFk = c.cost_id
+            AND ISNULL(Sand_isdel,0)=0
+            AND Sand_dateto IS NOT NULL
+          ORDER BY Sand_dateto DESC, Sand_id DESC
+      ) lastSand
+
       LEFT JOIN dbo.Sand s
         ON s.Sand_cosFk = c.cost_id
        AND ISNULL(s.Sand_isdel,0)=0
@@ -115,7 +139,10 @@ export async function searchExternalSubscribers(q = ''): Promise<ExternalSubscri
         )
       GROUP BY
         c.cost_id,c.cost_name,c.cost_phone,c.cost_user,c.cost_state,
-        c.cost_address,c.cost_note,c.cost_dateFrom,c.cost_dateTo
+        c.cost_address,c.cost_note,c.cost_dateFrom,c.cost_dateTo,
+        lastSand.Sand_cardtype,
+        lastSand.Sand_datefrom,
+        lastSand.Sand_dateto
       ORDER BY
         CASE
           WHEN c.cost_name COLLATE Arabic_CI_AI LIKE @q THEN 0
