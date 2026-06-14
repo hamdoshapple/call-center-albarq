@@ -32,6 +32,10 @@ router.get('/subscriber-portal/me', h(subscriberPortal.me));
 router.get('/subscriber-portal/accounts', h(subscriberPortal.accounts));
 router.get('/subscriber-portal/accounts/:id/payments', h(subscriberPortal.accountPayments));
 router.get('/subscriber-portal/app-config', h(subscriberPortal.appConfig));
+router.get('/subscriber-portal/accounts/:id/tickets', h(subscriberPortal.listAccountTickets));
+router.post('/subscriber-portal/accounts/:id/tickets', h(subscriberPortal.createAccountTicket));
+router.get('/subscriber-portal/accounts/:id/tickets/:ticketId', h(subscriberPortal.getAccountTicket));
+router.post('/subscriber-portal/accounts/:id/tickets/:ticketId/comments', h(subscriberPortal.addAccountTicketComment));
 
 router.get('/internal/caller-name', h(internalCaller.callerName));
 router.get('/auth/me', authenticate, h(auth.me));

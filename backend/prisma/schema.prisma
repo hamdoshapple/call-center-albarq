@@ -301,17 +301,28 @@ model Subscriber {
 }
 
 model Ticket {
-  id           String     @id @default(cuid())
-  subscriberId String
-  subscriber   Subscriber @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
-  subject      String
-  status       String     @default("open") // open, pending, resolved, closed
-  priority     String     @default("medium") // low, medium, high, urgent
-  agentId      String?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id             String      @id @default(cuid())
+
+  subscriberId   String?
+  subscriber     Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+
+  externalId     String?
+  externalName   String?
+  externalPhone  String?
+  externalPppoe  String?
+  externalSource String?
+
+  subject        String
+  status         String      @default("open") // open, pending, resolved, closed
+  priority       String      @default("medium") // low, medium, high, urgent
+  agentId        String?
+
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 
   @@index([subscriberId])
+  @@index([externalId])
+  @@index([externalPhone])
 }
 
 model Callback {

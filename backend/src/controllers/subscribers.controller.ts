@@ -70,18 +70,31 @@ export async function getOne(req: Request, res: Response) {
 }
 
 export async function getTickets(req: Request, res: Response) {
-  if (req.params.id.startsWith('ext-')) return res.json([]);
+  const isExternal = req.params.id.startsWith('ext-');
 
-  const where =
-    req.user?.role === 'agent' && req.user?.agentId
-      ? {
-          subscriberId: req.params.id,
-          OR: [
-            { agentId: req.user.agentId },
-            { agentId: null },
-          ],
-        }
-      : { subscriberId: req.params.id };
+  const where = isExternal
+    ? (
+        req.user?.role === 'agent' && req.user?.agentId
+          ? {
+              externalId: req.params.id,
+              OR: [
+                { agentId: req.user.agentId },
+                { agentId: null },
+              ],
+            }
+          : { externalId: req.params.id }
+      )
+    : (
+        req.user?.role === 'agent' && req.user?.agentId
+          ? {
+              subscriberId: req.params.id,
+              OR: [
+                { agentId: req.user.agentId },
+                { agentId: null },
+              ],
+            }
+          : { subscriberId: req.params.id }
+      );
 
   const rows = await prisma.ticket.findMany({
     where,
@@ -172,16 +185,32 @@ const ticketSchema = z.object({
 });
 
 export async function createTicket(req: Request, res: Response) {
-  const subscriber = await prisma.subscriber.findUnique({
-    where: { id: req.params.id },
-  });
-
-  if (!subscriber) throw ApiError.notFound('Subscriber not found');
-
   const data = ticketSchema.parse(req.body);
   const c = data.call;
-
   const safeSubject = data.subject.slice(0, 180);
+
+  let subscriber: any = null;
+  let external = false;
+
+  if (req.params.id.startsWith('ext-')) {
+    subscriber =
+      await getExternalSubscriberById(req.params.id) ||
+      await getCachedExternalSubscriberById(req.params.id);
+
+    if (!subscriber) {
+      throw ApiError.notFound('Subscriber not found');
+    }
+
+    external = true;
+  } else {
+    subscriber = await prisma.subscriber.findUnique({
+      where: { id: req.params.id },
+    });
+
+    if (!subscriber) {
+      throw ApiError.notFound('Subscriber not found');
+    }
+  }
 
   const details = [
     '--- تفاصيل الاتصال ---',
@@ -201,7 +230,14 @@ export async function createTicket(req: Request, res: Response) {
 
   const ticket = await prisma.ticket.create({
     data: {
-      subscriberId: subscriber.id,
+      subscriberId: external ? null : subscriber.id,
+
+      externalId: external ? req.params.id : null,
+      externalName: external ? subscriber.name : null,
+      externalPhone: external ? subscriber.phone : null,
+      externalPppoe: external ? subscriber.pppoeUsername : null,
+      externalSource: external ? 'external' : null,
+
       agentId: req.user?.agentId ?? null,
       subject: safeSubject,
       priority: data.priority ?? 'medium',
@@ -265,11 +301,12 @@ const ticketCommentSchema = z.object({
 
 export async function addTicketComment(req: Request, res: Response) {
   const data = ticketCommentSchema.parse(req.body);
+  const isExternal = req.params.id.startsWith('ext-');
 
   const ticket = await prisma.ticket.findFirst({
     where: {
       id: req.params.ticketId,
-      subscriberId: req.params.id,
+      ...(isExternal ? { externalId: req.params.id } : { subscriberId: req.params.id }),
     },
   });
 

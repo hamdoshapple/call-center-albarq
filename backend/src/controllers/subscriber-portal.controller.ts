@@ -161,3 +161,219 @@ export async function accountPayments(req: Request, res: Response) {
     rows,
   });
 }
+
+
+async function resolvePortalAccount(req: Request, accountId: string) {
+  const payload = verify(req);
+  const phone = norm(payload.phone);
+
+  let rows: any[] = [];
+
+  try {
+    rows = await searchExternalSubscribers(phone);
+  } catch {
+    rows = [];
+  }
+
+  const cached = await searchSubscriberCache(phone);
+  rows = [
+    ...rows.map((x: any) => ({ ...x, source: 'live' })),
+    ...cached.map((x: any) => ({ ...x, source: 'cache' })),
+  ];
+
+  const account = rows.find((x: any) => String(x.id || x.externalId) === accountId);
+
+  if (!account) {
+    return null;
+  }
+
+  return {
+    id: String(account.id || account.externalId),
+    name: clean(account.name || 'مشترك'),
+    phone: clean(account.phone || phone),
+    pppoeUsername: clean(account.pppoeUsername || ''),
+    package: clean(account.package || '—'),
+    speed: clean(account.speed || '—'),
+    status: account.status || 'active',
+    debt: Number(account.debt || 0),
+    expiration: account.expiration || null,
+    address: clean(account.address || '—'),
+    notes: clean(account.notes || ''),
+    source: account.source || account.externalSource || 'portal',
+  };
+}
+
+async function ticketWithNotes(ticket: any) {
+  const notes = await prisma.note.findMany({
+    where: { refType: 'ticket', refId: ticket.id },
+    include: {
+      author: {
+        select: { id: true, username: true, fullName: true, email: true },
+      },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  return { ...ticket, notes };
+}
+
+export async function listAccountTickets(req: Request, res: Response) {
+  const accountId = String(req.params.id || '');
+  const account = await resolvePortalAccount(req, accountId);
+
+  if (!account) {
+    return res.status(403).json({ error: 'Account not allowed' });
+  }
+
+  const rows = await prisma.ticket.findMany({
+    where: accountId.startsWith('ext-')
+      ? { externalId: accountId }
+      : { subscriberId: accountId },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+  });
+
+  const notes = rows.length
+    ? await prisma.note.findMany({
+        where: {
+          refType: 'ticket',
+          refId: { in: rows.map((x) => x.id) },
+        },
+        include: {
+          author: {
+            select: { id: true, username: true, fullName: true, email: true },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      })
+    : [];
+
+  const byTicket = new Map<string, typeof notes>();
+
+  for (const n of notes) {
+    const list = byTicket.get(n.refId) || [];
+    list.push(n);
+    byTicket.set(n.refId, list);
+  }
+
+  res.json(rows.map((t) => ({
+    ...t,
+    notes: byTicket.get(t.id) || [],
+  })));
+}
+
+export async function getAccountTicket(req: Request, res: Response) {
+  const accountId = String(req.params.id || '');
+  const account = await resolvePortalAccount(req, accountId);
+
+  if (!account) {
+    return res.status(403).json({ error: 'Account not allowed' });
+  }
+
+  const ticket = await prisma.ticket.findFirst({
+    where: {
+      id: req.params.ticketId,
+      ...(accountId.startsWith('ext-') ? { externalId: accountId } : { subscriberId: accountId }),
+    },
+  });
+
+  if (!ticket) {
+    return res.status(404).json({ error: 'Ticket not found' });
+  }
+
+  res.json(await ticketWithNotes(ticket));
+}
+
+export async function createAccountTicket(req: Request, res: Response) {
+  const accountId = String(req.params.id || '');
+  const account = await resolvePortalAccount(req, accountId);
+
+  if (!account) {
+    return res.status(403).json({ error: 'Account not allowed' });
+  }
+
+  const subject = clean(req.body?.subject || req.body?.type || 'طلب دعم فني').slice(0, 180);
+  const body = clean(req.body?.body || req.body?.description || '');
+
+  if (!subject) {
+    return res.status(400).json({ error: 'Subject is required' });
+  }
+
+  const ticket = await prisma.ticket.create({
+    data: {
+      subscriberId: accountId.startsWith('ext-') ? null : accountId,
+
+      externalId: accountId.startsWith('ext-') ? accountId : null,
+      externalName: accountId.startsWith('ext-') ? account.name : null,
+      externalPhone: accountId.startsWith('ext-') ? account.phone : null,
+      externalPppoe: accountId.startsWith('ext-') ? account.pppoeUsername : null,
+      externalSource: account.source,
+
+      subject,
+      priority: req.body?.priority || 'medium',
+      status: 'open',
+    },
+  });
+
+  const details = [
+    '--- تذكرة من تطبيق المشترك ---',
+    `المشترك: ${account.name}`,
+    `الهاتف: ${account.phone}`,
+    `External ID: ${account.id}`,
+    `يوزر PPPoE: ${account.pppoeUsername || '—'}`,
+    `الباقة: ${account.package || '—'} / ${account.speed || '—'}`,
+    `الحالة: ${account.status}`,
+    `الدين: ${account.debt}`,
+    `المصدر: ${account.source}`,
+    '',
+    '--- تفاصيل المشكلة ---',
+    body || '—',
+  ].join('\n');
+
+  await prisma.note.create({
+    data: {
+      refType: 'ticket',
+      refId: ticket.id,
+      body: details,
+      authorId: null,
+    },
+  });
+
+  res.status(201).json(await ticketWithNotes(ticket));
+}
+
+export async function addAccountTicketComment(req: Request, res: Response) {
+  const accountId = String(req.params.id || '');
+  const account = await resolvePortalAccount(req, accountId);
+
+  if (!account) {
+    return res.status(403).json({ error: 'Account not allowed' });
+  }
+
+  const body = clean(req.body?.body || '');
+  if (!body) {
+    return res.status(400).json({ error: 'Comment body is required' });
+  }
+
+  const ticket = await prisma.ticket.findFirst({
+    where: {
+      id: req.params.ticketId,
+      ...(accountId.startsWith('ext-') ? { externalId: accountId } : { subscriberId: accountId }),
+    },
+  });
+
+  if (!ticket) {
+    return res.status(404).json({ error: 'Ticket not found' });
+  }
+
+  const note = await prisma.note.create({
+    data: {
+      refType: 'ticket',
+      refId: ticket.id,
+      body: `رد المشترك:\n${body}`,
+      authorId: null,
+    },
+  });
+
+  res.status(201).json(note);
+}
