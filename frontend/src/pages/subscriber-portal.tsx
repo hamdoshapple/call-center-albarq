@@ -129,6 +129,7 @@ export function SubscriberPortalPage() {
   const [expiredPopupClosed, setExpiredPopupClosed] = useState(false);
   const [payments, setPayments] = useState<PaymentsData | null>(null);
   const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [paymentsAccountId, setPaymentsAccountId] = useState('');
 
   const primary = config.primaryColor || '#4f46e5';
   const secondary = config.secondaryColor || '#06b6d4';
@@ -190,7 +191,10 @@ export function SubscriberPortalPage() {
     const data = await res.json();
     const rows = Array.isArray(data) ? data : [];
     setAccounts(rows);
-    if (rows[0] && !activeId) setActiveId(rows[0].id);
+    if (rows[0] && !activeId) {
+      setActiveId(rows[0].id);
+      loadPayments(rows[0].id);
+    }
     setLoading(false);
   }
 
@@ -212,13 +216,20 @@ export function SubscriberPortalPage() {
     const id = accountId || active?.id;
     if (!token || !id) return;
 
+    setPayments(null);
+    setPaymentsAccountId(id);
+
     try {
       setPaymentsLoading(true);
       const res = await fetch(`${API}/accounts/${encodeURIComponent(id)}/payments`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      setPayments(data);
+
+      setPayments((prev) => {
+        void prev;
+        return data;
+      });
     } catch {
       setPayments(null);
     } finally {
@@ -431,7 +442,7 @@ export function SubscriberPortalPage() {
 
               <button
                 onClick={() => setTab('accounts')}
-                className="flex h-24 flex-col items-start justify-center rounded-3xl bg-white p-5 text-start shadow-sm"
+                className="flex h-20 flex-col items-start justify-center rounded-3xl bg-white p-4 text-start shadow-sm"
               >
                 <span className="text-sm text-slate-500">إجمالي الدين</span>
                 <span className="mt-1 text-3xl font-black" style={{ color: totalDebt > 0 ? expiredColor : primary }}>
@@ -513,8 +524,9 @@ export function SubscriberPortalPage() {
             )}
 
             <PaymentsPanel
-              payments={payments}
+              payments={paymentsAccountId === active?.id ? payments : null}
               loading={paymentsLoading}
+              account={active}
               primary={primary}
               expiredColor={expiredColor}
             />
@@ -560,7 +572,7 @@ export function SubscriberPortalPage() {
 
                   <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">
                     <div className="font-bold text-slate-700">آخر الحركات</div>
-                    {selected && payments?.rows?.length ? (
+                    {selected && paymentsAccountId === a.id && payments?.rows?.length ? (
                       <div className="mt-2 space-y-2">
                         {payments.rows.slice(0, 5).map((x) => (
                           <PaymentItem key={x.id} row={x} primary={primary} expiredColor={expiredColor} compact />
@@ -646,11 +658,13 @@ function paymentTone(type: PaymentRow['type'], primary: string, expiredColor: st
 function PaymentsPanel({
   payments,
   loading,
+  account,
   primary,
   expiredColor,
 }: {
   payments: PaymentsData | null;
   loading: boolean;
+  account?: Account;
   primary: string;
   expiredColor: string;
 }) {
@@ -660,7 +674,12 @@ function PaymentsPanel({
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-black">آخر المدفوعات</h2>
+        <div>
+          <h2 className="text-2xl font-black">آخر المدفوعات</h2>
+          {account?.name && (
+            <p className="mt-1 line-clamp-1 text-sm text-slate-500">{account.name}</p>
+          )}
+        </div>
         <Wallet className="h-6 w-6" style={{ color: primary }} />
       </div>
 
@@ -753,7 +772,7 @@ function IconButton({ icon: Icon }: any) {
 
 function ActionCard({ title, icon: Icon, color = '#4f46e5', onClick }: any) {
   return (
-    <button onClick={onClick} className="flex h-24 items-center justify-between rounded-3xl bg-white p-5 text-start font-black shadow-sm">
+    <button onClick={onClick} className="flex h-20 items-center justify-between rounded-3xl bg-white p-4 text-start font-black shadow-sm">
       <span>{title}</span>
       <Icon className="h-6 w-6" style={{ color }} />
     </button>
