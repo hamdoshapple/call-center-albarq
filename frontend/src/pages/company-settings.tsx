@@ -97,6 +97,22 @@ const subscriberAppApi = {
     if (!r.ok) throw new Error('Failed to delete banner');
     return r.json();
   },
+
+  uploadImage: async (file: File): Promise<{ url: string; fileName: string }> => {
+    const fd = new FormData();
+    fd.append('file', file);
+
+    const r = await fetch('/api/subscriber-app/upload', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}`,
+      },
+      body: fd,
+    });
+
+    if (!r.ok) throw new Error('Failed to upload image');
+    return r.json();
+  },
 };
 
 
@@ -302,15 +318,19 @@ function SubscriberAppSettingsPanel({ canEdit }: { canEdit: boolean }) {
               <Input disabled={!canEdit} value={form.appName || ''} onChange={(e) => setApp({ appName: e.target.value })} />
             </div>
 
-            <div className="space-y-1.5">
-              <Label>رابط الشعار Logo</Label>
-              <Input disabled={!canEdit} value={form.logoUrl || ''} onChange={(e) => setApp({ logoUrl: e.target.value })} placeholder="/logo.png أو رابط صورة" />
-            </div>
+            <ImageUploadField
+              label="شعار التطبيق Logo"
+              value={form.logoUrl || ''}
+              disabled={!canEdit}
+              onChange={(url) => setApp({ logoUrl: url })}
+            />
 
-            <div className="space-y-1.5">
-              <Label>رابط شعار Splash</Label>
-              <Input disabled={!canEdit} value={form.splashLogoUrl || ''} onChange={(e) => setApp({ splashLogoUrl: e.target.value })} />
-            </div>
+            <ImageUploadField
+              label="شعار شاشة البداية Splash"
+              value={form.splashLogoUrl || ''}
+              disabled={!canEdit}
+              onChange={(url) => setApp({ splashLogoUrl: url })}
+            />
 
             <div className="grid grid-cols-2 gap-3">
               <ColorField label="اللون الرئيسي" value={form.primaryColor} disabled={!canEdit} onChange={(v) => setApp({ primaryColor: v })} />
@@ -391,7 +411,13 @@ function SubscriberAppSettingsPanel({ canEdit }: { canEdit: boolean }) {
           <div className="grid gap-3 lg:grid-cols-5">
             <Input disabled={!canEdit} placeholder="عنوان الإعلان" value={bannerForm.title} onChange={(e) => setBannerForm({ ...bannerForm, title: e.target.value })} />
             <Input disabled={!canEdit} placeholder="الوصف" value={bannerForm.description} onChange={(e) => setBannerForm({ ...bannerForm, description: e.target.value })} />
-            <Input disabled={!canEdit} placeholder="رابط الصورة" value={bannerForm.imageUrl} onChange={(e) => setBannerForm({ ...bannerForm, imageUrl: e.target.value })} />
+            <ImageUploadField
+              label="صورة الإعلان"
+              value={bannerForm.imageUrl}
+              disabled={!canEdit}
+              compact
+              onChange={(url) => setBannerForm({ ...bannerForm, imageUrl: url })}
+            />
             <Input disabled={!canEdit} placeholder="رابط عند الضغط" value={bannerForm.linkUrl} onChange={(e) => setBannerForm({ ...bannerForm, linkUrl: e.target.value })} />
             <Button disabled={!canEdit || !bannerForm.title.trim() || addBanner.isPending} onClick={() => addBanner.mutate(bannerForm)}>
               <Plus className="h-4 w-4" />
@@ -440,6 +466,95 @@ function ColorField({ label, value, disabled, onChange }: { label: string; value
         <Input type="color" className="h-10 w-14 p-1" disabled={disabled} value={value || '#000000'} onChange={(e) => onChange(e.target.value)} />
         <Input disabled={disabled} value={value || ''} onChange={(e) => onChange(e.target.value)} />
       </div>
+    </div>
+  );
+}
+
+
+function ImageUploadField({
+  label,
+  value,
+  disabled,
+  onChange,
+  compact,
+}: {
+  label: string;
+  value: string;
+  disabled?: boolean;
+  compact?: boolean;
+  onChange: (url: string) => void;
+}) {
+  const { toast } = useToast();
+  const [uploading, setUploading] = useState(false);
+
+  async function pick(file?: File) {
+    if (!file) return;
+
+    try {
+      setUploading(true);
+      const res = await subscriberAppApi.uploadImage(file);
+      onChange(res.url);
+      toast({ title: 'تم رفع الصورة بنجاح' });
+    } catch {
+      toast({
+        title: 'فشل رفع الصورة',
+        description: 'تأكد أن الملف صورة وحجمه أقل من 10MB',
+        variant: 'destructive',
+      });
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className={`space-y-1.5 ${compact ? '' : ''}`}>
+      <Label>{label}</Label>
+
+      {value ? (
+        <div className="flex items-center gap-3 rounded-xl border bg-muted/30 p-3">
+          <img
+            src={value}
+            alt={label}
+            className="h-14 w-14 rounded-lg border bg-white object-cover"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-xs text-muted-foreground">{value}</div>
+            <div className="mt-2 flex gap-2">
+              <label className={`inline-flex cursor-pointer items-center rounded-md border px-3 py-1.5 text-xs font-medium ${disabled ? 'pointer-events-none opacity-50' : ''}`}>
+                تغيير الصورة
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={disabled || uploading}
+                  onChange={(e) => pick(e.target.files?.[0])}
+                />
+              </label>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-8 text-destructive"
+                disabled={disabled || uploading}
+                onClick={() => onChange('')}
+              >
+                حذف
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <label className={`flex cursor-pointer items-center justify-center rounded-xl border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground ${disabled ? 'pointer-events-none opacity-50' : ''}`}>
+          {uploading ? 'جاري الرفع...' : 'اختر صورة من الجهاز'}
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            disabled={disabled || uploading}
+            onChange={(e) => pick(e.target.files?.[0])}
+          />
+        </label>
+      )}
     </div>
   );
 }

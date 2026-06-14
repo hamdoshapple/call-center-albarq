@@ -175,7 +175,22 @@ router.get('/subscriber-app/config', perm('company_settings'), h(subscriberApp.g
 router.put('/subscriber-app/config', perm('company_settings','edit'), h(subscriberApp.updateConfig));
 router.get('/subscriber-app/banners', perm('company_settings'), h(subscriberApp.listBanners));
 router.post('/subscriber-app/banners', perm('company_settings','edit'), h(subscriberApp.createBanner));
+
 router.delete('/subscriber-app/banners/:id', perm('company_settings','edit'), h(subscriberApp.deleteBanner));
+
+router.post(
+  '/subscriber-app/upload',
+  perm('company_settings','edit'),
+  subscriberApp.uploadSubscriberImage,
+  h(subscriberApp.uploadImage)
+);
+
+router.delete(
+  '/subscriber-app/upload',
+  perm('company_settings','edit'),
+  h(subscriberApp.deleteImage)
+);
+
 
 // ---------- Notifications ----------
 router.get('/notifications', h(misc.listNotifications));
