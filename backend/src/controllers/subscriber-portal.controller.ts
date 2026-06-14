@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../config/prisma.js';
 import { searchSubscriberCache } from '../services/subscriber-cache.service.js';
+import { searchExternalSubscribers } from '../services/external-subscriber.service.js';
 
 const CODE = '123456';
 
@@ -58,10 +59,18 @@ export async function accounts(req: Request, res: Response) {
     orderBy: { debt: 'desc' },
   });
 
-  const cached = await searchSubscriberCache(phone);
+  let external: any[] = [];
+  try {
+    external = await searchExternalSubscribers(phone);
+  } catch {
+    external = [];
+  }
+
+  const cached = external.length ? [] : await searchSubscriberCache(phone);
 
   const rows = [
     ...local.map((x) => ({ ...x, source: 'local' })),
+    ...external.map((x: any) => ({ ...x, source: 'live' })),
     ...cached.map((x: any) => ({ ...x, source: 'cache' })),
   ];
 
