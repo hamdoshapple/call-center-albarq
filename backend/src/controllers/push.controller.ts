@@ -707,10 +707,51 @@ export const saveSettings = asyncHandler(async (req: Request, res: Response) => 
 });
 
 
-export const logs = asyncHandler(async (_req: Request, res: Response) => {
-  const rows = await prisma.pushNotificationLog.findMany({
-    orderBy: { createdAt: 'desc' },
-    take: 200,
+export const logs = asyncHandler(async (req: Request, res: Response) => {
+  const q = String(req.query.q || '').trim();
+  const status = String(req.query.status || '').trim();
+  const type = String(req.query.type || '').trim();
+
+  const where: string[] = [];
+  const params: any[] = [];
+
+  if (q) {
+    where.push('(phone LIKE ? OR title LIKE ? OR message LIKE ? OR targetType LIKE ?)');
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+  }
+
+  if (status && status !== 'all') {
+    where.push('status=?');
+    params.push(status);
+  }
+
+  if (type && type !== 'all') {
+    where.push('targetType LIKE ?');
+    params.push(`%${type}%`);
+  }
+
+  const rows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT *
+    FROM PushNotificationLog
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY createdAt DESC
+    LIMIT 300
+  `, ...params);
+
+  const summaryRows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT
+      COUNT(*) AS total,
+      SUM(status='sent') AS sent,
+      SUM(status='failed') AS failed,
+      SUM(targetType LIKE '%payment%') AS payments,
+      SUM(targetType LIKE '%debt%') AS debts,
+      SUM(targetType LIKE '%activation%') AS activations,
+      SUM(targetType LIKE '%expiry%' OR targetType LIKE '%expired%') AS expiry
+    FROM PushNotificationLog
+  `);
+
+  res.json({
+    summary: summaryRows[0] || {},
+    rows,
   });
-  res.json(rows);
 });
