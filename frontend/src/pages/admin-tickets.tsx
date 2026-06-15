@@ -130,8 +130,6 @@ export default function AdminTicketsPage() {
     <div className="space-y-6">
       <PageHeader
         title="مركز التكتات"
-        description="إدارة تكتات المشتركين، توزيعها على الأقسام، الردود، المرفقات، والمنشن."
-        icon={<MessageSquare className="h-5 w-5" />}
       />
 
       <Card>
@@ -221,7 +219,7 @@ export default function AdminTicketsPage() {
 
           <CardContent className="space-y-3">
             {tickets.isLoading ? <Loader /> : list.length === 0 ? (
-              <EmptyState icon={<MessageSquare className="h-10 w-10" />} title="لا توجد تكتات" description="كلشي هادئ... الهدوء قبل أول اتصال 😄" />
+              <EmptyState icon={MessageSquare} title="لا توجد تكتات" description="لا توجد تكتات مطابقة للفلاتر الحالية." />
             ) : list.map((t: any) => (
               <button
                 key={t.id}
@@ -253,7 +251,7 @@ export default function AdminTicketsPage() {
 
           <CardContent>
             {!selected ? (
-              <EmptyState icon={<MessageSquare className="h-10 w-10" />} title="اختر تكت" description="اختر تكت من القائمة حتى تظهر التفاصيل والردود." />
+              <EmptyState icon={MessageSquare} title="اختر تكت" description="اختر تكت من القائمة حتى تظهر التفاصيل والردود." />
             ) : details.isLoading ? <Loader /> : (
               <div className="space-y-5">
                 <div className="rounded-xl border p-4">

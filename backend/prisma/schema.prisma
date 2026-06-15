@@ -582,3 +582,85 @@ model ExternalSubscriberPaymentCache {
   @@index([date])
   @@index([type])
 }
+
+// ===================== Admin Ticket Center =====================
+model TicketDepartment {
+  id        String   @id
+  name      String
+  nameEn    String?
+  color     String   @default("#0ea5e9")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("TicketDepartment")
+}
+
+model AdminTicket {
+  id             String    @id
+  ticketNo       Int       @unique @default(autoincrement())
+  subscriberId   String?
+  externalId     String?
+  externalName   String?
+  externalPhone  String?
+  externalPppoe  String?
+  subject        String    @db.VarChar(255)
+  description    String?   @db.Text
+  category       String    @default("general")
+  departmentId   String?
+  assignedUserId String?
+  status         String    @default("new")
+  priority       String    @default("medium")
+  source         String    @default("admin")
+  createdById    String?
+  closedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([departmentId])
+  @@index([assignedUserId])
+  @@index([status])
+  @@index([priority])
+  @@index([externalPhone])
+  @@index([createdAt])
+  @@map("AdminTicket")
+}
+
+model AdminTicketReply {
+  id         String   @id
+  ticketId   String
+  authorId   String?
+  body       String   @db.Text
+  visibility String   @default("public")
+  createdAt  DateTime @default(now())
+
+  @@index([ticketId])
+  @@map("AdminTicketReply")
+}
+
+model AdminTicketAttachment {
+  id        String   @id
+  ticketId  String
+  replyId   String?
+  url       String   @db.Text
+  fileName  String?
+  mimeType  String?
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+  @@index([replyId])
+  @@map("AdminTicketAttachment")
+}
+
+model AdminTicketMention {
+  id        String    @id
+  ticketId  String
+  replyId   String?
+  userId    String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([ticketId])
+  @@map("AdminTicketMention")
+}

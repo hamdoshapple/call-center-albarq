@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { Request, Response } from 'express';
-import prisma from '../config/prisma';
-import { asyncHandler } from '../utils/asyncHandler';
+import { prisma } from '../config/prisma.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 
 const cuid = () => 't_' + randomUUID().replace(/-/g, '');
 
@@ -49,24 +49,64 @@ export const listTicketDepartments = asyncHandler(async (_req: Request, res: Res
   res.json(rows);
 });
 
+
 export const listAdminTickets = asyncHandler(async (req: Request, res: Response) => {
   const status = String(req.query.status || '');
   const departmentId = String(req.query.departmentId || '');
   const q = String(req.query.q || '').trim();
 
-  const where: string[] = [];
+  const adminWhere: string[] = [];
+  const legacyWhere: string[] = [];
   const params: any[] = [];
 
-  if (status) { where.push('t.status = ?'); params.push(status); }
-  if (departmentId) { where.push('t.departmentId = ?'); params.push(departmentId); }
+  if (status) {
+    adminWhere.push('t.status = ?');
+    legacyWhere.push('t.status = ?');
+    params.push(status);
+  }
+
+  if (departmentId) {
+    adminWhere.push('t.departmentId = ?');
+    legacyWhere.push(`
+      CASE
+        WHEN LOWER(t.subject) REGEXP 'ضعف|تقطيع|انقطاع|بطء|سرعة|pppoe|internet|خدمة' THEN 'dept_support'
+        WHEN LOWER(t.subject) REGEXP 'مبلغ|دين|دفع|فاتورة|رصيد|مالي|حساب' THEN 'dept_accounts'
+        WHEN LOWER(t.subject) REGEXP 'اشتراك|ترقية|باقة|باقه|عرض' THEN 'dept_sales'
+        WHEN LOWER(t.subject) REGEXP 'زيارة|تركيب|كيبل|كابل|راوتر|onu|صيانة' THEN 'dept_maintenance'
+        WHEN LOWER(t.subject) REGEXP 'شكوى|تعامل|موظف' THEN 'dept_complaints'
+        ELSE 'dept_general'
+      END = ?
+    `);
+    params.push(departmentId);
+  }
+
   if (q) {
-    where.push('(t.subject LIKE ? OR t.externalName LIKE ? OR t.externalPhone LIKE ? OR t.externalPppoe LIKE ? OR CAST(t.ticketNo AS CHAR) LIKE ?)');
+    adminWhere.push('(t.subject LIKE ? OR t.externalName LIKE ? OR t.externalPhone LIKE ? OR t.externalPppoe LIKE ? OR CAST(t.ticketNo AS CHAR) LIKE ?)');
+    legacyWhere.push('(t.subject LIKE ? OR t.externalName LIKE ? OR t.externalPhone LIKE ? OR t.externalPppoe LIKE ? OR t.id LIKE ?)');
     params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
   }
 
-  const sql = `
+  const adminSql = `
     SELECT
-      t.*,
+      t.id,
+      t.ticketNo,
+      t.subscriberId,
+      t.externalId,
+      t.externalName,
+      t.externalPhone,
+      t.externalPppoe,
+      t.subject,
+      t.description,
+      t.category,
+      t.departmentId,
+      t.assignedUserId,
+      t.status,
+      t.priority,
+      t.source,
+      t.createdById,
+      t.closedAt,
+      t.createdAt,
+      t.updatedAt,
       d.name AS departmentName,
       d.color AS departmentColor,
       u.fullName AS assignedUserName,
@@ -77,17 +117,132 @@ export const listAdminTickets = asyncHandler(async (req: Request, res: Response)
     LEFT JOIN TicketDepartment d ON d.id=t.departmentId
     LEFT JOIN User u ON u.id=t.assignedUserId
     LEFT JOIN User cu ON cu.id=t.createdById
-    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-    ORDER BY t.createdAt DESC
-    LIMIT 200
+    ${adminWhere.length ? 'WHERE ' + adminWhere.join(' AND ') : ''}
   `;
 
-  const rows = await prisma.$queryRawUnsafe<any[]>(sql, ...params);
+  const legacySql = `
+    SELECT
+      CONCAT('legacy_', t.id) AS id,
+      NULL AS ticketNo,
+      t.subscriberId,
+      t.externalId,
+      t.externalName,
+      t.externalPhone,
+      t.externalPppoe,
+      t.subject,
+      NULL AS description,
+      'subscriber' AS category,
+      CASE
+        WHEN LOWER(t.subject) REGEXP 'ضعف|تقطيع|انقطاع|بطء|سرعة|pppoe|internet|خدمة' THEN 'dept_support'
+        WHEN LOWER(t.subject) REGEXP 'مبلغ|دين|دفع|فاتورة|رصيد|مالي|حساب' THEN 'dept_accounts'
+        WHEN LOWER(t.subject) REGEXP 'اشتراك|ترقية|باقة|باقه|عرض' THEN 'dept_sales'
+        WHEN LOWER(t.subject) REGEXP 'زيارة|تركيب|كيبل|كابل|راوتر|onu|صيانة' THEN 'dept_maintenance'
+        WHEN LOWER(t.subject) REGEXP 'شكوى|تعامل|موظف' THEN 'dept_complaints'
+        ELSE 'dept_general'
+      END AS departmentId,
+      t.agentId AS assignedUserId,
+      t.status,
+      t.priority,
+      'subscriber' AS source,
+      NULL AS createdById,
+      NULL AS closedAt,
+      t.createdAt,
+      t.updatedAt,
+      d.name AS departmentName,
+      d.color AS departmentColor,
+      u.fullName AS assignedUserName,
+      NULL AS createdByName,
+      (SELECT COUNT(*) FROM Note n WHERE n.refType='ticket' AND n.refId=t.id) AS repliesCount,
+      0 AS attachmentsCount
+    FROM Ticket t
+    LEFT JOIN TicketDepartment d ON d.id =
+      CASE
+        WHEN LOWER(t.subject) REGEXP 'ضعف|تقطيع|انقطاع|بطء|سرعة|pppoe|internet|خدمة' THEN 'dept_support'
+        WHEN LOWER(t.subject) REGEXP 'مبلغ|دين|دفع|فاتورة|رصيد|مالي|حساب' THEN 'dept_accounts'
+        WHEN LOWER(t.subject) REGEXP 'اشتراك|ترقية|باقة|باقه|عرض' THEN 'dept_sales'
+        WHEN LOWER(t.subject) REGEXP 'زيارة|تركيب|كيبل|كابل|راوتر|onu|صيانة' THEN 'dept_maintenance'
+        WHEN LOWER(t.subject) REGEXP 'شكوى|تعامل|موظف' THEN 'dept_complaints'
+        ELSE 'dept_general'
+      END
+    LEFT JOIN User u ON u.id=t.agentId
+    ${legacyWhere.length ? 'WHERE ' + legacyWhere.join(' AND ') : ''}
+  `;
+
+  const rows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT * FROM (
+      ${adminSql}
+      UNION ALL
+      ${legacySql}
+    ) x
+    ORDER BY x.createdAt DESC
+    LIMIT 300
+  `, ...params, ...params);
+
   res.json(rows);
 });
 
 export const getAdminTicket = asyncHandler(async (req: Request, res: Response) => {
   const id = req.params.id;
+
+  if (id.startsWith('legacy_')) {
+    const realId = id.replace(/^legacy_/, '');
+
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT
+        CONCAT('legacy_', t.id) AS id,
+        NULL AS ticketNo,
+        t.subscriberId,
+        t.externalId,
+        t.externalName,
+        t.externalPhone,
+        t.externalPppoe,
+        t.subject,
+        NULL AS description,
+        'subscriber' AS category,
+        CASE
+          WHEN LOWER(t.subject) REGEXP 'ضعف|تقطيع|انقطاع|بطء|سرعة|pppoe|internet|خدمة' THEN 'dept_support'
+          WHEN LOWER(t.subject) REGEXP 'مبلغ|دين|دفع|فاتورة|رصيد|مالي|حساب' THEN 'dept_accounts'
+          WHEN LOWER(t.subject) REGEXP 'اشتراك|ترقية|باقة|باقه|عرض' THEN 'dept_sales'
+          WHEN LOWER(t.subject) REGEXP 'زيارة|تركيب|كيبل|كابل|راوتر|onu|صيانة' THEN 'dept_maintenance'
+          WHEN LOWER(t.subject) REGEXP 'شكوى|تعامل|موظف' THEN 'dept_complaints'
+          ELSE 'dept_general'
+        END AS departmentId,
+        t.agentId AS assignedUserId,
+        t.status,
+        t.priority,
+        'subscriber' AS source,
+        t.createdAt,
+        t.updatedAt,
+        d.name AS departmentName,
+        d.color AS departmentColor,
+        u.fullName AS assignedUserName
+      FROM Ticket t
+      LEFT JOIN TicketDepartment d ON d.id =
+        CASE
+          WHEN LOWER(t.subject) REGEXP 'ضعف|تقطيع|انقطاع|بطء|سرعة|pppoe|internet|خدمة' THEN 'dept_support'
+          WHEN LOWER(t.subject) REGEXP 'مبلغ|دين|دفع|فاتورة|رصيد|مالي|حساب' THEN 'dept_accounts'
+          WHEN LOWER(t.subject) REGEXP 'اشتراك|ترقية|باقة|باقه|عرض' THEN 'dept_sales'
+          WHEN LOWER(t.subject) REGEXP 'زيارة|تركيب|كيبل|كابل|راوتر|onu|صيانة' THEN 'dept_maintenance'
+          WHEN LOWER(t.subject) REGEXP 'شكوى|تعامل|موظف' THEN 'dept_complaints'
+          ELSE 'dept_general'
+        END
+      LEFT JOIN User u ON u.id=t.agentId
+      WHERE t.id=?
+      LIMIT 1
+    `, realId);
+
+    if (!rows[0]) return res.status(404).json({ message: 'Ticket not found' });
+
+    const replies = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT n.id, n.refId AS ticketId, n.authorId, n.body, 'public' AS visibility, n.createdAt, u.fullName authorName
+      FROM Note n
+      LEFT JOIN User u ON u.id=n.authorId
+      WHERE n.refType='ticket' AND n.refId=?
+      ORDER BY n.createdAt ASC
+    `, realId);
+
+    return res.json({ ticket: rows[0], replies, attachments: [] });
+  }
 
   const rows = await prisma.$queryRawUnsafe<any[]>(`
     SELECT t.*, d.name departmentName, d.color departmentColor, u.fullName assignedUserName
@@ -172,6 +327,28 @@ export const replyAdminTicket = asyncHandler(async (req: Request, res: Response)
 
   if (!body) return res.status(400).json({ message: 'body required' });
 
+  if (ticketId.startsWith('legacy_')) {
+    const realId = ticketId.replace(/^legacy_/, '');
+    const replyId = cuid();
+
+    await prisma.note.create({
+      data: {
+        id: replyId,
+        refType: 'ticket',
+        refId: realId,
+        body,
+        authorId: userId(req),
+      } as any,
+    });
+
+    const mentioned = await extractMentions(body);
+    for (const u of mentioned) {
+      await notify(u.id, 'تم ذكرك في تكت', body.slice(0, 160));
+    }
+
+    return res.status(201).json({ id: replyId, mentioned });
+  }
+
   const replyId = cuid();
 
   await prisma.$executeRawUnsafe(`
@@ -203,6 +380,30 @@ export const replyAdminTicket = asyncHandler(async (req: Request, res: Response)
 
 export const updateAdminTicket = asyncHandler(async (req: Request, res: Response) => {
   const id = req.params.id;
+
+  if (id.startsWith('legacy_')) {
+    const realId = id.replace(/^legacy_/, '');
+    const allowedLegacy = ['status','priority','subject','assignedUserId'];
+    const sets: string[] = [];
+    const params: any[] = [];
+
+    for (const k of allowedLegacy) {
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, k)) {
+        const col = k === 'assignedUserId' ? 'agentId' : k;
+        sets.push(`${col}=?`);
+        params.push(req.body[k] || null);
+      }
+    }
+
+    if (!sets.length) return res.json({ ok: true });
+
+    params.push(realId);
+    await prisma.$executeRawUnsafe(`UPDATE Ticket SET ${sets.join(', ')}, updatedAt=NOW(3) WHERE id=?`, ...params);
+
+    const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT CONCAT('legacy_', id) AS id, subject, status, priority, createdAt, updatedAt FROM Ticket WHERE id=? LIMIT 1`, realId);
+    return res.json(rows[0]);
+  }
+
   const allowed = ['status','priority','departmentId','assignedUserId','subject','description'];
   const sets: string[] = [];
   const params: any[] = [];

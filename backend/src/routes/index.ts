@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { listAdminTickets, getAdminTicket, createAdminTicket, replyAdminTicket, updateAdminTicket, listTicketDepartments } from '../controllers/admin-tickets.controller';
+import { listAdminTickets, getAdminTicket, createAdminTicket, replyAdminTicket, updateAdminTicket, listTicketDepartments } from '../controllers/admin-tickets.controller.js';
 import { authenticate } from '../middleware/auth.js';
 import { requirePermission as perm } from '../middleware/rbac.js';
 import { asyncHandler as h } from '../utils/asyncHandler.js';

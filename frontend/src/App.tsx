@@ -21,6 +21,7 @@ import { PermissionsPage } from '@/pages/permissions';
 import { CompanySettingsPage } from '@/pages/company-settings';
 import { NotFoundPage } from '@/pages/not-found';
 import { VpnPage } from '@/pages/vpn';
+import AdminTicketsPage from '@/pages/admin-tickets';
 
 export function App() {
   return (
@@ -39,6 +40,7 @@ export function App() {
         <Route path="/call-transfer" element={<ProtectedRoute module="call_transfer"><CallTransferPage /></ProtectedRoute>} />
         <Route path="/subscribers" element={<ProtectedRoute module="subscribers"><SubscribersPage /></ProtectedRoute>} />
         <Route path="/subscribers/:id" element={<ProtectedRoute module="subscribers"><SubscribersPage /></ProtectedRoute>} />
+        <Route path="/admin-tickets" element={<ProtectedRoute><AdminTicketsPage /></ProtectedRoute>} />
         <Route path="/agents" element={<ProtectedRoute module="agents"><AgentsPage /></ProtectedRoute>} />
         <Route path="/departments" element={<ProtectedRoute module="departments"><DepartmentsPage /></ProtectedRoute>} />
         <Route path="/queues" element={<ProtectedRoute module="queues"><QueuesPage /></ProtectedRoute>} />
