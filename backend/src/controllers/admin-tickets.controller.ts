@@ -46,7 +46,9 @@ export const listTicketDepartments = asyncHandler(async (_req: Request, res: Res
     WHERE active=1
     ORDER BY FIELD(id,'dept_support','dept_accounts','dept_sales','dept_maintenance','dept_complaints','dept_admin','dept_general')
   `);
-  res.json(rows);
+  res.json(JSON.parse(JSON.stringify(rows, (_key, value) =>
+    typeof value === 'bigint' ? Number(value) : value
+  )));
 });
 
 
@@ -111,8 +113,8 @@ export const listAdminTickets = asyncHandler(async (req: Request, res: Response)
       d.color AS departmentColor,
       u.fullName AS assignedUserName,
       cu.fullName AS createdByName,
-      (SELECT COUNT(*) FROM AdminTicketReply r WHERE r.ticketId=t.id) AS repliesCount,
-      (SELECT COUNT(*) FROM AdminTicketAttachment a WHERE a.ticketId=t.id) AS attachmentsCount
+      CAST((SELECT COUNT(*) FROM AdminTicketReply r WHERE r.ticketId=t.id) AS UNSIGNED) + 0 AS repliesCount,
+      CAST((SELECT COUNT(*) FROM AdminTicketAttachment a WHERE a.ticketId=t.id) AS UNSIGNED) + 0 AS attachmentsCount
     FROM AdminTicket t
     LEFT JOIN TicketDepartment d ON d.id=t.departmentId
     LEFT JOIN User u ON u.id=t.assignedUserId
@@ -152,7 +154,7 @@ export const listAdminTickets = asyncHandler(async (req: Request, res: Response)
       d.color AS departmentColor,
       u.fullName AS assignedUserName,
       NULL AS createdByName,
-      (SELECT COUNT(*) FROM Note n WHERE n.refType='ticket' AND n.refId=t.id) AS repliesCount,
+      CAST((SELECT COUNT(*) FROM Note n WHERE n.refType='ticket' AND n.refId=t.id) AS UNSIGNED) + 0 AS repliesCount,
       0 AS attachmentsCount
     FROM Ticket t
     LEFT JOIN TicketDepartment d ON d.id =
@@ -178,7 +180,9 @@ export const listAdminTickets = asyncHandler(async (req: Request, res: Response)
     LIMIT 300
   `, ...params, ...params);
 
-  res.json(rows);
+  res.json(JSON.parse(JSON.stringify(rows, (_key, value) =>
+    typeof value === 'bigint' ? Number(value) : value
+  )));
 });
 
 export const getAdminTicket = asyncHandler(async (req: Request, res: Response) => {
