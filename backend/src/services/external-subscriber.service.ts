@@ -235,6 +235,91 @@ export async function listExternalSubscribersForCache(limit = 50000): Promise<Ex
   }
 }
 
+
+export async function listTodayExternalFinanceEvents(): Promise<any[]> {
+  if (!enabled) return [];
+
+  try {
+    const pool = await getPool();
+    const result = await pool.request().query(`
+      SELECT
+        c.cost_id,
+        c.cost_name,
+        c.cost_phone,
+        c.cost_user,
+        c.cost_state,
+        c.cost_address,
+        c.cost_note,
+        c.cost_dateFrom,
+        c.cost_dateTo,
+        s.Sand_id,
+        s.Sand_date,
+        s.Sand_notes,
+        s.Sand_datefrom,
+        s.Sand_dateto,
+        ISNULL(s.Sand_money,0) AS Sand_money,
+        ISNULL(s.Sand_moneyin,0) AS Sand_moneyin,
+        s.Sand_moneyType,
+        s.Sand_cardtype,
+        s.Sand_desc,
+        s.Sand_operation,
+        s.Sand_pushType,
+        s.Sand_month
+      FROM dbo.Sand s
+      JOIN dbo.costumer c ON c.cost_id = s.Sand_cosFk
+      WHERE ISNULL(s.Sand_isdel,0)=0
+        AND ISNULL(c.cost_isdel,0)=0
+        AND CONVERT(date, s.Sand_date) = CONVERT(date, GETDATE())
+      ORDER BY s.Sand_date DESC, s.Sand_id DESC
+    `);
+
+    return result.recordset.map((r: any) => {
+      const sub = mapRow(r);
+      const moneyIn = Number(r.Sand_moneyin || 0);
+      const moneyOut = Number(r.Sand_money || 0);
+      const operation = String(r.Sand_operation || r.Sand_pushType || r.Sand_desc || '').trim();
+
+      let type: ExternalPaymentRow['type'] = 'other';
+      let amount = 0;
+      let title = operation || 'حركة حساب';
+
+      if (moneyIn > 0) {
+        type = 'payment';
+        amount = moneyIn;
+        title = 'دفعة';
+      } else if (moneyOut > 0 && r.Sand_dateto) {
+        type = 'activation';
+        amount = moneyOut;
+        title = 'تفعيل اشتراك';
+      } else if (moneyOut > 0) {
+        type = 'debt';
+        amount = moneyOut;
+        title = 'دين / مستحقات';
+      }
+
+      return {
+        ...sub,
+        externalId: `ext-${r.cost_id}`,
+        id: Number(r.Sand_id),
+        date: r.Sand_date || null,
+        amount,
+        type,
+        title,
+        notes: String(r.Sand_notes || r.Sand_desc || r.Sand_operation || '').trim(),
+        package: String(r.Sand_cardtype || sub.package || '').trim(),
+        dateFrom: r.Sand_datefrom || null,
+        dateTo: r.Sand_dateto || null,
+        moneyIn,
+        moneyOut,
+      };
+    });
+  } catch (err) {
+    console.error('[external-subscriber] today finance events failed:', err);
+    return [];
+  }
+}
+
+
 export type ExternalPaymentRow = {
   id: number;
   date: Date | null;

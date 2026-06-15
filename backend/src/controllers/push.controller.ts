@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import webpush from 'web-push';
 import { prisma } from '../config/prisma.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { getExternalSubscriberPayments, searchExternalSubscribers, listExternalSubscribersForCache } from '../services/external-subscriber.service.js';
+import { searchExternalSubscribers, listExternalSubscribersForCache, listTodayExternalFinanceEvents } from '../services/external-subscriber.service.js';
 
 const VAPID_PUBLIC_KEY = 'BJjYxPn0SyB-EMzUAIFbbpZNL5sDODn4hm779RcGRzZOuspNnHWkX_6FbbTdSWaE5_S6cmVhG0Z8RBc48Odvn7o';
 const VAPID_PRIVATE_KEY = '0mDNdlscgDSoriN-3kBQdkIi4ep1ABcTr4ZYay1-NfQ';
@@ -624,118 +624,46 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
     return res.json({ ok: true, skipped: true, reason: 'auto notifications disabled' });
   }
 
-  const scanStartedAt = new Date();
-  const watermarkRow = await prisma.setting.findUnique({ where: { key: 'finance_event_watermark' } }).catch(() => null);
-  const watermarkValue = watermarkRow?.value as any;
-  const watermark = watermarkValue?.lastScanAt ? new Date(watermarkValue.lastScanAt) : new Date(0);
-
-  if (!watermarkValue?.lastScanAt) {
-    await prisma.setting.upsert({
-      where: { key: 'finance_event_watermark' },
-      update: { value: { lastScanAt: scanStartedAt.toISOString(), initializedAt: scanStartedAt.toISOString() } as any },
-      create: { key: 'finance_event_watermark', value: { lastScanAt: scanStartedAt.toISOString(), initializedAt: scanStartedAt.toISOString() } as any },
-    });
-
-    return res.json({
-      ok: true,
-      safe: true,
-      skipped: true,
-      reason: 'تم تهيئة الفحص الآمن. لن يتم إرسال عمليات قديمة. من الآن فقط العمليات الجديدة.',
-      result: { detected: 0, sent: 0, failed: 0, initialized: true }
-    });
-  }
-
-  const subscribers = await prisma.$queryRawUnsafe<any[]>(`
-    SELECT
-      ec.phoneNorm,
-      MAX(ec.phone) AS phone,
-      ec.externalId,
-      MAX(ec.name) AS name,
-      MAX(ec.pppoeUsername) AS pppoeUsername,
-      MAX(ec.package) AS package,
-      MAX(ec.debt) AS totalDebt,
-      MAX(ec.expiration) AS expiration,
-      MAX(ec.updatedAt) AS lastPushAt
-    FROM ExternalSubscriberCache ec
-    WHERE ec.phoneNorm IS NOT NULL AND ec.phoneNorm <> ''
-    GROUP BY ec.phoneNorm, ec.externalId
-    ORDER BY lastPushAt DESC
-    LIMIT 5000
-  `);
+  const events = await listTodayExternalFinanceEvents();
 
   const result = {
-    subscribers: subscribers.length,
-    liveOk: 0,
-    liveFailed: 0,
-    cacheFallback: 0,
-    scanned: 0,
+    source: 'mssql_today_sand',
+    scanned: events.length,
     detected: 0,
     sent: 0,
     failed: 0,
     skippedLogged: 0,
     skippedDisabled: 0,
+    skippedOther: 0,
   };
 
-  async function saveCache(externalId: string, row: any) {
-    await prisma.$executeRawUnsafe(`
-      INSERT INTO ExternalSubscriberPaymentCache
-      (id, externalId, sandId, date, amount, type, title, notes, package, dateFrom, dateTo, moneyIn, moneyOut, cachedAt, updatedAt)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(3),NOW(3))
-      ON DUPLICATE KEY UPDATE
-        date=VALUES(date),
-        amount=VALUES(amount),
-        type=VALUES(type),
-        title=VALUES(title),
-        notes=VALUES(notes),
-        package=VALUES(package),
-        dateFrom=VALUES(dateFrom),
-        dateTo=VALUES(dateTo),
-        moneyIn=VALUES(moneyIn),
-        moneyOut=VALUES(moneyOut),
-        updatedAt=NOW(3)
-    `,
-      cuid(),
-      externalId,
-      Number(row.sandId || row.id || 0),
-      row.date ? new Date(row.date) : null,
-      Number(row.amount || 0),
-      String(row.type || 'other'),
-      String(row.title || ''),
-      row.notes || null,
-      row.package || null,
-      row.dateFrom ? new Date(row.dateFrom) : null,
-      row.dateTo ? new Date(row.dateTo) : null,
-      Number(row.moneyIn || 0),
-      Number(row.moneyOut || 0),
-    );
-  }
+  const seen = new Set<string>();
 
-  const seenFinanceEvents = new Set<string>();
-
-  async function processRow(row: any, phone: string, _source: string, sub: any = {}) {
+  for (const row of events as any[]) {
     const type = String(row.type || 'other');
-    if (!['payment', 'debt', 'activation'].includes(type)) return;
-
-    const eventDate = row.date ? new Date(row.date) : null;
-    if (!eventDate || eventDate <= watermark) {
-      result.skippedLogged++;
-      return;
+    if (!['payment', 'debt', 'activation'].includes(type)) {
+      result.skippedOther++;
+      continue;
     }
 
-    if (type === 'payment' && !settings?.auto?.onPayment) { result.skippedDisabled++; return; }
-    if (type === 'debt' && !settings?.auto?.onDebt) { result.skippedDisabled++; return; }
-    if (type === 'activation' && !settings?.auto?.onActivation && !settings?.auto?.onRenewal) { result.skippedDisabled++; return; }
+    if (type === 'payment' && !settings?.auto?.onPayment) { result.skippedDisabled++; continue; }
+    if (type === 'debt' && !settings?.auto?.onDebt) { result.skippedDisabled++; continue; }
+    if (type === 'activation' && !settings?.auto?.onActivation && !settings?.auto?.onRenewal) { result.skippedDisabled++; continue; }
 
-    const sandId = Number(row.sandId || row.id || 0);
-    if (!sandId) return;
+    const phone = normPushPhone(row.phoneNorm || row.phone);
+    const externalId = String(row.externalId || row.id || '').startsWith('ext-')
+      ? String(row.externalId || '')
+      : `ext-${String(row.externalId || '').replace(/\D/g, '')}`;
 
-    const eventKey = `finance:${row.externalId}:${sandId}:${type}`;
+    const sandId = Number(row.id || row.sandId || 0);
+    if (!phone || !externalId || !sandId) continue;
 
-    if (seenFinanceEvents.has(eventKey)) {
+    const eventKey = `finance:${externalId}:${sandId}:${type}`;
+    if (seen.has(eventKey)) {
       result.skippedLogged++;
-      return;
+      continue;
     }
-    seenFinanceEvents.add(eventKey);
+    seen.add(eventKey);
 
     const alreadyRows = await prisma.$queryRawUnsafe<any[]>(`
       SELECT COUNT(*) AS c
@@ -743,46 +671,40 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
       WHERE targetType = ? OR targetType LIKE CONCAT(?, ':%')
     `, eventKey, eventKey).catch(() => [{ c: 0 }]);
 
-    const already = Number(alreadyRows?.[0]?.c || 0);
-
-    if (already > 0) {
+    if (Number(alreadyRows?.[0]?.c || 0) > 0) {
       result.skippedLogged++;
-      return;
+      continue;
     }
 
     const title = financeTitle(type);
-    let message = '';
 
     const amountValue = Number(row.amount || row.moneyIn || row.moneyOut || 0);
-    const paidValue = Number(
-      type === 'payment'
-        ? (row.amount || row.moneyIn || 0)
-        : (row.moneyIn || 0)
-    );
+    const paidValue = Number(type === 'payment' ? (row.amount || row.moneyIn || 0) : (row.moneyIn || 0));
     const debtValue = Number(type === 'debt' ? (row.amount || row.moneyOut || 0) : (row.moneyOut || 0));
-    const totalDebtValue = Number(sub.debt || sub.totalDebt || row.totalDebt || debtValue || 0);
+    const totalDebtValue = Number(row.debt || row.totalDebt || debtValue || 0);
     const packagePriceValue = Number(type === 'activation' ? (row.amount || row.moneyOut || 0) : (row.packagePrice || row.price || 0));
-    const expireDate = row.dateTo || row.expiration || sub.expiration || null;
+    const expireDate = row.dateTo || row.expiration || null;
 
     const vars = {
-      name: cleanNullText(row.name || sub.name || 'مشترك'),
+      name: cleanNullText(row.name || 'مشترك'),
       phone,
-      pppoe: cleanNullText(row.pppoeUsername || sub.pppoeUsername || ''),
-      package: cleanNullText(row.package || sub.package || ''),
+      pppoe: cleanNullText(row.pppoeUsername || ''),
+      package: cleanNullText(row.package || ''),
       packagePrice: amountText(packagePriceValue),
       amount: amountText(amountValue),
       paid: amountText(paidValue),
       debt: amountText(debtValue),
       totalDebt: amountText(totalDebtValue),
       remaining: amountText(totalDebtValue),
-      receipt: sandId || row.id || row.sandId,
-      transactionId: sandId || row.id,
+      receipt: sandId,
+      transactionId: sandId,
       date: enDate(expireDate),
       expireDate: enDate(expireDate),
-      status: cleanNullText(row.status || sub.status || ''),
+      status: cleanNullText(row.status || ''),
       type,
     };
 
+    let message = '';
     if (type === 'payment') {
       message = renderFinanceTemplate(settings.templates?.payment || 'تم تسجيل دفعة جديدة بقيمة {amount} د.ع.', vars);
     } else if (type === 'debt') {
@@ -793,8 +715,13 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
 
     const channelKey = type === 'payment' ? 'payment' : type === 'debt' ? 'debt' : 'activation';
     const ch = (settings as any).channels?.[channelKey] || 'push';
-    const sentByChannel = await sendAutoByChannel(phone, title, message, eventKey, ch);
 
+    if (ch === 'off') {
+      result.skippedDisabled++;
+      continue;
+    }
+
+    const sentByChannel = await sendAutoByChannel(phone, title, message, eventKey, ch);
     await addSubscriberInAppNotification(phone, title, message, `finance_${type}`);
 
     await prisma.$executeRawUnsafe(`
@@ -808,60 +735,7 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
     result.failed += sentByChannel.failed;
   }
 
-  for (const sub of subscribers) {
-    const phone = String(sub.phoneNorm || sub.phone || '').trim();
-    const externalId = String(sub.externalId || '').trim();
-    if (!phone || !externalId) continue;
-
-    let rows: any[] = [];
-    let source = 'live';
-
-    try {
-      rows = await getExternalSubscriberPayments(externalId, 30);
-      rows = rows.map((r: any) => ({ ...r, externalId }));
-      result.liveOk++;
-
-      for (const r of rows) {
-        await saveCache(externalId, r).catch(() => null);
-      }
-    } catch {
-      result.liveFailed++;
-      source = 'cache';
-      result.cacheFallback++;
-
-      rows = await prisma.$queryRawUnsafe<any[]>(`
-        SELECT *
-        FROM ExternalSubscriberPaymentCache
-        WHERE externalId=?
-          AND type IN ('payment','debt','activation')
-          AND date >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-        ORDER BY date DESC
-        LIMIT 30
-      `, externalId);
-    }
-
-    let liveInfo: any = {};
-    try {
-      const liveByPhone = await searchExternalSubscribers(phone);
-      liveInfo = liveByPhone.find((x: any) => String(x.id) === externalId) || liveByPhone[0] || {};
-    } catch {}
-
-    const subInfo = { ...sub, ...liveInfo };
-
-    result.scanned += rows.length;
-
-    for (const row of rows) {
-      await processRow(row, phone, source, subInfo);
-    }
-  }
-
-  await prisma.setting.upsert({
-    where: { key: 'finance_event_watermark' },
-    update: { value: { lastScanAt: scanStartedAt.toISOString(), updatedAt: new Date().toISOString() } as any },
-    create: { key: 'finance_event_watermark', value: { lastScanAt: scanStartedAt.toISOString(), updatedAt: new Date().toISOString() } as any },
-  });
-
-  res.json({ ok: true, safe: true, mode: 'new-events-only', since: watermark.toISOString(), result });
+  res.json({ ok: true, safe: true, mode: 'today-finance-events-only', result });
 });
 
 export const stats = asyncHandler(async (_req: Request, res: Response) => {

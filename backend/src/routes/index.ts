@@ -228,6 +228,7 @@ router.get('/push/settings', h(push.getSettings));
 router.put('/push/settings', h(push.saveSettings));
 router.post('/push/send', h(push.send));
 router.post('/push/auto/expiry-debt', h(push.autoExpiryDebt));
+router.post('/push/auto/finance', h(push.financeEventWatcher));
 router.post('/push/auto/finance-events', h(push.financeEventWatcher));
 
 // ---------- Notifications ----------
