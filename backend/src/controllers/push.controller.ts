@@ -1,15 +1,17 @@
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import * as webpush from 'web-push';
+import webpush from 'web-push';
 import { prisma } from '../config/prisma.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 const VAPID_PUBLIC_KEY = 'BJjYxPn0SyB-EMzUAIFbbpZNL5sDODn4hm779RcGRzZOuspNnHWkX_6FbbTdSWaE5_S6cmVhG0Z8RBc48Odvn7o';
 const VAPID_PRIVATE_KEY = '0mDNdlscgDSoriN-3kBQdkIi4ep1ABcTr4ZYay1-NfQ';
 
-webpush.setVapidDetails(
-  'mailto:admin@albarq.local',
+const webPushClient: any = (webpush as any).default || webpush;
+
+webPushClient.setVapidDetails(
+  'mailto:admin@albarq.app',
   VAPID_PUBLIC_KEY,
   VAPID_PRIVATE_KEY
 );
@@ -58,31 +60,41 @@ export const subscribe = asyncHandler(async (req: Request, res: Response) => {
 
   const endpointHash = crypto.createHash('sha256').update(sub.endpoint).digest('hex');
 
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO SubscriberPushSubscription
-    (id, phone, phoneNorm, endpointHash, endpoint, p256dh, auth, userAgent, active)
-    VALUES (?,?,?,?,?,?,?,?,1)
-    ON DUPLICATE KEY UPDATE
-      phone=VALUES(phone),
-      phoneNorm=VALUES(phoneNorm),
-      endpoint=VALUES(endpoint),
-      p256dh=VALUES(p256dh),
-      auth=VALUES(auth),
-      userAgent=VALUES(userAgent),
-      active=1,
-      updatedAt=NOW(3)
-  `,
-    cuid(),
-    payload.phone,
-    phone,
-    endpointHash,
-    sub.endpoint,
-    sub.keys.p256dh,
-    sub.keys.auth,
-    req.headers['user-agent'] || null
-  );
+  try {
+    await prisma.subscriberPushSubscription.upsert({
+      where: { endpointHash },
+      update: {
+        phone: payload.phone,
+        phoneNorm: phone,
+        endpoint: sub.endpoint,
+        p256dh: sub.keys.p256dh,
+        auth: sub.keys.auth,
+        userAgent: String(req.headers['user-agent'] || ''),
+        active: true,
+      } as any,
+      create: {
+        id: cuid(),
+        phone: payload.phone,
+        phoneNorm: phone,
+        endpointHash,
+        endpoint: sub.endpoint,
+        p256dh: sub.keys.p256dh,
+        auth: sub.keys.auth,
+        userAgent: String(req.headers['user-agent'] || ''),
+        active: true,
+      } as any,
+    });
 
-  res.json({ ok: true });
+    return res.json({ ok: true });
+  } catch (e: any) {
+    console.error('[push.subscribe] failed', e?.code, e?.message, e?.meta || '');
+    return res.status(500).json({
+      error: 'Push subscribe failed',
+      code: e?.code || null,
+      message: e?.message || String(e),
+      meta: e?.meta || null,
+    });
+  }
 });
 
 async function getTargets(targetType: string, targetValue = '') {
@@ -158,9 +170,18 @@ async function sendOne(row: any, payload: any) {
   };
 
   try {
-    await webpush.sendNotification(subscription as any, JSON.stringify(payload));
+    await webPushClient.sendNotification(subscription as any, JSON.stringify(payload));
     return true;
   } catch (e: any) {
+    console.error('[push.sendOne] failed', {
+      id: row.id,
+      phone: row.phone,
+      statusCode: e?.statusCode,
+      headers: e?.headers,
+      body: e?.body,
+      message: e?.message,
+    });
+
     if (e?.statusCode === 404 || e?.statusCode === 410) {
       await prisma.$executeRawUnsafe(
         `UPDATE SubscriberPushSubscription SET active=0 WHERE id=?`,
@@ -170,6 +191,93 @@ async function sendOne(row: any, payload: any) {
     return false;
   }
 }
+
+
+export async function sendPushToPhones(phones: string[], title: string, message: string, url = '/my') {
+  const cleanPhones = Array.from(new Set((phones || []).map(norm).filter(Boolean)));
+  if (!cleanPhones.length) return { targets: 0, sent: 0, failed: 0 };
+
+  const placeholders = cleanPhones.map(() => '?').join(',');
+  const targets = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT * FROM SubscriberPushSubscription
+    WHERE active=1 AND phoneNorm IN (${placeholders})
+  `, ...cleanPhones);
+
+  let sent = 0;
+  let failed = 0;
+
+  const payload = {
+    title,
+    body: message,
+    icon: '/icons/apple-touch-icon.png',
+    badge: '/icons/apple-touch-icon.png',
+    url,
+    tag: 'albarq-auto-' + Date.now(),
+  };
+
+  for (const row of targets) {
+    const ok = await sendOne(row, payload);
+    if (ok) sent++;
+    else failed++;
+  }
+
+  return { targets: targets.length, sent, failed };
+}
+
+export const autoExpiryDebt = asyncHandler(async (_req: Request, res: Response) => {
+  const results: any[] = [];
+
+  async function runTarget(targetType: string, targetValue: string, title: string, message: string) {
+    const targets = await getTargets(targetType, targetValue);
+    let sent = 0;
+    let failed = 0;
+
+    for (const row of targets) {
+      const ok = await sendOne(row, {
+        title,
+        body: message,
+        icon: '/icons/apple-touch-icon.png',
+        badge: '/icons/apple-touch-icon.png',
+        url: '/my',
+        tag: `albarq-${targetType}-${Date.now()}`,
+      });
+
+      if (ok) sent++;
+      else failed++;
+    }
+
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO PushCampaign
+      (id,title,message,targetType,targetValue,sentCount,failedCount,createdById)
+      VALUES (?,?,?,?,?,?,?,?)
+    `, cuid(), title, message, targetType, targetValue || null, sent, failed, null);
+
+    results.push({ targetType, targetValue, targets: targets.length, sent, failed });
+  }
+
+  await runTarget(
+    'expire_days',
+    '3',
+    'اشتراكك ينتهي قريباً',
+    'تنبيه: اشتراك الإنترنت ينتهي خلال 3 أيام، يرجى التجديد لتجنب توقف الخدمة.'
+  );
+
+  await runTarget(
+    'expired',
+    '',
+    'اشتراكك منتهي',
+    'اشتراك الإنترنت منتهي، يرجى التواصل مع الدعم أو التجديد.'
+  );
+
+  await runTarget(
+    'debt',
+    '1000',
+    'يوجد مبلغ مستحق',
+    'يرجى مراجعة الحساب، يوجد مبلغ مستحق على اشتراكك.'
+  );
+
+  res.json({ ok: true, results });
+});
 
 export const stats = asyncHandler(async (_req: Request, res: Response) => {
   const rows = await prisma.$queryRawUnsafe<any[]>(`

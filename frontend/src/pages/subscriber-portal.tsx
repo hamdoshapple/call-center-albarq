@@ -307,7 +307,7 @@ export function SubscriberPortalPage() {
         applicationServerKey: urlBase64ToUint8Array(keyData.publicKey),
       });
 
-      await fetch(`${API}/push/subscribe`, {
+      const saveRes = await fetch(`${API}/push/subscribe`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -315,6 +315,12 @@ export function SubscriberPortalPage() {
         },
         body: JSON.stringify({ subscription: sub }),
       });
+
+      const saveData = await saveRes.json().catch(() => ({}));
+      if (!saveRes.ok) {
+        setPushStatus(saveData.message || saveData.error || 'تعذر حفظ اشتراك الإشعارات');
+        return;
+      }
 
       setPushStatus('تم تفعيل الإشعارات بنجاح');
     } catch {

@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { Request, Response } from 'express';
 import { prisma } from '../config/prisma.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { sendPushToPhones } from './push.controller.js';
 
 const cuid = () => 't_' + randomUUID().replace(/-/g, '');
 
@@ -24,6 +25,24 @@ function mapDepartment(category: string, text = '') {
 async function notify(userId: string | null, title: string, message: string, type = 'ticket') {
   if (!userId) return;
   await prisma.notification.create({ data: { userId, title, message, type } as any }).catch(() => null);
+}
+
+
+async function ticketPhone(ticketId: string) {
+  if (ticketId.startsWith('legacy_')) {
+    const realId = ticketId.replace(/^legacy_/, '');
+    const rows = await prisma.$queryRawUnsafe<any[]>('SELECT externalPhone FROM Ticket WHERE id=? LIMIT 1', realId);
+    return rows[0]?.externalPhone || null;
+  }
+
+  const rows = await prisma.$queryRawUnsafe<any[]>('SELECT externalPhone FROM AdminTicket WHERE id=? LIMIT 1', ticketId);
+  return rows[0]?.externalPhone || null;
+}
+
+async function pushTicketUpdate(ticketId: string, title: string, message: string) {
+  const phone = await ticketPhone(ticketId);
+  if (!phone) return;
+  await sendPushToPhones([phone], title, message, '/my').catch(() => null);
 }
 
 async function extractMentions(body: string) {
@@ -432,6 +451,8 @@ export const replyAdminTicket = asyncHandler(async (req: Request, res: Response)
       await notify(u.id, 'تم ذكرك في تكت', body.slice(0, 160));
     }
 
+    await pushTicketUpdate(ticketId, 'رد جديد على التذكرة', body.slice(0, 120));
+    await pushTicketUpdate(ticketId, 'رد جديد على التذكرة', body.slice(0, 120));
     return res.status(201).json({ id: replyId, mentioned });
   }
 
@@ -461,6 +482,8 @@ export const replyAdminTicket = asyncHandler(async (req: Request, res: Response)
 
   await prisma.$executeRawUnsafe(`UPDATE AdminTicket SET updatedAt=NOW(3) WHERE id=?`, ticketId);
 
+  await pushTicketUpdate(ticketId, 'رد جديد على التذكرة', body.slice(0, 120));
+  await pushTicketUpdate(ticketId, 'رد جديد على التذكرة', body.slice(0, 120));
   res.status(201).json({ id: replyId, mentioned });
 });
 
@@ -516,6 +539,10 @@ export const updateAdminTicket = asyncHandler(async (req: Request, res: Response
 
   if (req.body.assignedUserId) {
     await notify(req.body.assignedUserId, 'تم إسناد تكت لك', `Ticket ${id}`);
+  }
+
+  if (req.body.status) {
+    await pushTicketUpdate(id, 'تم تحديث حالة التذكرة', `الحالة الجديدة: ${req.body.status}`);
   }
 
   const rows = await prisma.$queryRawUnsafe<any[]>('SELECT * FROM AdminTicket WHERE id=? LIMIT 1', id);

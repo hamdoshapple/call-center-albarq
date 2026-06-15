@@ -211,6 +211,7 @@ router.delete(
 // ---------- Push Notifications ----------
 router.get('/push/stats', h(push.stats));
 router.post('/push/send', h(push.send));
+router.post('/push/auto/expiry-debt', h(push.autoExpiryDebt));
 
 // ---------- Notifications ----------
 router.get('/notifications', h(misc.listNotifications));
