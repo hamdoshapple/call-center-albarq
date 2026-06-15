@@ -563,6 +563,46 @@ function amountText(v: any) {
   return Number(v || 0).toLocaleString('en-US');
 }
 
+function niceDate(v: any) {
+  if (!v) return '';
+  try { return new Date(v).toLocaleDateString('ar-IQ'); } catch { return String(v || ''); }
+}
+
+function renderTemplateVars(tpl: string, vars: Record<string, any>) {
+  let out = String(tpl || '');
+  const now = new Date();
+
+  const all: Record<string, any> = {
+    company: 'البرق الرقمي',
+    today: now.toLocaleDateString('ar-IQ'),
+    time: now.toLocaleTimeString('ar-IQ'),
+    datetime: now.toLocaleString('ar-IQ'),
+    name: '',
+    phone: '',
+    pppoe: '',
+    package: '',
+    packagePrice: '',
+    amount: '',
+    paid: '',
+    debt: '',
+    totalDebt: '',
+    receipt: '',
+    transactionId: '',
+    date: '',
+    expireDate: '',
+    days: '',
+    status: '',
+    type: '',
+    ...vars,
+  };
+
+  for (const [k, v] of Object.entries(all)) {
+    out = out.replaceAll(`{${k}}`, String(v ?? ''));
+  }
+
+  return out;
+}
+
 
 async function addSubscriberInAppNotification(phone: string, title: string, message: string, type = 'finance') {
   const n = String(phone || '').replace(/\D/g, '');
@@ -621,6 +661,9 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
       MAX(ps.phone) AS phone,
       ec.externalId,
       MAX(ec.name) AS name,
+      MAX(ec.package) AS package,
+      MAX(ec.debt) AS totalDebt,
+      MAX(ec.expiration) AS expiration,
       MAX(ps.updatedAt) AS lastPushAt
     FROM SubscriberPushSubscription ps
     JOIN ExternalSubscriberCache ec ON ec.phoneNorm = ps.phoneNorm
@@ -679,7 +722,7 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
 
   const seenFinanceEvents = new Set<string>();
 
-  async function processRow(row: any, phone: string, _source: string) {
+  async function processRow(row: any, phone: string, _source: string, sub: any = {}) {
     const type = String(row.type || 'other');
     if (!['payment', 'debt', 'activation'].includes(type)) return;
 
@@ -720,14 +763,37 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
     const title = financeTitle(type);
     let message = '';
 
+    const amountValue = Number(row.amount || row.moneyIn || row.moneyOut || 0);
+    const paidValue = Number(row.moneyIn || (type === 'payment' ? row.amount : 0) || 0);
+    const debtValue = Number(row.moneyOut || (type === 'debt' ? row.amount : 0) || 0);
+    const totalDebtValue = Number(row.totalDebt || sub.totalDebt || row.debt || sub.debt || debtValue || 0);
+    const expireDate = row.dateTo || row.expiration || sub.expiration || row.date || null;
+
+    const vars = {
+      name: row.name || sub.name || 'مشترك',
+      phone,
+      pppoe: row.pppoeUsername || sub.pppoeUsername || '',
+      package: row.package || sub.package || '',
+      packagePrice: amountText(row.packagePrice || row.price || 0),
+      amount: amountText(amountValue),
+      paid: amountText(paidValue),
+      debt: amountText(debtValue),
+      totalDebt: amountText(totalDebtValue),
+      receipt: row.sandId || row.id || sandId,
+      transactionId: sandId,
+      date: niceDate(expireDate),
+      expireDate: niceDate(expireDate),
+      days: '',
+      status: row.status || '',
+      type,
+    };
+
     if (type === 'payment') {
-      message = String(settings.templates?.payment || 'تم تسجيل دفعة جديدة بقيمة {amount} د.ع.')
-        .replace('{amount}', amountText(row.amount || row.moneyIn || 0));
+      message = renderTemplateVars(settings.templates?.payment || 'تم تسجيل دفعة جديدة بقيمة {amount} د.ع.', vars);
     } else if (type === 'debt') {
-      message = String(settings.templates?.debt || 'يوجد عليك مبلغ مستحق قدره {amount} د.ع.')
-        .replace('{amount}', amountText(row.amount || row.moneyOut || 0));
+      message = renderTemplateVars(settings.templates?.debt || 'يوجد عليك مبلغ مستحق قدره {amount} د.ع.', vars);
     } else if (type === 'activation') {
-      message = String(settings.templates?.activation || 'تم تفعيل اشتراكك بنجاح.');
+      message = renderTemplateVars(settings.templates?.activation || 'تم تفعيل اشتراكك بنجاح.', vars);
     }
 
     const channelKey = type === 'payment' ? 'payment' : type === 'debt' ? 'debt' : 'activation';
@@ -782,7 +848,7 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
     result.scanned += rows.length;
 
     for (const row of rows) {
-      await processRow(row, phone, source);
+      await processRow(row, phone, source, sub);
     }
   }
 
