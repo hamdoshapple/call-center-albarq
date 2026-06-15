@@ -34,7 +34,7 @@ services:
       PORT: 4100
       WA_GATEWAY_TOKEN: "wa_21f8e5db100787ba2b5db05447819c69b776719060414c7b"
     volumes:
-      - ./wa-sessions:/app/.wwebjs_auth
+      - ./wa-sessions:/app/sessions
       - ./wa-gateway/data:/app/data
 
   backend:

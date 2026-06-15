@@ -564,5 +564,9 @@
     "thu": "Thu",
     "fri": "Fri",
     "sat": "Sat"
+  },
+  "modules": {
+    "whatsapp": "WhatsApp",
+    "push_notifications": "Notifications"
   }
 }

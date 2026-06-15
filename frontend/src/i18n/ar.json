@@ -564,5 +564,9 @@
     "thu": "الخميس",
     "fri": "الجمعة",
     "sat": "السبت"
+  },
+  "modules": {
+    "whatsapp": "واتساب",
+    "push_notifications": "الإشعارات"
   }
 }

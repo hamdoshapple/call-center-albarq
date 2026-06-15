@@ -18,6 +18,8 @@ export const MODULES: ModuleKey[] = [
   'reports',
   'permissions',
   'company_settings',
+  'whatsapp',
+  'push_notifications',
 ];
 
 export const ALL_ACTIONS: PermissionAction[] = ['view', 'create', 'edit', 'delete'];

@@ -19,7 +19,9 @@ export type ModuleKey =
   | 'asterisk' | 'vpn'
   | 'reports'
   | 'permissions'
-  | 'company_settings';
+  | 'company_settings'
+  | 'push_notifications'
+  | 'whatsapp';
 
 export type RolePermissions = Record<Role, Record<ModuleKey, PermissionAction[]>>;
 
