@@ -22,8 +22,9 @@ function cuid() {
 }
 
 function norm(v: unknown) {
-  const d = String(v || '').replace(/\D/g, '');
-  if (d.startsWith('964')) return '0' + d.slice(3);
+  let d = String(v || '').replace(/\D/g, '');
+  if (d.startsWith('964')) d = d.slice(3);
+  if (d.startsWith('0')) d = d.slice(1);
   return d;
 }
 
@@ -977,8 +978,8 @@ export const logs = asyncHandler(async (req: Request, res: Response) => {
 
 function normPushPhone(v: any) {
   let n = String(v || '').replace(/\D/g, '');
-  if (n.startsWith('964')) n = '0' + n.slice(3);
-  if (n.length === 10 && !n.startsWith('0')) n = '0' + n;
+  if (n.startsWith('964')) n = n.slice(3);
+  if (n.startsWith('0')) n = n.slice(1);
   return n;
 }
 
