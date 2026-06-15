@@ -138,6 +138,7 @@ export function SubscriberPortalPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [activeId, setActiveId] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
   const [tab, setTab] = useState<'home' | 'accounts' | 'support' | 'profile'>('home');
   const [config, setConfig] = useState<SubscriberAppConfig>({});
   const [banners, setBanners] = useState<Banner[]>([]);
@@ -180,12 +181,22 @@ export function SubscriberPortalPage() {
 
   async function requestCode() {
     setLoading(true);
-    await fetch(`${API}/request-code`, {
+    setLoginError('');
+
+    const res = await fetch(`${API}/request-code`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone }),
     });
+
+    const data = await res.json().catch(() => ({}));
     setLoading(false);
+
+    if (!res.ok) {
+      setLoginError(data.message || 'رقم الهاتف غير مسجل لدينا');
+      return;
+    }
+
     setStep('code');
   }
 
@@ -356,7 +367,7 @@ export function SubscriberPortalPage() {
           </div>
 
           <div className="mt-24 text-center">
-            <h1 className="glitch-text text-5xl font-black" style={{ color: primary }}>
+            <h1 className="text-5xl font-black" style={{ color: primary }}>
               {config.welcomeMessage || 'أهلاً وسهلاً'}
             </h1>
             <p className="mt-5 text-xl leading-9 text-slate-700">
@@ -393,6 +404,12 @@ export function SubscriberPortalPage() {
               />
             )}
 
+            {loginError && (
+              <div className="mt-3 rounded-2xl bg-red-50 p-3 text-center text-sm font-bold text-red-600">
+                {loginError}
+              </div>
+            )}
+
             {step === 'phone' ? (
               <Button
                 className="mt-6 h-14 w-full rounded-2xl text-lg font-bold text-white"
@@ -423,7 +440,7 @@ export function SubscriberPortalPage() {
   }
 
   return (
-    <div dir="rtl" className="min-h-screen bg-slate-100 pb-40 pt-[116px] text-slate-950">
+    <div dir="rtl" className="min-h-screen bg-slate-100 pb-40 pt-[150px] text-slate-950">
       {isExpired && config.popupEnabled && !expiredPopupClosed && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-5">
           <div className="w-full max-w-sm rounded-[28px] bg-white p-5 shadow-xl">
@@ -465,7 +482,7 @@ export function SubscriberPortalPage() {
       )}
 
       <div className="mx-auto max-w-md px-5">
-        <header className="fixed inset-x-0 top-0 z-50 mx-auto flex max-w-md items-center justify-between bg-slate-100/95 px-5 pb-4 pt-[calc(env(safe-area-inset-top)+16px)] backdrop-blur">
+        <header className="fixed inset-x-0 top-0 z-50 mx-auto flex max-w-md items-center justify-between bg-slate-100/95 px-5 pb-5 pt-[calc(env(safe-area-inset-top)+22px)] backdrop-blur">
           <div className="flex items-center gap-3">
             {config.logoUrl && (
               <img
@@ -475,7 +492,7 @@ export function SubscriberPortalPage() {
               />
             )}
             <div>
-              <h1 className="glitch-text text-3xl font-black">مرحباً</h1>
+              <h1 className="text-3xl font-black">مرحباً</h1>
               <button
                 onClick={() => setAccountPickerOpen(true)}
                 className="mt-1 flex max-w-[185px] items-center gap-1 text-start text-sm font-bold text-slate-500"
@@ -878,7 +895,7 @@ export function SubscriberPortalPage() {
         </div>
       )}
 
-      <nav className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md border-t bg-white/95 px-5 py-3 backdrop-blur">
+      <nav className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md bg-white/75 px-5 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3 shadow-[0_-10px_35px_rgba(15,23,42,0.08)] backdrop-blur-2xl">
         <div className="grid grid-cols-4 gap-1">
           <NavItem active={tab === 'home'} icon={Home} label="الرئيسية" color={primary} onClick={() => setTab('home')} />
           <NavItem active={tab === 'accounts'} icon={CreditCard} label="الحسابات" color={primary} onClick={() => setTab('accounts')} />

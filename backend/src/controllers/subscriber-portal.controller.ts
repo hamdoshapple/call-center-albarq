@@ -33,6 +33,26 @@ export async function requestCode(req: Request, res: Response) {
   const phone = norm(req.body?.phone);
   if (!phone) return res.status(400).json({ error: 'Phone is required' });
 
+  const localCount = await prisma.subscriber.count({
+    where: { phone: { contains: phone } },
+  });
+
+  let external: any[] = [];
+  try {
+    external = await searchExternalSubscribers(phone);
+  } catch {
+    external = [];
+  }
+
+  const cached = external.length ? [] : await searchSubscriberCache(phone);
+
+  if (!localCount && !external.length && !cached.length) {
+    return res.status(404).json({
+      error: 'Phone not found',
+      message: 'رقم الهاتف غير مسجل لدينا، يرجى التواصل مع الدعم.',
+    });
+  }
+
   res.json({
     ok: true,
     message: 'تم إرسال رمز التحقق',
