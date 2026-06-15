@@ -257,7 +257,7 @@ app.post('/send', async (req, res) => {
     if (!queues[sessionId]) queues[sessionId] = [];
 
     const result = await new Promise((resolve, reject) => {
-      queues[sessionId].push({ to, message, delay, resolve, reject });
+      queues[sessionId].push({ to, message, delay, delayMs: Number(req.body?.delayMs || req.body?.delay || 0), resolve, reject });
       processQueue(sessionId).catch(reject);
     });
 

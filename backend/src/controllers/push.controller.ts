@@ -563,6 +563,7 @@ function amountText(v: any) {
   return Number(v || 0).toLocaleString('en-US');
 }
 
+
 async function addSubscriberInAppNotification(phone: string, title: string, message: string, type = 'finance') {
   const n = String(phone || '').replace(/\D/g, '');
   const variants = Array.from(new Set([
@@ -591,6 +592,27 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
   const settings = await getNotificationSettingsObject();
   if (!settings?.auto?.enabled) {
     return res.json({ ok: true, skipped: true, reason: 'auto notifications disabled' });
+  }
+
+  const scanStartedAt = new Date();
+  const watermarkRow = await prisma.setting.findUnique({ where: { key: 'finance_event_watermark' } }).catch(() => null);
+  const watermarkValue = watermarkRow?.value as any;
+  const watermark = watermarkValue?.lastScanAt ? new Date(watermarkValue.lastScanAt) : new Date(0);
+
+  if (!watermarkValue?.lastScanAt) {
+    await prisma.setting.upsert({
+      where: { key: 'finance_event_watermark' },
+      update: { value: { lastScanAt: scanStartedAt.toISOString(), initializedAt: scanStartedAt.toISOString() } as any },
+      create: { key: 'finance_event_watermark', value: { lastScanAt: scanStartedAt.toISOString(), initializedAt: scanStartedAt.toISOString() } as any },
+    });
+
+    return res.json({
+      ok: true,
+      safe: true,
+      skipped: true,
+      reason: 'تم تهيئة الفحص الآمن. لن يتم إرسال عمليات قديمة. من الآن فقط العمليات الجديدة.',
+      result: { detected: 0, sent: 0, failed: 0, initialized: true }
+    });
   }
 
   const subscribers = await prisma.$queryRawUnsafe<any[]>(`
@@ -655,9 +677,17 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
     );
   }
 
+  const seenFinanceEvents = new Set<string>();
+
   async function processRow(row: any, phone: string, _source: string) {
     const type = String(row.type || 'other');
     if (!['payment', 'debt', 'activation'].includes(type)) return;
+
+    const eventDate = row.date ? new Date(row.date) : null;
+    if (!eventDate || eventDate <= watermark) {
+      result.skippedLogged++;
+      return;
+    }
 
     if (type === 'payment' && !settings?.auto?.onPayment) { result.skippedDisabled++; return; }
     if (type === 'debt' && !settings?.auto?.onDebt) { result.skippedDisabled++; return; }
@@ -668,9 +698,19 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
 
     const eventKey = `finance:${row.externalId}:${sandId}:${type}`;
 
-    const already = await prisma.pushNotificationLog.count({
-      where: { targetType: eventKey } as any,
-    }).catch(() => 0);
+    if (seenFinanceEvents.has(eventKey)) {
+      result.skippedLogged++;
+      return;
+    }
+    seenFinanceEvents.add(eventKey);
+
+    const alreadyRows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT COUNT(*) AS c
+      FROM PushNotificationLog
+      WHERE targetType = ? OR targetType LIKE CONCAT(?, ':%')
+    `, eventKey, eventKey).catch(() => [{ c: 0 }]);
+
+    const already = Number(alreadyRows?.[0]?.c || 0);
 
     if (already > 0) {
       result.skippedLogged++;
@@ -746,7 +786,13 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
     }
   }
 
-  res.json({ ok: true, mode: 'live-first-cache-fallback', result });
+  await prisma.setting.upsert({
+    where: { key: 'finance_event_watermark' },
+    update: { value: { lastScanAt: scanStartedAt.toISOString(), updatedAt: new Date().toISOString() } as any },
+    create: { key: 'finance_event_watermark', value: { lastScanAt: scanStartedAt.toISOString(), updatedAt: new Date().toISOString() } as any },
+  });
+
+  res.json({ ok: true, safe: true, mode: 'new-events-only', since: watermark.toISOString(), result });
 });
 
 export const stats = asyncHandler(async (_req: Request, res: Response) => {

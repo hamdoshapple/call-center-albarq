@@ -31,7 +31,7 @@ export const pushNotificationsApi = {
     method: 'POST',
     body: JSON.stringify(data),
   }),
-  runAuto: () => request('/push/auto/expiry-debt', {
+  runAuto: () => request('/push/auto/finance-events', {
     method: 'POST',
     body: JSON.stringify({}),
   }),

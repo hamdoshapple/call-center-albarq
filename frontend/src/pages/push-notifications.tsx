@@ -733,6 +733,33 @@ export default function PushNotificationsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="grid gap-4 md:grid-cols-2">
+
+              <div className="md:col-span-2 rounded-2xl border bg-primary/5 p-4">
+                <div className="font-black mb-2">الترميزات المتاحة داخل القوالب</div>
+                <div className="grid gap-2 text-sm md:grid-cols-2 xl:grid-cols-3">
+                  {[
+                    ['{name}', 'اسم المشترك'],
+                    ['{phone}', 'رقم الهاتف'],
+                    ['{amount}', 'المبلغ'],
+                    ['{pppoe}', 'يوزر الاشتراك'],
+                    ['{date}', 'تاريخ الانتهاء أو العملية'],
+                    ['{days}', 'عدد الأيام'],
+                    ['{status}', 'حالة التذكرة'],
+                    ['{company}', 'اسم الشركة'],
+                    ['{today}', 'تاريخ اليوم'],
+                    ['{time}', 'الوقت الحالي'],
+                    ['{datetime}', 'التاريخ والوقت'],
+                    ['{type}', 'نوع العملية'],
+                    ['{source}', 'مصدر العملية'],
+                  ].map(([code, desc]) => (
+                    <div key={code} className="rounded-xl border bg-background p-2">
+                      <code dir="ltr" className="font-black text-primary">{code}</code>
+                      <div className="text-xs text-muted-foreground mt-1">{desc}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               {Object.entries(settings.templates || {}).map(([k, v]: any) => (
                 <div key={k} className="rounded-2xl border bg-muted/20 p-4">
                   <Label className="font-mono text-xs">{k}</Label>
