@@ -25,6 +25,9 @@ async function request(path: string, options: RequestInit = {}) {
 export const adminTicketsApi = {
   departments: () => request('/admin-ticket-departments'),
 
+  searchSubscribers: (q: string) =>
+    request(`/admin-ticket-subscribers?q=${encodeURIComponent(q)}`),
+
   list: (params: Record<string, string> = {}) => {
     const q = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => v && q.set(k, v));

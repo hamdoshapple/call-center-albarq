@@ -7,6 +7,7 @@ import {
   Home,
   LogOut,
   MessageCircle,
+  Paperclip,
   Phone,
   RefreshCw,
   User,
@@ -130,6 +131,15 @@ function waLink(v?: string | null, msg = '') {
   return `https://wa.me/${n}${msg ? `?text=${encodeURIComponent(msg)}` : ''}`;
 }
 
+const portalTicketTypes = [
+  { subject: 'انقطاع خدمة', category: 'technical', priority: 'high', label: 'انقطاع خدمة' },
+  { subject: 'بطء الإنترنت', category: 'technical', priority: 'medium', label: 'بطء الإنترنت' },
+  { subject: 'مشكلة فاتورة', category: 'accounts', priority: 'medium', label: 'مشكلة مالية' },
+  { subject: 'طلب صيانة', category: 'maintenance', priority: 'high', label: 'طلب صيانة' },
+  { subject: 'شكوى', category: 'complaint', priority: 'high', label: 'شكوى' },
+  { subject: 'أخرى', category: 'general', priority: 'medium', label: 'أخرى' },
+];
+
 export function SubscriberPortalPage() {
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
@@ -153,7 +163,10 @@ export function SubscriberPortalPage() {
   const [tickets, setTickets] = useState<PortalTicket[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(false);
   const [ticketSubject, setTicketSubject] = useState('انقطاع خدمة');
+  const [ticketCategory, setTicketCategory] = useState('technical');
   const [ticketBody, setTicketBody] = useState('');
+  const [ticketImage, setTicketImage] = useState<File | null>(null);
+  const [ticketImagePreview, setTicketImagePreview] = useState('');
   const [selectedTicketId, setSelectedTicketId] = useState('');
   const [ticketModalOpen, setTicketModalOpen] = useState(false);
   const [ticketsAccountId, setTicketsAccountId] = useState('');
@@ -315,12 +328,37 @@ export function SubscriberPortalPage() {
     }
   }
 
+  async function uploadTicketImage() {
+    if (!ticketImage || !token) return null;
+
+    const fd = new FormData();
+    fd.append('file', ticketImage);
+
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd,
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'فشل رفع الصورة');
+
+    return {
+      url: data.url || data.path || data.fileUrl || '',
+      fileName: ticketImage.name,
+      mimeType: ticketImage.type,
+    };
+  }
+
   async function createTicket() {
     const id = active?.id;
     if (!token || !id || !ticketSubject.trim()) return;
 
     setTicketsLoading(true);
     try {
+      const selectedType = portalTicketTypes.find((x) => x.subject === ticketSubject) || portalTicketTypes[0];
+      const uploaded = await uploadTicketImage();
+
       const res = await fetch(`${API}/accounts/${encodeURIComponent(id)}/tickets`, {
         method: 'POST',
         headers: {
@@ -329,14 +367,20 @@ export function SubscriberPortalPage() {
         },
         body: JSON.stringify({
           subject: ticketSubject,
+          category: ticketCategory || selectedType.category,
           body: ticketBody,
-          priority: ticketSubject.includes('انقطاع') ? 'high' : 'medium',
+          priority: selectedType.priority,
+          attachmentUrl: uploaded?.url || '',
+          fileName: uploaded?.fileName || '',
+          mimeType: uploaded?.mimeType || '',
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (data?.id) {
         setTicketBody('');
+        setTicketImage(null);
+        setTicketImagePreview('');
         setSelectedTicketId(data.id);
         setTicketModalOpen(false);
         await loadTickets(id);
@@ -729,8 +773,6 @@ export function SubscriberPortalPage() {
                     setActiveId(a.id);
                     localStorage.setItem('subscriber_active_account', a.id);
                     setSelectedTicketId('');
-                    loadPayments(a.id);
-                    loadTickets(a.id);
                   }}
                   className="w-full rounded-[24px] bg-white p-5 text-start shadow-sm transition"
                   style={{ boxShadow: selected ? `0 0 0 2px ${primary}` : undefined }}
@@ -885,8 +927,6 @@ export function SubscriberPortalPage() {
                       localStorage.setItem('subscriber_active_account', a.id);
                       setSelectedTicketId('');
                       setAccountPickerOpen(false);
-                      loadPayments(a.id);
-                      loadTickets(a.id);
                     }}
                     className="relative w-full overflow-hidden rounded-3xl p-4 text-start"
                     style={{
@@ -919,7 +959,7 @@ export function SubscriberPortalPage() {
 
       {ticketModalOpen && (
         <div className="fixed inset-0 z-[95] flex items-end justify-center bg-black/35 p-4 backdrop-blur-sm" onClick={() => setTicketModalOpen(false)}>
-          <div className="ticket-modal-pop w-full max-w-md rounded-t-[34px] bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="ticket-modal-pop max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-[34px] bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-2xl font-black">فتح تذكرة جديدة</h3>
               <button onClick={() => setTicketModalOpen(false)} className="rounded-full bg-slate-100 px-3 py-1 font-bold">
@@ -928,17 +968,20 @@ export function SubscriberPortalPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              {['انقطاع خدمة', 'بطء الإنترنت', 'مشكلة فاتورة', 'أخرى'].map((x) => (
+              {portalTicketTypes.map((x) => (
                 <button
-                  key={x}
-                  onClick={() => setTicketSubject(x)}
+                  key={x.subject}
+                  onClick={() => {
+                    setTicketSubject(x.subject);
+                    setTicketCategory(x.category);
+                  }}
                   className="rounded-2xl px-3 py-3 text-sm font-bold"
                   style={{
-                    backgroundColor: ticketSubject === x ? primary : '#f1f5f9',
-                    color: ticketSubject === x ? 'white' : '#334155',
+                    backgroundColor: ticketSubject === x.subject ? primary : '#f1f5f9',
+                    color: ticketSubject === x.subject ? 'white' : '#334155',
                   }}
                 >
-                  {x}
+                  {x.label}
                 </button>
               ))}
             </div>
@@ -949,6 +992,37 @@ export function SubscriberPortalPage() {
               value={ticketBody}
               onChange={(e) => setTicketBody(e.target.value)}
             />
+
+            <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-500">
+              <Paperclip className="h-4 w-4" />
+              {ticketImage ? 'تم اختيار صورة' : 'إرفاق صورة للمشكلة'}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] || null;
+                  setTicketImage(f);
+                  setTicketImagePreview(f ? URL.createObjectURL(f) : '');
+                }}
+              />
+            </label>
+
+            {ticketImagePreview && (
+              <div className="mt-3 overflow-hidden rounded-2xl bg-slate-100">
+                <img src={ticketImagePreview} className="max-h-56 w-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTicketImage(null);
+                    setTicketImagePreview('');
+                  }}
+                  className="w-full bg-slate-200 py-2 text-sm font-bold text-slate-600"
+                >
+                  حذف الصورة
+                </button>
+              </div>
+            )}
 
             <Button
               disabled={ticketsLoading || !ticketSubject.trim()}

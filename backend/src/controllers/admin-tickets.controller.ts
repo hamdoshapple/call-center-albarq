@@ -40,6 +40,72 @@ async function extractMentions(body: string) {
   });
 }
 
+
+export const searchTicketSubscribers = asyncHandler(async (req: Request, res: Response) => {
+  const q = String(req.query.q || '').trim();
+
+  if (q.length < 2) return res.json([]);
+
+  const like = `%${q}%`;
+
+  const rows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT * FROM (
+      SELECT
+        externalId AS externalId,
+        NULL AS subscriberId,
+        name,
+        phone,
+        pppoeUsername,
+        status,
+        package AS packageName,
+        debt,
+        'external-cache' AS source,
+        cachedAt AS updatedAt
+      FROM ExternalSubscriberCache
+      WHERE name LIKE ? OR phone LIKE ? OR pppoeUsername LIKE ? OR externalId LIKE ?
+
+      UNION ALL
+
+      SELECT
+        externalId AS externalId,
+        NULL AS subscriberId,
+        name,
+        phone,
+        pppoeUsername,
+        status,
+        package AS packageName,
+        debt,
+        'cache' AS source,
+        cachedAt AS updatedAt
+      FROM SubscriberCache
+      WHERE name LIKE ? OR phone LIKE ? OR pppoeUsername LIKE ? OR externalId LIKE ?
+
+      UNION ALL
+
+      SELECT
+        NULL AS externalId,
+        id AS subscriberId,
+        name,
+        phone,
+        pppoeUsername,
+        status,
+        package AS packageName,
+        debt,
+        'local' AS source,
+        updatedAt AS updatedAt
+      FROM Subscriber
+      WHERE name LIKE ? OR phone LIKE ? OR pppoeUsername LIKE ?
+    ) x
+    ORDER BY updatedAt DESC
+    LIMIT 30
+  `, like, like, like, like, like, like, like, like, like, like, like);
+
+  res.json(JSON.parse(JSON.stringify(rows, (_key, value) =>
+    typeof value === 'bigint' ? Number(value) : value
+  )));
+});
+
+
 export const listTicketDepartments = asyncHandler(async (_req: Request, res: Response) => {
   const rows = await prisma.$queryRawUnsafe<any[]>(`
     SELECT id,name,nameEn,color,active FROM TicketDepartment
@@ -57,7 +123,7 @@ export const listAdminTickets = asyncHandler(async (req: Request, res: Response)
   const departmentId = String(req.query.departmentId || '');
   const q = String(req.query.q || '').trim();
 
-  const adminWhere: string[] = [];
+  const adminWhere: string[] = ["t.id NOT LIKE 'legacy_%'"];
   const legacyWhere: string[] = [];
   const params: any[] = [];
 
@@ -245,7 +311,23 @@ export const getAdminTicket = asyncHandler(async (req: Request, res: Response) =
       ORDER BY n.createdAt ASC
     `, realId);
 
-    return res.json({ ticket: rows[0], replies, attachments: [] });
+    const attachments = replies
+      .filter((r: any) => String(r.body || '').startsWith('مرفق صورة:'))
+      .map((r: any) => {
+        const firstLine = String(r.body || '').split('\n')[0] || '';
+        const url = firstLine.replace('مرفق صورة:', '').trim();
+        return {
+          id: r.id,
+          ticketId: id,
+          url,
+          fileName: 'صورة مرفقة',
+          mimeType: 'image/*',
+          createdAt: r.createdAt,
+        };
+      })
+      .filter((a: any) => a.url);
+
+    return res.json({ ticket: rows[0], replies, attachments });
   }
 
   const rows = await prisma.$queryRawUnsafe<any[]>(`

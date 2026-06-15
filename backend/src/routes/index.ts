@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { listAdminTickets, getAdminTicket, createAdminTicket, replyAdminTicket, updateAdminTicket, listTicketDepartments } from '../controllers/admin-tickets.controller.js';
+import { listAdminTickets, getAdminTicket, createAdminTicket, replyAdminTicket, updateAdminTicket, listTicketDepartments, searchTicketSubscribers } from '../controllers/admin-tickets.controller.js';
 import { authenticate } from '../middleware/auth.js';
 import { requirePermission as perm } from '../middleware/rbac.js';
 import { asyncHandler as h } from '../utils/asyncHandler.js';
@@ -213,6 +213,7 @@ router.put('/notifications/:id/read', h(misc.markNotificationRead));
 router.get('/transfers', perm('call_transfer'), h(misc.listTransfers));
 router.get('/callbacks', perm('reports'), h(misc.listCallbacks));
 router.get('/admin-ticket-departments', listTicketDepartments);
+router.get('/admin-ticket-subscribers', searchTicketSubscribers);
 router.get('/admin-tickets', listAdminTickets);
 router.post('/admin-tickets', createAdminTicket);
 router.get('/admin-tickets/:id', getAdminTicket);

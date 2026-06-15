@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { MessageSquare, Plus, Send, Paperclip, Search, AtSign } from 'lucide-react';
+import { MessageSquare, Plus, Send, Paperclip, Search, AtSign, UserSearch } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { Loader } from '@/components/shared/loader';
 import { EmptyState } from '@/components/shared/empty-state';
@@ -40,6 +40,103 @@ const categories = [
   ['general', 'عام'],
 ];
 
+function TicketDetails({ selected, details, updateMutation, reply, setReply, setReplyFile, replyMutation }: any) {
+  if (!selected) {
+    return <EmptyState icon={MessageSquare} title="اختر تكت" description="اختر تكت من القائمة حتى تظهر التفاصيل والردود." />;
+  }
+
+  if (details.isLoading) return <Loader />;
+
+  if (!details.data?.ticket) {
+    return <EmptyState icon={MessageSquare} title="تعذر فتح التكت" description="حدث خطأ أثناء قراءة تفاصيل التكت." />;
+  }
+
+  const ticket = details.data.ticket;
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl border p-4">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <Badge variant="outline">#{ticket.ticketNo || ticket.id?.replace('legacy_', '').slice(0, 6)}</Badge>
+          <Badge>{statusMap[ticket.status] || ticket.status}</Badge>
+          <Badge variant="secondary">{ticket.departmentName || 'بدون قسم'}</Badge>
+          <Badge variant={ticket.priority === 'urgent' ? 'destructive' : 'outline'}>
+            {priorityMap[ticket.priority] || ticket.priority}
+          </Badge>
+        </div>
+
+        <h2 className="text-xl font-bold">{ticket.subject}</h2>
+        <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{ticket.description || 'لا يوجد وصف'}</p>
+
+        <div className="mt-4 grid gap-2 text-sm md:grid-cols-3">
+          <div>المشترك: <b>{ticket.externalName || '—'}</b></div>
+          <div>الهاتف: <b>{ticket.externalPhone || '—'}</b></div>
+          <div>PPPoE: <b>{ticket.externalPppoe || '—'}</b></div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {['new','open','in_progress','pending','resolved','closed'].map((s) => (
+            <Button
+              key={s}
+              size="sm"
+              variant={ticket.status === s ? 'default' : 'outline'}
+              onClick={() => updateMutation.mutate({ id: selected.id, data: { status: s } })}
+            >
+              {statusMap[s]}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {(details.data.replies || []).map((r: any) => (
+          <div key={r.id} className="rounded-xl border bg-muted/20 p-3">
+            <div className="mb-1 text-sm font-semibold">{r.authorName || 'النظام'}</div>
+            <div className="whitespace-pre-wrap">{r.body}</div>
+            <div className="mt-2 text-xs text-muted-foreground">{new Date(r.createdAt).toLocaleString('ar-IQ')}</div>
+          </div>
+        ))}
+      </div>
+
+      {(details.data.attachments || []).length > 0 && (
+        <div className="rounded-xl border p-3">
+          <div className="mb-2 font-semibold">المرفقات</div>
+          <div className="flex flex-wrap gap-2">
+            {details.data.attachments.map((a: any) => (
+              <a key={a.id} href={a.url} target="_blank" className="rounded-lg border px-3 py-2 text-sm hover:bg-muted">
+                <Paperclip className="ml-1 inline h-4 w-4" />
+                {a.fileName || 'مرفق'}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-xl border p-3">
+        <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
+          <AtSign className="h-4 w-4" />
+          للمنشن اكتب @username داخل الرد
+        </div>
+
+        <Textarea
+          rows={4}
+          placeholder="اكتب رد... مثال: @ahmed راجع هذا الخط"
+          value={reply}
+          onChange={(e) => setReply(e.target.value)}
+        />
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <Input type="file" accept="image/*" className="max-w-xs" onChange={(e) => setReplyFile(e.target.files?.[0] || null)} />
+          <Button disabled={replyMutation.isPending || !reply.trim()} onClick={() => replyMutation.mutate()}>
+            <Send className="ml-2 h-4 w-4" />
+            {replyMutation.isPending ? 'جاري الإرسال...' : 'إرسال رد'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminTicketsPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -48,6 +145,10 @@ export default function AdminTicketsPage() {
   const [status, setStatus] = useState('');
   const [departmentId, setDepartmentId] = useState('');
   const [selected, setSelected] = useState<any>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [subscriberQ, setSubscriberQ] = useState('');
   const [reply, setReply] = useState('');
   const [replyFile, setReplyFile] = useState<File | null>(null);
 
@@ -59,11 +160,19 @@ export default function AdminTicketsPage() {
     externalName: '',
     externalPhone: '',
     externalPppoe: '',
+    externalId: '',
+    subscriberId: '',
   });
 
   const departments = useQuery({
     queryKey: ['ticketDepartments'],
     queryFn: adminTicketsApi.departments,
+  });
+
+  const subscriberSearch = useQuery({
+    queryKey: ['ticketSubscriberSearch', subscriberQ],
+    queryFn: () => adminTicketsApi.searchSubscribers(subscriberQ),
+    enabled: createOpen && subscriberQ.trim().length >= 2,
   });
 
   const tickets = useQuery({
@@ -80,7 +189,9 @@ export default function AdminTicketsPage() {
   const createMutation = useMutation({
     mutationFn: async () => adminTicketsApi.create(form),
     onSuccess: () => {
-      setForm({ subject: '', description: '', category: 'general', priority: 'medium', externalName: '', externalPhone: '', externalPppoe: '' });
+      setForm({ subject: '', description: '', category: 'general', priority: 'medium', externalName: '', externalPhone: '', externalPppoe: '', externalId: '', subscriberId: '' });
+      setSubscriberQ('');
+      setCreateOpen(false);
       qc.invalidateQueries({ queryKey: ['adminTickets'] });
       toast({ title: 'تم إنشاء التكت' });
     },
@@ -126,11 +237,43 @@ export default function AdminTicketsPage() {
 
   const list = useMemo(() => tickets.data || [], [tickets.data]);
 
+  function chooseTicket(t: any) {
+    setSelected(t);
+
+    // Desktop: التفاصيل تظهر يم القائمة، بدون Dialog حتى ما تبقى الشاشة مغوشة
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      setDetailOpen(true);
+    } else {
+      setDetailOpen(false);
+    }
+
+    // تنظيف أي overlay عالق
+    setTimeout(() => {
+      if (typeof document !== 'undefined' && window.innerWidth >= 1024) {
+        document.body.style.pointerEvents = '';
+        document.body.style.overflow = '';
+        document.querySelectorAll('[data-radix-dialog-overlay]').forEach((el) => el.remove());
+      }
+    }, 50);
+  }
+
+  function chooseSubscriber(s: any) {
+    setForm((f: any) => ({
+      ...f,
+      externalName: s.name || '',
+      externalPhone: s.phone || '',
+      externalPppoe: s.pppoeUsername || '',
+      externalId: s.externalId || '',
+      subscriberId: s.subscriberId || '',
+    }));
+    setSubscriberQ(`${s.name || ''} ${s.phone || ''}`.trim());
+  }
+
+  const detailsProps = { selected, details, updateMutation, reply, setReply, replyFile, setReplyFile, replyMutation };
+
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="مركز التكتات"
-      />
+      <PageHeader title="مركز التكتات" />
 
       <Card>
         <CardContent className="grid gap-3 pt-6 md:grid-cols-4">
@@ -157,19 +300,62 @@ export default function AdminTicketsPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-[380px_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               التكتات
-              <Dialog>
+
+              <Dialog open={createOpen} onOpenChange={setCreateOpen}>
                 <DialogTrigger asChild>
                   <Button size="sm"><Plus className="ml-2 h-4 w-4" /> جديد</Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-xl">
+
+                <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
                   <DialogHeader><DialogTitle>إنشاء تكت إداري</DialogTitle></DialogHeader>
 
                   <div className="grid gap-3">
+                    <div className="rounded-xl border bg-muted/20 p-3">
+                      <Label className="mb-2 block">اختيار مشترك</Label>
+                      <div className="relative">
+                        <UserSearch className="absolute right-3 top-3 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          className="pr-9"
+                          placeholder="ابحث بالاسم أو الهاتف أو PPPoE"
+                          value={subscriberQ}
+                          onChange={(e) => setSubscriberQ(e.target.value)}
+                        />
+                      </div>
+
+                      {subscriberQ.trim().length >= 2 && (
+                        <div className="mt-3 max-h-64 space-y-2 overflow-y-auto">
+                          {subscriberSearch.isLoading ? <Loader /> : (subscriberSearch.data || []).length === 0 ? (
+                            <div className="text-sm text-muted-foreground">لا توجد نتائج.</div>
+                          ) : (subscriberSearch.data || []).map((s: any) => (
+                            <button
+                              key={`${s.source}-${s.externalId || s.subscriberId || s.phone}`}
+                              type="button"
+                              onClick={() => chooseSubscriber(s)}
+                              className={`w-full rounded-xl border p-3 text-right hover:bg-muted ${form.externalPhone === s.phone && form.externalPppoe === s.pppoeUsername ? 'border-primary bg-primary/5' : ''}`}
+                            >
+                              <div className="font-semibold">{s.name || 'بدون اسم'}</div>
+                              <div className="text-sm text-muted-foreground">{s.phone || '—'} • {s.pppoeUsername || '—'}</div>
+                              <div className="mt-1 flex gap-2">
+                                <Badge variant="outline">{s.source}</Badge>
+                                <Badge variant="secondary">{s.packageName || '—'}</Badge>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <Input placeholder="اسم المشترك" value={form.externalName} onChange={(e) => setForm({ ...form, externalName: e.target.value })} />
+                      <Input placeholder="الهاتف" value={form.externalPhone} onChange={(e) => setForm({ ...form, externalPhone: e.target.value })} />
+                      <Input placeholder="PPPoE" value={form.externalPppoe} onChange={(e) => setForm({ ...form, externalPppoe: e.target.value })} />
+                    </div>
+
                     <div className="grid gap-2">
                       <Label>عنوان التكت</Label>
                       <Input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
@@ -202,13 +388,7 @@ export default function AdminTicketsPage() {
                       </div>
                     </div>
 
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <Input placeholder="اسم المشترك" value={form.externalName} onChange={(e) => setForm({ ...form, externalName: e.target.value })} />
-                      <Input placeholder="الهاتف" value={form.externalPhone} onChange={(e) => setForm({ ...form, externalPhone: e.target.value })} />
-                      <Input placeholder="PPPoE" value={form.externalPppoe} onChange={(e) => setForm({ ...form, externalPppoe: e.target.value })} />
-                    </div>
-
-                    <Button disabled={createMutation.isPending} onClick={() => createMutation.mutate()}>
+                    <Button disabled={createMutation.isPending || !form.subject.trim()} onClick={() => createMutation.mutate()}>
                       {createMutation.isPending ? 'جاري الإنشاء...' : 'إنشاء التكت'}
                     </Button>
                   </div>
@@ -217,17 +397,17 @@ export default function AdminTicketsPage() {
             </CardTitle>
           </CardHeader>
 
-          <CardContent className="space-y-3">
+          <CardContent className="max-h-[calc(100vh-180px)] space-y-3 overflow-y-auto">
             {tickets.isLoading ? <Loader /> : list.length === 0 ? (
               <EmptyState icon={MessageSquare} title="لا توجد تكتات" description="لا توجد تكتات مطابقة للفلاتر الحالية." />
             ) : list.map((t: any) => (
               <button
                 key={t.id}
-                onClick={() => setSelected(t)}
+                onClick={() => chooseTicket(t)}
                 className={`w-full rounded-xl border p-3 text-right transition hover:bg-muted/40 ${selected?.id === t.id ? 'border-primary bg-muted/40' : ''}`}
               >
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <Badge variant="outline">#{t.ticketNo}</Badge>
+                  <Badge variant="outline">#{t.ticketNo || t.id?.replace('legacy_', '').slice(0, 6)}</Badge>
                   <Badge>{statusMap[t.status] || t.status}</Badge>
                 </div>
 
@@ -244,99 +424,18 @@ export default function AdminTicketsPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>تفاصيل التكت</CardTitle>
-          </CardHeader>
-
-          <CardContent>
-            {!selected ? (
-              <EmptyState icon={MessageSquare} title="اختر تكت" description="اختر تكت من القائمة حتى تظهر التفاصيل والردود." />
-            ) : details.isLoading ? <Loader /> : (
-              <div className="space-y-5">
-                <div className="rounded-xl border p-4">
-                  <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <Badge variant="outline">#{details.data.ticket.ticketNo}</Badge>
-                    <Badge>{statusMap[details.data.ticket.status] || details.data.ticket.status}</Badge>
-                    <Badge variant="secondary">{details.data.ticket.departmentName || 'بدون قسم'}</Badge>
-                    <Badge variant={details.data.ticket.priority === 'urgent' ? 'destructive' : 'outline'}>
-                      {priorityMap[details.data.ticket.priority] || details.data.ticket.priority}
-                    </Badge>
-                  </div>
-
-                  <h2 className="text-xl font-bold">{details.data.ticket.subject}</h2>
-                  <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{details.data.ticket.description || 'لا يوجد وصف'}</p>
-
-                  <div className="mt-4 grid gap-2 text-sm md:grid-cols-3">
-                    <div>المشترك: <b>{details.data.ticket.externalName || '—'}</b></div>
-                    <div>الهاتف: <b>{details.data.ticket.externalPhone || '—'}</b></div>
-                    <div>PPPoE: <b>{details.data.ticket.externalPppoe || '—'}</b></div>
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {['new','open','in_progress','pending','resolved','closed'].map((s) => (
-                      <Button
-                        key={s}
-                        size="sm"
-                        variant={details.data.ticket.status === s ? 'default' : 'outline'}
-                        onClick={() => updateMutation.mutate({ id: selected.id, data: { status: s } })}
-                      >
-                        {statusMap[s]}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  {(details.data.replies || []).map((r: any) => (
-                    <div key={r.id} className="rounded-xl border bg-muted/20 p-3">
-                      <div className="mb-1 text-sm font-semibold">{r.authorName || 'النظام'}</div>
-                      <div className="whitespace-pre-wrap">{r.body}</div>
-                      <div className="mt-2 text-xs text-muted-foreground">{new Date(r.createdAt).toLocaleString('ar-IQ')}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {(details.data.attachments || []).length > 0 && (
-                  <div className="rounded-xl border p-3">
-                    <div className="mb-2 font-semibold">المرفقات</div>
-                    <div className="flex flex-wrap gap-2">
-                      {details.data.attachments.map((a: any) => (
-                        <a key={a.id} href={a.url} target="_blank" className="rounded-lg border px-3 py-2 text-sm hover:bg-muted">
-                          <Paperclip className="ml-1 inline h-4 w-4" />
-                          {a.fileName || 'مرفق'}
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="rounded-xl border p-3">
-                  <div className="mb-2 flex items-center gap-2 text-sm text-muted-foreground">
-                    <AtSign className="h-4 w-4" />
-                    للمنشن اكتب @username داخل الرد
-                  </div>
-
-                  <Textarea
-                    rows={4}
-                    placeholder="اكتب رد... مثال: @ahmed راجع هذا الخط"
-                    value={reply}
-                    onChange={(e) => setReply(e.target.value)}
-                  />
-
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                    <Input type="file" accept="image/*" className="max-w-xs" onChange={(e) => setReplyFile(e.target.files?.[0] || null)} />
-                    <Button disabled={replyMutation.isPending || !reply.trim()} onClick={() => replyMutation.mutate()}>
-                      <Send className="ml-2 h-4 w-4" />
-                      {replyMutation.isPending ? 'جاري الإرسال...' : 'إرسال رد'}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </CardContent>
+        <Card className="hidden lg:sticky lg:top-4 lg:block lg:self-start">
+          <CardHeader><CardTitle>تفاصيل التكت</CardTitle></CardHeader>
+          <CardContent><TicketDetails {...detailsProps} /></CardContent>
         </Card>
       </div>
+
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto lg:hidden">
+          <DialogHeader><DialogTitle>تفاصيل التكت</DialogTitle></DialogHeader>
+          <TicketDetails {...detailsProps} />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
