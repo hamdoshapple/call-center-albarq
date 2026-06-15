@@ -563,45 +563,35 @@ function amountText(v: any) {
   return Number(v || 0).toLocaleString('en-US');
 }
 
-function niceDate(v: any) {
-  if (!v) return '';
-  try { return new Date(v).toLocaleDateString('ar-IQ'); } catch { return String(v || ''); }
+function cleanNullText(v: any) {
+  return String(v || '').replace(/NULL/gi, '').replace(/\s+/g, ' ').trim();
 }
 
-function renderTemplateVars(tpl: string, vars: Record<string, any>) {
+function enDate(v: any) {
+  if (!v) return '';
+  try { return new Date(v).toISOString().slice(0, 10); } catch { return String(v || ''); }
+}
+
+function renderFinanceTemplate(tpl: string, vars: Record<string, any>) {
   let out = String(tpl || '');
   const now = new Date();
-
   const all: Record<string, any> = {
     company: 'البرق الرقمي',
-    today: now.toLocaleDateString('ar-IQ'),
-    time: now.toLocaleTimeString('ar-IQ'),
-    datetime: now.toLocaleString('ar-IQ'),
-    name: '',
-    phone: '',
-    pppoe: '',
-    package: '',
-    packagePrice: '',
-    amount: '',
-    paid: '',
-    debt: '',
-    totalDebt: '',
-    receipt: '',
-    transactionId: '',
-    date: '',
-    expireDate: '',
-    days: '',
-    status: '',
-    type: '',
+    today: now.toISOString().slice(0, 10),
+    time: now.toTimeString().slice(0, 5),
+    datetime: now.toISOString().replace('T', ' ').slice(0, 16),
+    name: '', phone: '', pppoe: '', package: '',
+    packagePrice: '', amount: '', paid: '',
+    debt: '', totalDebt: '', remaining: '',
+    receipt: '', transactionId: '',
+    date: '', expireDate: '', status: '', type: '',
     ...vars,
   };
-
-  for (const [k, v] of Object.entries(all)) {
-    out = out.replaceAll(`{${k}}`, String(v ?? ''));
-  }
-
+  for (const [k, v] of Object.entries(all)) out = out.replaceAll(`{${k}}`, String(v ?? ''));
   return out;
 }
+
+
 
 
 async function addSubscriberInAppNotification(phone: string, title: string, message: string, type = 'finance') {
@@ -764,36 +754,41 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
     let message = '';
 
     const amountValue = Number(row.amount || row.moneyIn || row.moneyOut || 0);
-    const paidValue = Number(row.moneyIn || (type === 'payment' ? row.amount : 0) || 0);
-    const debtValue = Number(row.moneyOut || (type === 'debt' ? row.amount : 0) || 0);
-    const totalDebtValue = Number(row.totalDebt || sub.totalDebt || row.debt || sub.debt || debtValue || 0);
-    const expireDate = row.dateTo || row.expiration || sub.expiration || row.date || null;
+    const paidValue = Number(
+      type === 'payment' ? (row.amount || row.moneyIn || 0) :
+      type === 'activation' ? (row.amount || row.moneyIn || row.moneyOut || 0) :
+      (row.moneyIn || 0)
+    );
+    const debtValue = Number(type === 'debt' ? (row.amount || row.moneyOut || 0) : (row.moneyOut || 0));
+    const totalDebtValue = Number(sub.debt || sub.totalDebt || row.totalDebt || debtValue || 0);
+    const packagePriceValue = Number(type === 'activation' ? (row.amount || row.moneyOut || 0) : (row.packagePrice || row.price || 0));
+    const expireDate = row.dateTo || row.expiration || sub.expiration || null;
 
     const vars = {
-      name: row.name || sub.name || 'مشترك',
+      name: cleanNullText(row.name || sub.name || 'مشترك'),
       phone,
-      pppoe: row.pppoeUsername || sub.pppoeUsername || '',
-      package: row.package || sub.package || '',
-      packagePrice: amountText(row.packagePrice || row.price || 0),
+      pppoe: cleanNullText(row.pppoeUsername || sub.pppoeUsername || ''),
+      package: cleanNullText(row.package || sub.package || ''),
+      packagePrice: amountText(packagePriceValue),
       amount: amountText(amountValue),
       paid: amountText(paidValue),
       debt: amountText(debtValue),
       totalDebt: amountText(totalDebtValue),
-      receipt: row.sandId || row.id || sandId,
-      transactionId: sandId,
-      date: niceDate(expireDate),
-      expireDate: niceDate(expireDate),
-      days: '',
-      status: row.status || '',
+      remaining: amountText(totalDebtValue),
+      receipt: row.id || row.sandId || sandId,
+      transactionId: row.id || sandId,
+      date: enDate(expireDate),
+      expireDate: enDate(expireDate),
+      status: cleanNullText(row.status || sub.status || ''),
       type,
     };
 
     if (type === 'payment') {
-      message = renderTemplateVars(settings.templates?.payment || 'تم تسجيل دفعة جديدة بقيمة {amount} د.ع.', vars);
+      message = renderFinanceTemplate(settings.templates?.payment || 'تم تسجيل دفعة جديدة بقيمة {amount} د.ع.', vars);
     } else if (type === 'debt') {
-      message = renderTemplateVars(settings.templates?.debt || 'يوجد عليك مبلغ مستحق قدره {amount} د.ع.', vars);
+      message = renderFinanceTemplate(settings.templates?.debt || 'يوجد عليك مبلغ مستحق قدره {amount} د.ع.', vars);
     } else if (type === 'activation') {
-      message = renderTemplateVars(settings.templates?.activation || 'تم تفعيل اشتراكك بنجاح.', vars);
+      message = renderFinanceTemplate(settings.templates?.activation || 'تم تفعيل الاشتراك بنجاح.', vars);
     }
 
     const channelKey = type === 'payment' ? 'payment' : type === 'debt' ? 'debt' : 'activation';
@@ -845,10 +840,18 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
       `, externalId);
     }
 
+    let liveInfo: any = {};
+    try {
+      const liveByPhone = await searchExternalSubscribers(phone);
+      liveInfo = liveByPhone.find((x: any) => String(x.id) === externalId) || liveByPhone[0] || {};
+    } catch {}
+
+    const subInfo = { ...sub, ...liveInfo };
+
     result.scanned += rows.length;
 
     for (const row of rows) {
-      await processRow(row, phone, source, sub);
+      await processRow(row, phone, source, subInfo);
     }
   }
 
