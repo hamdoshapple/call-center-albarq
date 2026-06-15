@@ -26,6 +26,17 @@ services:
     container_name: albarq-redis
     restart: unless-stopped
 
+  wa-gateway:
+    build: ./wa-gateway
+    container_name: albarq-wa-gateway
+    restart: unless-stopped
+    environment:
+      PORT: 4100
+      WA_GATEWAY_TOKEN: "wa_21f8e5db100787ba2b5db05447819c69b776719060414c7b"
+    volumes:
+      - ./wa-sessions:/app/.wwebjs_auth
+      - ./wa-gateway/data:/app/data
+
   backend:
     build: ./backend
     container_name: albarq-backend
@@ -56,6 +67,8 @@ services:
       EXTERNAL_MSSQL_DATABASE: "mynet"
       EXTERNAL_MSSQL_USER: "callcenter_sync"
       EXTERNAL_MSSQL_PASSWORD: "Itech@@1122"
+      WA_GATEWAY_URL: "http://wa-gateway:4100"
+      WA_GATEWAY_TOKEN: "wa_21f8e5db100787ba2b5db05447819c69b776719060414c7b"
     ports:
       - "127.0.0.1:4000:4000"
     volumes:

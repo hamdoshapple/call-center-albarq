@@ -23,6 +23,7 @@ import * as vpn from '../controllers/vpn.controller.js';
 import * as dataSource from '../controllers/data-source.controller.js';
 import * as subscriberApp from '../controllers/subscriber-app.controller.js';
 import * as push from '../controllers/push.controller.js';
+import * as whatsapp from '../controllers/whatsapp.controller.js';
 
 export const router = Router();
 
@@ -207,6 +208,17 @@ router.delete(
   h(subscriberApp.deleteImage)
 );
 
+
+// ---------- WhatsApp ----------
+router.get('/whatsapp/sessions', h(whatsapp.list));
+router.post('/whatsapp/sessions/start', h(whatsapp.start));
+router.get('/whatsapp/sessions/:sessionId/status', h(whatsapp.status));
+router.get('/whatsapp/sessions/:sessionId/qr', h(whatsapp.qr));
+router.post('/whatsapp/sessions/:sessionId/pair-code', h(whatsapp.pairCode));
+router.post('/whatsapp/sessions/logout', h(whatsapp.logout));
+router.put('/whatsapp/sessions/settings', h(whatsapp.updateSettings));
+router.post('/whatsapp/send', h(whatsapp.send));
+router.get('/whatsapp/logs', h(whatsapp.logs));
 
 // ---------- Push Notifications ----------
 router.get('/push/stats', h(push.stats));

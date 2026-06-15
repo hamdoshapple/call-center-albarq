@@ -711,3 +711,38 @@ model PushNotificationLog {
   @@index([createdAt])
   @@index([status])
 }
+
+model WhatsappSession {
+  id          String    @id @default(cuid())
+  sessionId   String    @unique
+  name        String
+  status      String    @default("idle")
+  active      Boolean   @default(true)
+  delayMin    Int       @default(5)
+  delayMax    Int       @default(15)
+  dailyLimit  Int       @default(200)
+  sentToday   Int       @default(0)
+  failedToday Int       @default(0)
+  lastError   String?   @db.Text
+  connectedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@index([active])
+}
+
+model WhatsappMessageLog {
+  id         String    @id @default(cuid())
+  sessionId  String?
+  to         String
+  message    String    @db.Text
+  status     String    @default("queued")
+  error      String?   @db.Text
+  createdAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@index([sessionId])
+  @@index([status])
+  @@index([createdAt])
+}

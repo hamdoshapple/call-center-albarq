@@ -18,6 +18,7 @@ import {
   Settings,
   MessageSquare,
   BellRing,
+  MessageCircle,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -37,6 +38,7 @@ export const NAV_ITEMS: NavItem[] = [
   { module: 'subscribers', path: '/subscribers', icon: UserSearch, group: 'operations' },
   { module: 'admin_tickets' as ModuleKey, path: '/admin-tickets', icon: MessageSquare, group: 'operations' },
   { module: 'push_notifications' as ModuleKey, path: '/push-notifications', icon: BellRing, group: 'operations' },
+  { module: 'whatsapp' as ModuleKey, path: '/whatsapp', icon: MessageCircle, group: 'operations' },
 
   { module: 'agents', path: '/agents', icon: Users, group: 'management' },
   { module: 'departments', path: '/departments', icon: Building2, group: 'management' },
