@@ -20,6 +20,12 @@ async function gw(path: string, options: RequestInit = {}) {
   return data;
 }
 
+function randomDelayMs(min: any, max: any) {
+  const a = Math.max(1, Number(min || 5));
+  const b = Math.max(a, Number(max || 15));
+  return (Math.floor(Math.random() * (b - a + 1)) + a) * 1000;
+}
+
 function spinMessage(message: string) {
   return String(message || '').replace(/\{rand:([^}]+)\}/g, (_m, body) => {
     const parts = String(body).split('|').map((x) => x.trim()).filter(Boolean);
@@ -130,7 +136,7 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
   });
 
   try {
-    await gw('/send', { method: 'POST', body: JSON.stringify({ sessionId: session.sessionId, to, message }) });
+    await gw('/send', { method: 'POST', body: JSON.stringify({ sessionId: session.sessionId, to, message, delay: randomDelayMs((session as any).delayMin, (session as any).delayMax) }) });
     await prisma.whatsappMessageLog.update({
       where: { id: log.id },
       data: { status: 'sent', finishedAt: new Date() },

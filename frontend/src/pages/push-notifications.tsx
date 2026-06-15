@@ -63,6 +63,18 @@ const defaultSettings = {
   },
   expiry: { beforeDays: [7, 3, 1], afterDays: [1, 3] },
   debt: { enabled: true, minAmount: 1000, repeatDays: 7 },
+  channels: {
+    activation: 'push',
+    renewal: 'push',
+    payment: 'push',
+    debt: 'push',
+    expiryBefore: 'push',
+    expired: 'push',
+    ticketCreated: 'push',
+    ticketReply: 'push',
+    ticketStatus: 'push',
+    ticketClosed: 'push',
+  },
   templates: {
     activation: 'تم تفعيل اشتراكك بنجاح.',
     renewal: 'تم تجديد اشتراكك بنجاح.',
@@ -95,6 +107,30 @@ function niceType(v: string) {
   if (x.includes('ticket')) return 'تكت';
   if (x.includes('manual')) return 'يدوي';
   return x || 'عام';
+}
+
+function channelLabel(v: any) {
+  const x = String(v || 'push');
+  if (x === 'off') return 'مطفأ';
+  if (x === 'whatsapp') return 'واتساب فقط';
+  if (x === 'both') return 'تطبيق + واتساب';
+  return 'تطبيق فقط';
+}
+
+function ChannelSelect({ value, onChange }: any) {
+  return (
+    <Select value={String(value || 'push')} onValueChange={onChange}>
+      <SelectTrigger className="h-10 rounded-xl">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="push">تطبيق فقط</SelectItem>
+        <SelectItem value="whatsapp">واتساب فقط</SelectItem>
+        <SelectItem value="both">تطبيق + واتساب</SelectItem>
+        <SelectItem value="off">مطفأ</SelectItem>
+      </SelectContent>
+    </Select>
+  );
 }
 
 function StatCard({ title, value, icon: Icon, tone = 'primary' }: any) {
@@ -216,6 +252,7 @@ export default function PushNotificationsPage() {
   });
 
   const setAuto = (k: string, v: boolean) => setSettings((s: any) => ({ ...s, auto: { ...s.auto, [k]: v } }));
+  const setChannel = (k: string, v: string) => setSettings((s: any) => ({ ...s, channels: { ...(s.channels || {}), [k]: v } }));
   const setTemplate = (k: string, v: string) => setSettings((s: any) => ({ ...s, templates: { ...s.templates, [k]: v } }));
 
   return (
@@ -576,25 +613,53 @@ export default function PushNotificationsPage() {
                 الإشعارات التلقائية
               </CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {Object.entries({
-                enabled: 'تشغيل النظام التلقائي',
-                onActivation: 'عند تفعيل الاشتراك',
-                onRenewal: 'عند تجديد الاشتراك',
-                onPayment: 'عند إضافة دفعة',
-                onDebt: 'عند إضافة دين',
-                onTicketCreated: 'عند إنشاء تذكرة',
-                onTicketReply: 'عند الرد على التذكرة',
-                onTicketStatus: 'عند تغيير حالة التذكرة',
-                onTicketClosed: 'عند إغلاق التذكرة',
-              }).map(([k, label]) => (
-                <div key={k} className="flex items-center justify-between rounded-2xl border bg-muted/20 p-4">
-                  <Label className="font-bold">{label}</Label>
-                  <Switch checked={!!settings.auto?.[k]} onCheckedChange={(v) => setAuto(k, v)} />
+            <CardContent className="space-y-4">
+              <div className="rounded-2xl border bg-muted/20 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label className="text-base font-black">تشغيل النظام التلقائي</Label>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      إذا مطفأ، لا يرسل أي إشعار تلقائي.
+                    </div>
+                  </div>
+                  <Switch checked={!!settings.auto?.enabled} onCheckedChange={(v) => setAuto('enabled', v)} />
                 </div>
-              ))}
+              </div>
 
-              <div className="flex flex-wrap gap-2 md:col-span-2 xl:col-span-3">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {[
+                  ['activation', 'onActivation', 'عند تفعيل الاشتراك'],
+                  ['renewal', 'onRenewal', 'عند تجديد الاشتراك'],
+                  ['payment', 'onPayment', 'عند إضافة دفعة'],
+                  ['debt', 'onDebt', 'عند إضافة دين'],
+                  ['expiryBefore', 'enabled', 'قرب الانتهاء'],
+                  ['expired', 'enabled', 'بعد الانتهاء'],
+                  ['ticketCreated', 'onTicketCreated', 'عند إنشاء تذكرة'],
+                  ['ticketReply', 'onTicketReply', 'عند الرد على التذكرة'],
+                  ['ticketStatus', 'onTicketStatus', 'عند تغيير حالة التذكرة'],
+                  ['ticketClosed', 'onTicketClosed', 'عند إغلاق التذكرة'],
+                ].map(([channelKey, toggleKey, label]: any) => (
+                  <div key={channelKey} className="rounded-2xl border bg-muted/20 p-4">
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <Label className="font-bold">{label}</Label>
+                      {!['expiryBefore', 'expired'].includes(channelKey) && (
+                        <Switch checked={!!settings.auto?.[toggleKey]} onCheckedChange={(v) => setAuto(toggleKey, v)} />
+                      )}
+                    </div>
+
+                    <ChannelSelect
+                      value={settings.channels?.[channelKey] || 'push'}
+                      onChange={(v: string) => setChannel(channelKey, v)}
+                    />
+
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      الحالي: {channelLabel(settings.channels?.[channelKey] || 'push')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
                 <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>حفظ الإعدادات</Button>
                 <Button variant="outline" onClick={() => autoMutation.mutate()} disabled={autoMutation.isPending}>
                   <Clock className="ml-2 h-4 w-4" />

@@ -48,7 +48,7 @@ export default function WhatsappPage() {
     try {
       const data = await api('/whatsapp/sessions/start', {
         method: 'POST',
-        body: JSON.stringify({ name: name || undefined, sessionId: activeId || undefined, force }),
+        body: JSON.stringify({ name: name || undefined, sessionId: force ? activeId || undefined : undefined, force }),
       });
       setActiveId(data.session.sessionId);
       toast({ title: 'تم إنشاء/تشغيل جلسة واتساب' });

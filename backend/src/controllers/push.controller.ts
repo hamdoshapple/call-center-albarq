@@ -370,6 +370,61 @@ export async function sendPushToPhones(phones: string[], title: string, message:
   return { targets: targets.length, sent, failed };
 }
 
+
+function normalizeAutoChannel(v: any) {
+  const x = String(v || 'push');
+  if (['off', 'none', 'disabled'].includes(x)) return 'off';
+  if (['push', 'whatsapp', 'both', 'all'].includes(x)) return x;
+  return 'push';
+}
+
+function usesPushChannel(ch: any) {
+  const x = normalizeAutoChannel(ch);
+  return x === 'push' || x === 'both' || x === 'all';
+}
+
+function usesWhatsappChannel(ch: any) {
+  const x = normalizeAutoChannel(ch);
+  return x === 'whatsapp' || x === 'both' || x === 'all';
+}
+
+async function sendAutoByChannel(phone: string, title: string, message: string, targetType: string, channel: any) {
+  const ch = normalizeAutoChannel(channel);
+  const out: any = {
+    channel: ch,
+    push: { targets: 0, sent: 0, failed: 0 },
+    whatsapp: { targets: 0, sent: 0, failed: 0 },
+    sent: 0,
+    failed: 0,
+  };
+
+  if (ch === 'off') return out;
+
+  if (usesPushChannel(ch)) {
+    out.push = await sendPushToPhones([phone], title, message, '/my');
+  }
+
+  if (usesWhatsappChannel(ch)) {
+    out.whatsapp = await sendWhatsappToPhones([phone], `${title}\n\n${message}`);
+  }
+
+  out.sent = Number(out.push.sent || 0) + Number(out.whatsapp.sent || 0);
+  out.failed = Number(out.push.failed || 0) + Number(out.whatsapp.failed || 0);
+
+  await prisma.pushNotificationLog.create({
+    data: {
+      phone,
+      title,
+      message,
+      targetType: `${targetType}:${ch}`,
+      status: out.sent > 0 ? 'sent' : 'failed',
+      error: out.failed > 0 ? `push=${out.push.failed || 0} whatsapp=${out.whatsapp.failed || 0}` : null,
+    } as any,
+  }).catch(() => null);
+
+  return out;
+}
+
 export const autoExpiryDebt = asyncHandler(async (_req: Request, res: Response) => {
   const settings = await getNotificationSettingsObject();
 
@@ -413,7 +468,9 @@ export const autoExpiryDebt = asyncHandler(async (_req: Request, res: Response) 
         continue;
       }
 
-      const r = await sendPushToPhones([phone], title, message, '/my');
+      const channelKey = targetType.startsWith('expiry_before_') ? 'expiryBefore' : 'expired';
+      const channel = (settings as any).channels?.[channelKey] || 'push';
+      const r = await sendAutoByChannel(String(phone), title, message, targetType, channel);
 
       sent += r.sent;
       failed += r.failed;
@@ -422,7 +479,7 @@ export const autoExpiryDebt = asyncHandler(async (_req: Request, res: Response) 
         INSERT INTO PushCampaign
         (id,title,message,targetType,targetValue,sentCount,failedCount,createdById)
         VALUES (?,?,?,?,?,?,?,?)
-      `, cuid(), title, message, targetType, phone, r.sent, r.failed, null);
+      `, cuid(), title, message, `${targetType}:${r.channel}`, phone, r.sent, r.failed, null);
     }
 
     results.push({ targetType, targets: rows.length, sent, failed, skippedDuplicate });
@@ -473,25 +530,29 @@ export const autoExpiryDebt = asyncHandler(async (_req: Request, res: Response) 
   }
 
   if (settings?.debt?.enabled) {
-    const targets = await getTargets('debt', String(settings.debt.minAmount || 1000));
+    const debtChannel = (settings as any).channels?.debt || 'push';
+    const title = 'يوجد مبلغ مستحق';
+    const message = settings.templates?.debt || 'يوجد عليك مبلغ مستحق.';
     let sent = 0;
     let failed = 0;
+    let targetPhones: string[] = [];
 
-    for (const row of targets) {
-      const ok = await sendOne(row, {
-        title: 'يوجد مبلغ مستحق',
-        body: settings.templates?.debt || 'يوجد عليك مبلغ مستحق.',
-        icon: '/icons/apple-touch-icon.png',
-        badge: '/icons/apple-touch-icon.png',
-        url: '/my',
-        tag: `albarq-debt-${Date.now()}`,
-      }, 'auto_debt');
-
-      if (ok) sent++;
-      else failed++;
+    if (usesWhatsappChannel(debtChannel)) {
+      targetPhones = await getWhatsappPhones('debt', String(settings.debt.minAmount || 1000));
+    } else {
+      const targets = await getTargets('debt', String(settings.debt.minAmount || 1000));
+      targetPhones = targets.map((x: any) => String(x.phoneNorm || x.normalizedPhone || x.phone || '')).filter(Boolean);
     }
 
-    results.push({ targetType: 'debt', targets: targets.length, sent, failed });
+    targetPhones = Array.from(new Set(targetPhones.map((x) => normPushPhone(x)).filter(Boolean)));
+
+    for (const phone of targetPhones) {
+      const r = await sendAutoByChannel(phone, title, message, 'auto_debt', debtChannel);
+      sent += r.sent;
+      failed += r.failed;
+    }
+
+    results.push({ targetType: `debt:${debtChannel}`, targets: targetPhones.length, sent, failed });
   }
 
   res.json({ ok: true, results });
@@ -594,7 +655,7 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
     );
   }
 
-  async function processRow(row: any, phone: string, source: string) {
+  async function processRow(row: any, phone: string, _source: string) {
     const type = String(row.type || 'other');
     if (!['payment', 'debt', 'activation'].includes(type)) return;
 
@@ -629,18 +690,9 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
       message = String(settings.templates?.activation || 'تم تفعيل اشتراكك بنجاح.');
     }
 
-    const pushed = await sendPushToPhones([phone], title, message, '/my');
-
-    await prisma.pushNotificationLog.create({
-      data: {
-        phone,
-        title,
-        message,
-        targetType: eventKey,
-        status: pushed.sent > 0 ? 'sent' : 'failed',
-        error: pushed.failed > 0 ? `send failed / source=${source}` : null,
-      } as any,
-    }).catch(() => null);
+    const channelKey = type === 'payment' ? 'payment' : type === 'debt' ? 'debt' : 'activation';
+    const ch = (settings as any).channels?.[channelKey] || 'push';
+    const sentByChannel = await sendAutoByChannel(phone, title, message, eventKey, ch);
 
     await addSubscriberInAppNotification(phone, title, message, `finance_${type}`);
 
@@ -648,11 +700,11 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
       INSERT INTO PushCampaign
       (id,title,message,targetType,targetValue,sentCount,failedCount,createdById)
       VALUES (?,?,?,?,?,?,?,?)
-    `, cuid(), title, message, eventKey, phone, pushed.sent, pushed.failed, null);
+    `, cuid(), title, message, `${eventKey}:${sentByChannel.channel}`, phone, sentByChannel.sent, sentByChannel.failed, null);
 
     result.detected++;
-    result.sent += pushed.sent;
-    result.failed += pushed.failed;
+    result.sent += sentByChannel.sent;
+    result.failed += sentByChannel.failed;
   }
 
   for (const sub of subscribers) {
@@ -710,7 +762,16 @@ export const stats = asyncHandler(async (_req: Request, res: Response) => {
     SELECT * FROM PushCampaign ORDER BY createdAt DESC LIMIT 30
   `);
 
-  res.json(jsonSafe({ stats: rows[0] || {}, campaigns }));
+  const waRows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT
+      COUNT(*) AS whatsappSessions,
+      SUM(status='connected' AND active=1) AS whatsappConnected,
+      COALESCE(SUM(sentToday),0) AS whatsappSentToday,
+      COALESCE(SUM(failedToday),0) AS whatsappFailedToday
+    FROM WhatsappSession
+  `).catch(() => [{ whatsappSessions: 0, whatsappConnected: 0, whatsappSentToday: 0, whatsappFailedToday: 0 }]);
+
+  res.json(jsonSafe({ stats: { ...(rows[0] || {}), ...(waRows[0] || {}) }, campaigns }));
 });
 
 export const send = asyncHandler(async (req: Request, res: Response) => {
@@ -807,6 +868,18 @@ const defaultNotificationSettings = {
     minAmount: 1000,
     repeatDays: 7
   },
+  channels: {
+    activation: 'push',
+    renewal: 'push',
+    payment: 'push',
+    debt: 'push',
+    expiryBefore: 'push',
+    expired: 'push',
+    ticketCreated: 'push',
+    ticketReply: 'push',
+    ticketStatus: 'push',
+    ticketClosed: 'push'
+  },
   templates: {
     activation: 'تم تفعيل اشتراكك بنجاح.',
     renewal: 'تم تجديد اشتراكك بنجاح.',
@@ -832,6 +905,7 @@ async function getNotificationSettingsObject() {
     auto: { ...defaultNotificationSettings.auto, ...(v.auto || {}) },
     expiry: { ...defaultNotificationSettings.expiry, ...(v.expiry || {}) },
     debt: { ...defaultNotificationSettings.debt, ...(v.debt || {}) },
+    channels: { ...(defaultNotificationSettings as any).channels, ...(v.channels || {}) },
     templates: { ...defaultNotificationSettings.templates, ...(v.templates || {}) },
   };
 }
@@ -848,6 +922,7 @@ export const saveSettings = asyncHandler(async (req: Request, res: Response) => 
     auto: { ...current.auto, ...(req.body?.auto || {}) },
     expiry: { ...current.expiry, ...(req.body?.expiry || {}) },
     debt: { ...current.debt, ...(req.body?.debt || {}) },
+    channels: { ...(current as any).channels, ...(req.body?.channels || {}) },
     templates: { ...current.templates, ...(req.body?.templates || {}) },
   };
 
