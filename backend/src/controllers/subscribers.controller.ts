@@ -140,14 +140,97 @@ export async function getTickets(req: Request, res: Response) {
 }
 
 
+
+async function getCacheScheduleSettings() {
+  const rows = await prisma.setting.findMany({
+    where: {
+      key: {
+        in: [
+          'subscribersCacheIntervalMinutes',
+          'subscribersCacheFinalTime',
+          'subscribersCacheLimit',
+        ],
+      },
+    },
+  });
+
+  const map = new Map(rows.map((x) => [x.key, x.value]));
+
+  return {
+    intervalMinutes: Number(map.get('subscribersCacheIntervalMinutes') || 15),
+    finalTime: String(map.get('subscribersCacheFinalTime') || '22:00'),
+    limit: Number(map.get('subscribersCacheLimit') || 7000),
+  };
+}
+
+export async function updateCacheScheduleSettings(req: Request, res: Response) {
+  const intervalMinutes = Math.max(1, Math.min(1440, Number(req.body?.intervalMinutes || 15)));
+  const limit = Math.max(1, Math.min(100000, Number(req.body?.limit || 7000)));
+  const finalTime = String(req.body?.finalTime || '22:00');
+
+  if (!/^\d{2}:\d{2}$/.test(finalTime)) {
+    return res.status(400).json({ error: 'finalTime must be HH:mm مثل 22:00' });
+  }
+
+  await prisma.setting.upsert({
+    where: { key: 'subscribersCacheIntervalMinutes' },
+    create: { key: 'subscribersCacheIntervalMinutes', value: intervalMinutes },
+    update: { value: intervalMinutes },
+  });
+
+  await prisma.setting.upsert({
+    where: { key: 'subscribersCacheFinalTime' },
+    create: { key: 'subscribersCacheFinalTime', value: finalTime },
+    update: { value: finalTime },
+  });
+
+  await prisma.setting.upsert({
+    where: { key: 'subscribersCacheLimit' },
+    create: { key: 'subscribersCacheLimit', value: limit },
+    update: { value: limit },
+  });
+
+  res.json({
+    ok: true,
+    intervalMinutes,
+    finalTime,
+    limit,
+    message: 'تم حفظ إعدادات تحديث الكاش',
+  });
+}
+
 export async function cacheStatus(_req: Request, res: Response) {
-  res.json(await subscriberCacheStatus());
+  const status = await subscriberCacheStatus();
+  const schedule = await getCacheScheduleSettings();
+
+  res.json({
+    ...status,
+    schedule,
+  });
 }
 
 export async function refreshCache(req: Request, res: Response) {
-  const limit = Math.min(100000, Math.max(1, Number(req.body?.limit || 50000)));
+  const schedule = await getCacheScheduleSettings();
+  const limit = Math.min(100000, Math.max(1, Number(req.body?.limit || schedule.limit || 7000)));
   const result = await refreshExternalSubscriberCache(limit);
-  res.json(result);
+
+  if (!result.count) {
+    const status = await subscriberCacheStatus();
+    return res.json({
+      ...result,
+      ok: false,
+      message: 'لم يتم تحديث الكاش لأن مصدر live غير متاح حالياً، وتم الإبقاء على الكاش القديم.',
+      existingCacheCount: status.count,
+      newestCachedAt: status.newestCachedAt,
+      oldestCachedAt: status.oldestCachedAt,
+    });
+  }
+
+  res.json({
+    ...result,
+    ok: true,
+    message: 'تم تحديث كاش المشتركين بنجاح.',
+  });
 }
 
 export async function create(req: Request, res: Response) {
