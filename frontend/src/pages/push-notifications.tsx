@@ -119,7 +119,34 @@ function StatCard({ title, value, icon: Icon, tone = 'primary' }: any) {
   );
 }
 
+
 export default function PushNotificationsPage() {
+  const debtTone = (v: any) => {
+    const n = Number(v || 0);
+    if (n <= 0) return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+    if (n < 50000) return 'border-amber-200 bg-amber-50 text-amber-700';
+    return 'border-red-200 bg-red-50 text-red-700';
+  };
+
+  const daysUntil = (v: any) => {
+    if (!v) return null;
+    return Math.ceil((new Date(v).getTime() - Date.now()) / 86400000);
+  };
+
+  const isExpiredSub = (sub: any) =>
+    (sub.accounts || []).some((a: any) => {
+      const d = daysUntil(a.expiration);
+      return d !== null && d < 0;
+    });
+
+  const isNearExpirySub = (sub: any) =>
+    (sub.accounts || []).some((a: any) => {
+      const d = daysUntil(a.expiration);
+      return d !== null && d >= 0 && d <= 7;
+    });
+
+  const isWantedSub = (sub: any) => Number(sub.totalDebt || 0) > 0;
+
   const qc = useQueryClient();
   const { toast } = useToast();
 
@@ -133,6 +160,9 @@ export default function PushNotificationsPage() {
 
   const [settings, setSettings] = useState<any>(defaultSettings);
   const [logFilters, setLogFilters] = useState({ q: '', status: 'all', type: 'all' });
+  const [subscriberSearch, setSubscriberSearch] = useState('');
+  const [selectedPhones, setSelectedPhones] = useState<string[]>([]);
+  const [subscriberFilter, setSubscriberFilter] = useState('all');
 
   const stats = useQuery({ queryKey: ['pushStats'], queryFn: pushNotificationsApi.stats });
   const pushLogs = useQuery({
@@ -141,6 +171,11 @@ export default function PushNotificationsPage() {
     refetchInterval: 15000,
   });
   const settingsQuery = useQuery({ queryKey: ['pushSettings'], queryFn: pushNotificationsApi.settings });
+  const pushSubscribers = useQuery({
+    queryKey: ['pushSubscribers', subscriberSearch],
+    queryFn: () => pushNotificationsApi.subscribers(subscriberSearch),
+    refetchInterval: 30000,
+  });
 
   useEffect(() => {
     if (settingsQuery.data) setSettings(settingsQuery.data);
@@ -153,7 +188,7 @@ export default function PushNotificationsPage() {
   const recentRows = useMemo(() => rows.slice(0, 5), [rows]);
 
   const sendMutation = useMutation({
-    mutationFn: () => pushNotificationsApi.send(form),
+    mutationFn: () => pushNotificationsApi.send(form.targetType === 'phone' ? { ...form, targetValue: selectedPhones.join(',') } : form),
     onSuccess: (data) => {
       toast({ title: 'تم الإرسال', description: `وصل: ${data.sent} / فشل: ${data.failed}` });
       setForm((f) => ({ ...f, message: '' }));
@@ -301,11 +336,11 @@ export default function PushNotificationsPage() {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="grid gap-2">
                     <Label>الهدف</Label>
-                    <Select value={form.targetType} onValueChange={(v) => setForm({ ...form, targetType: v, targetValue: '' })}>
+                    <Select value={form.targetType} onValueChange={(v) => { setForm({ ...form, targetType: v, targetValue: '' }); setSelectedPhones([]); }}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">كل المشتركين</SelectItem>
-                        <SelectItem value="phone">أرقام محددة</SelectItem>
+                        <SelectItem value="phone">مشتركون محددون</SelectItem>
                         <SelectItem value="debt">ديون</SelectItem>
                         <SelectItem value="expire_days">ينتهي خلال أيام</SelectItem>
                         <SelectItem value="expired">منتهين</SelectItem>
@@ -314,17 +349,182 @@ export default function PushNotificationsPage() {
                   </div>
 
                   <div className="grid gap-2">
-                    <Label>القيمة</Label>
-                    <Input
-                      disabled={form.targetType === 'all' || form.targetType === 'expired'}
-                      value={form.targetValue}
-                      onChange={(e) => setForm({ ...form, targetValue: e.target.value })}
-                      placeholder={form.targetType === 'phone' ? '078xxxx, 077xxxx' : 'مثلاً 3 أو 10000'}
-                    />
+                    <Label>{form.targetType === 'phone' ? 'المشتركين المختارين' : 'القيمة'}</Label>
+                    {form.targetType === 'phone' ? (
+                      <div className="rounded-2xl border bg-muted/20 p-3">
+                        <div className="text-sm font-bold">{selectedPhones.length} مشترك مختار</div>
+                        <div className="mt-1 line-clamp-1 text-xs text-muted-foreground">
+                          {selectedPhones.length ? selectedPhones.join('، ') : 'لم يتم اختيار مشتركين بعد'}
+                        </div>
+                      </div>
+                    ) : (
+                      <Input
+                        disabled={form.targetType === 'all' || form.targetType === 'expired'}
+                        value={form.targetValue}
+                        onChange={(e) => setForm({ ...form, targetValue: e.target.value })}
+                        placeholder="مثلاً 3 أو 10000"
+                      />
+                    )}
                   </div>
                 </div>
+                {form.targetType === 'phone' && (
+                  <div className="rounded-[28px] border bg-background p-4 shadow-sm">
+                    <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <div className="text-xl font-black">اختيار المشتركين</div>
+                        <div className="text-sm text-muted-foreground">
+                          اختر من الأجهزة المسجلة بالإشعارات مع عرض الحسابات والدين لنفس الرقم
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="secondary">مختار {selectedPhones.length}</Badge>
+                        <Badge variant="outline">المعروض {(pushSubscribers.data || []).filter((sub: any) => subscriberFilter === 'all' || (subscriberFilter === 'debt' && isWantedSub(sub)) || (subscriberFilter === 'near' && isNearExpirySub(sub)) || (subscriberFilter === 'expired' && isExpiredSub(sub)) || (subscriberFilter === 'multi' && Number(sub.accountsCount || 0) > 1)).length}</Badge>
+                      </div>
+                    </div>
 
-                <Button className="h-12 w-full md:w-auto" disabled={sendMutation.isPending || !form.title.trim() || !form.message.trim()} onClick={() => sendMutation.mutate()}>
+                    <div className="relative">
+                      <Search className="absolute right-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        className="h-12 rounded-2xl pr-9"
+                        placeholder="بحث بالاسم أو الرقم..."
+                        value={subscriberSearch}
+                        onChange={(e) => setSubscriberSearch(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {[
+                        { value: 'all', label: 'الكل' },
+                        { value: 'debt', label: 'المطلوبين' },
+                        { value: 'near', label: 'قريب الانتهاء' },
+                        { value: 'expired', label: 'المنتهين' },
+                        { value: 'multi', label: 'متعدد الحسابات' },
+                      ].map((f) => (
+                        <button
+                          key={f.value}
+                          type="button"
+                          onClick={() => setSubscriberFilter(f.value)}
+                          className={`rounded-full border px-3 py-1.5 text-xs font-black transition ${
+                            subscriberFilter === f.value
+                              ? 'border-primary bg-primary text-primary-foreground'
+                              : 'bg-background text-muted-foreground hover:bg-muted'
+                          }`}
+                        >
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 max-h-[430px] overflow-y-auto rounded-2xl border bg-muted/20">
+                      {pushSubscribers.isLoading ? (
+                        <div className="p-6"><Loader /></div>
+                      ) : (pushSubscribers.data || []).length ? (
+                        (pushSubscribers.data || [])
+                          .filter((sub: any) =>
+                            subscriberFilter === 'all' ||
+                            (subscriberFilter === 'debt' && isWantedSub(sub)) ||
+                            (subscriberFilter === 'near' && isNearExpirySub(sub)) ||
+                            (subscriberFilter === 'expired' && isExpiredSub(sub)) ||
+                            (subscriberFilter === 'multi' && Number(sub.accountsCount || 0) > 1)
+                          )
+                          .map((sub: any) => {
+                          const phone = sub.phoneNorm || sub.phone;
+                          const checked = selectedPhones.includes(phone);
+                          const debt = Number(sub.totalDebt || 0);
+                          const accountNames = String(sub.accountsLabel || '')
+                            .split('،')
+                            .map((x) => x.trim())
+                            .filter(Boolean);
+                          const uniqueNames = Array.from(new Set(accountNames)).slice(0, 4);
+
+                          return (
+                            <button
+                              key={phone}
+                              type="button"
+                              onClick={() => {
+                                setSelectedPhones((prev) => checked ? prev.filter((x) => x !== phone) : [...prev, phone]);
+                              }}
+                              className={`group w-full border-b p-4 text-start transition last:border-b-0 ${checked ? 'bg-primary/10' : 'hover:bg-background'}`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <div className="min-w-0 truncate text-lg font-black">
+                                      {sub.name || 'مشترك'}
+                                    </div>
+                                    {Number(sub.accountsCount || 0) > 1 && (
+                                      <Badge variant="secondary" className="shrink-0">
+                                        متعدد
+                                      </Badge>
+                                    )}
+                                  </div>
+
+                                  <div className="mt-1 font-mono text-sm text-muted-foreground">
+                                    {phone}
+                                  </div>
+
+                                  {uniqueNames.length > 0 && (
+                                    <div className="mt-2 rounded-xl bg-background/70 p-2 text-xs text-muted-foreground">
+                                      <div className="mb-1 font-bold text-foreground">الحسابات المرتبطة:</div>
+                                      <div className="line-clamp-2">
+                                        {uniqueNames.join('، ')}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {!!sub.accounts?.length && (
+                                    <div className="mt-3 space-y-2 rounded-xl bg-background/80 p-2">
+                                      <div className="text-xs font-black">تفاصيل الحسابات:</div>
+                                      {sub.accounts.slice(0, 6).map((a: any, idx: number) => (
+                                        <div key={idx} className="flex items-center justify-between gap-2 rounded-lg bg-muted/50 px-2 py-1 text-xs">
+                                          <div className="min-w-0">
+                                            <div className="truncate font-bold">{a.name}</div>
+                                            <div className="text-muted-foreground">
+                                              {a.package || '—'}
+                                              {a.expiration ? ` • ${new Date(a.expiration).toLocaleDateString('ar-IQ')}` : ''}
+                                            </div>
+                                          </div>
+                                          <div className={Number(a.debt || 0) > 0 ? 'shrink-0 font-black text-red-600' : 'shrink-0 font-black text-emerald-600'}>
+                                            {Number(a.debt || 0).toLocaleString('en-US')} د.ع
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    <Badge variant="outline">
+                                      الحسابات: {Number(sub.accountsCount || 0) || 1}
+                                    </Badge>
+
+                                    <Badge variant="outline" className={debtTone(debt)}>
+                                      الدين: {debt.toLocaleString('en-US')} د.ع
+                                    </Badge>
+
+                                    <Badge variant={sub.pushEnabled ? 'default' : 'destructive'}>
+                                      {sub.pushEnabled ? `مفعل ${sub.devices || 1}` : 'غير مفعل'}
+                                    </Badge>
+                                  </div>
+                                </div>
+
+                                <div className={`mt-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-sm font-black ${checked ? 'border-primary bg-primary text-primary-foreground' : 'bg-background text-transparent group-hover:text-muted-foreground'}`}>
+                                  ✓
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="p-8 text-center text-muted-foreground">
+                          لا توجد نتائج مطابقة.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+
+                <Button className="h-12 w-full md:w-auto" disabled={sendMutation.isPending || !form.title.trim() || !form.message.trim() || (form.targetType === 'phone' && selectedPhones.length === 0)} onClick={() => sendMutation.mutate()}>
                   <Send className="ml-2 h-4 w-4" />
                   {sendMutation.isPending ? 'جاري الإرسال...' : 'إرسال الآن'}
                 </Button>

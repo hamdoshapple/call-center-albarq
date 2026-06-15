@@ -755,3 +755,140 @@ export const logs = asyncHandler(async (req: Request, res: Response) => {
     rows,
   });
 });
+
+
+function normPushPhone(v: any) {
+  let n = String(v || '').replace(/\D/g, '');
+  if (n.startsWith('964')) n = '0' + n.slice(3);
+  if (n.length === 10 && !n.startsWith('0')) n = '0' + n;
+  return n;
+}
+
+export const subscribers = asyncHandler(async (req: Request, res: Response) => {
+  const q = String(req.query.q || '').trim().toLowerCase();
+
+  const devices = await prisma.subscriberPushSubscription.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 1000,
+    select: {
+      phone: true,
+      phoneNorm: true,
+      active: true,
+      createdAt: true,
+    },
+  });
+
+  const externalAccounts = await prisma.externalSubscriberCache.findMany({
+    take: 5000,
+    select: {
+      phoneNorm: true,
+      phone: true,
+      name: true,
+      debt: true,
+      package: true,
+      expiration: true,
+    } as any,
+  }).catch(() => []);
+
+  const localAccounts = await prisma.subscriberCache.findMany({
+    take: 5000,
+    select: {
+      normalizedPhone: true,
+      phone: true,
+      name: true,
+      debt: true,
+      package: true,
+      expiration: true,
+    } as any,
+  }).catch(() => []);
+
+  const map = new Map<string, any>();
+
+  for (const d of devices as any[]) {
+    const phoneNorm = normPushPhone(d.phoneNorm || d.phone);
+    if (!phoneNorm) continue;
+
+    const cur = map.get(phoneNorm) || {
+      phone: d.phone || phoneNorm,
+      phoneNorm,
+      name: '',
+      accountsLabel: '',
+      devices: 0,
+      pushEnabled: false,
+      totalDebt: 0,
+      accountsCount: 0,
+      createdAt: d.createdAt,
+      accountNames: new Set<string>(),
+      accounts: [],
+    };
+
+    cur.devices += 1;
+    cur.pushEnabled = cur.pushEnabled || !!d.active;
+    if (!cur.createdAt || new Date(d.createdAt) > new Date(cur.createdAt)) cur.createdAt = d.createdAt;
+
+    map.set(phoneNorm, cur);
+  }
+
+  function addAccount(a: any, phoneRaw: any) {
+    const phoneNorm = normPushPhone(phoneRaw);
+    if (!phoneNorm || !map.has(phoneNorm)) return;
+
+    const cur = map.get(phoneNorm);
+    const cleanName = String(a.name || '').replace(/NULL/gi, '').replace(/\s+/g, ' ').trim();
+
+    const debt = Number(a.debt || 0);
+    cur.accountsCount += 1;
+    cur.totalDebt += debt;
+    cur.accounts.push({
+      name: cleanName || 'حساب',
+      debt,
+      package: a.package || '',
+      expiration: a.expiration || null,
+    });
+
+    if (cleanName) {
+      cur.accountNames.add(cleanName);
+      if (!cur.name) cur.name = cleanName;
+    }
+
+    map.set(phoneNorm, cur);
+  }
+
+  for (const a of externalAccounts as any[]) addAccount(a, a.phoneNorm || a.phone);
+  for (const a of localAccounts as any[]) addAccount(a, a.normalizedPhone || a.phone);
+
+  let rows = [...map.values()].map((x) => ({
+    phone: String(x.phone || x.phoneNorm),
+    phoneNorm: String(x.phoneNorm),
+    name: String(x.name || x.phoneNorm || 'مشترك'),
+    accountsLabel: [...x.accountNames].slice(0, 5).join('، '),
+    devices: Number(x.devices || 0),
+    pushEnabled: !!x.pushEnabled,
+    totalDebt: Number(x.totalDebt || 0),
+    accountsCount: Number(x.accountsCount || 0),
+    accounts: (x.accounts || []).map((a: any) => ({
+      name: String(a.name || 'حساب'),
+      debt: Number(a.debt || 0),
+      package: String(a.package || ''),
+      expiration: a.expiration || null,
+    })),
+    createdAt: x.createdAt,
+  }));
+
+  if (q) {
+    rows = rows.filter((x) =>
+      x.phone.toLowerCase().includes(q) ||
+      x.phoneNorm.toLowerCase().includes(q) ||
+      x.name.toLowerCase().includes(q) ||
+      x.accountsLabel.toLowerCase().includes(q)
+    );
+  }
+
+  rows.sort((a, b) => {
+    if (Number(b.pushEnabled) !== Number(a.pushEnabled)) return Number(b.pushEnabled) - Number(a.pushEnabled);
+    if (Number(b.accountsCount) !== Number(a.accountsCount)) return Number(b.accountsCount) - Number(a.accountsCount);
+    return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+  });
+
+  res.json(rows.slice(0, 500));
+});

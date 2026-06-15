@@ -210,6 +210,7 @@ router.delete(
 
 // ---------- Push Notifications ----------
 router.get('/push/stats', h(push.stats));
+router.get('/push/subscribers', h(push.subscribers));
 router.get('/push/logs', h(push.logs));
 router.get('/push/settings', h(push.getSettings));
 router.put('/push/settings', h(push.saveSettings));
