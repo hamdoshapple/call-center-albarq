@@ -20,7 +20,7 @@ async function request(path: string, options: RequestInit = {}) {
 
 export const pushNotificationsApi = {
   stats: () => request('/push/stats'),
-  subscribers: (q = '') => request(`/push/subscribers?${new URLSearchParams({ q }).toString()}`),
+  subscribers: (q = '', channel = 'push') => request(`/push/subscribers?${new URLSearchParams({ q, channel }).toString()}`),
   logs: (params: any = {}) => request(`/push/logs?${new URLSearchParams(params).toString()}`),
   settings: () => request('/push/settings'),
   saveSettings: (data: any) => request('/push/settings', {

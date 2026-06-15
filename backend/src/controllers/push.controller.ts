@@ -920,10 +920,12 @@ function normPushPhone(v: any) {
 
 export const subscribers = asyncHandler(async (req: Request, res: Response) => {
   const q = String(req.query.q || '').trim().toLowerCase();
+  const channel = String(req.query.channel || 'push');
+  const includeAll = channel === 'whatsapp' || channel === 'both' || channel === 'all';
 
   const devices = await prisma.subscriberPushSubscription.findMany({
     orderBy: { createdAt: 'desc' },
-    take: 1000,
+    take: 5000,
     select: {
       phone: true,
       phoneNorm: true,
@@ -933,7 +935,7 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
   });
 
   const externalAccounts = await prisma.externalSubscriberCache.findMany({
-    take: 5000,
+    take: 10000,
     select: {
       phoneNorm: true,
       phone: true,
@@ -945,7 +947,7 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
   }).catch(() => []);
 
   const localAccounts = await prisma.subscriberCache.findMany({
-    take: 5000,
+    take: 10000,
     select: {
       normalizedPhone: true,
       phone: true,
@@ -958,12 +960,12 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
 
   const map = new Map<string, any>();
 
-  for (const d of devices as any[]) {
-    const phoneNorm = normPushPhone(d.phoneNorm || d.phone);
-    if (!phoneNorm) continue;
+  function ensure(phoneRaw: any) {
+    const phoneNorm = normPushPhone(phoneRaw);
+    if (!phoneNorm) return null;
 
     const cur = map.get(phoneNorm) || {
-      phone: d.phone || phoneNorm,
+      phone: phoneNorm,
       phoneNorm,
       name: '',
       accountsLabel: '',
@@ -971,23 +973,36 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
       pushEnabled: false,
       totalDebt: 0,
       accountsCount: 0,
-      createdAt: d.createdAt,
+      createdAt: null,
       accountNames: new Set<string>(),
       accounts: [],
     };
 
+    map.set(phoneNorm, cur);
+    return cur;
+  }
+
+  for (const d of devices as any[]) {
+    const cur = ensure(d.phoneNorm || d.phone);
+    if (!cur) continue;
+
+    cur.phone = d.phone || cur.phoneNorm;
     cur.devices += 1;
     cur.pushEnabled = cur.pushEnabled || !!d.active;
     if (!cur.createdAt || new Date(d.createdAt) > new Date(cur.createdAt)) cur.createdAt = d.createdAt;
 
-    map.set(phoneNorm, cur);
+    map.set(cur.phoneNorm, cur);
   }
 
   function addAccount(a: any, phoneRaw: any) {
     const phoneNorm = normPushPhone(phoneRaw);
-    if (!phoneNorm || !map.has(phoneNorm)) return;
+    if (!phoneNorm) return;
 
-    const cur = map.get(phoneNorm);
+    if (!includeAll && !map.has(phoneNorm)) return;
+
+    const cur = ensure(phoneNorm);
+    if (!cur) return;
+
     const cleanName = String(a.name || '').replace(/NULL/gi, '').replace(/\s+/g, ' ').trim();
 
     const debt = Number(a.debt || 0);
@@ -1018,6 +1033,7 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
     accountsLabel: [...x.accountNames].slice(0, 5).join('، '),
     devices: Number(x.devices || 0),
     pushEnabled: !!x.pushEnabled,
+    whatsappEnabled: true,
     totalDebt: Number(x.totalDebt || 0),
     accountsCount: Number(x.accountsCount || 0),
     accounts: (x.accounts || []).map((a: any) => ({
@@ -1029,6 +1045,10 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
     createdAt: x.createdAt,
   }));
 
+  if (channel === 'push') {
+    rows = rows.filter((x) => x.pushEnabled);
+  }
+
   if (q) {
     rows = rows.filter((x) =>
       x.phone.toLowerCase().includes(q) ||
@@ -1039,10 +1059,11 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
   }
 
   rows.sort((a, b) => {
-    if (Number(b.pushEnabled) !== Number(a.pushEnabled)) return Number(b.pushEnabled) - Number(a.pushEnabled);
+    if (channel !== 'push' && Number(b.pushEnabled) !== Number(a.pushEnabled)) return Number(b.pushEnabled) - Number(a.pushEnabled);
+    if (Number(b.totalDebt || 0) !== Number(a.totalDebt || 0)) return Number(b.totalDebt || 0) - Number(a.totalDebt || 0);
     if (Number(b.accountsCount) !== Number(a.accountsCount)) return Number(b.accountsCount) - Number(a.accountsCount);
     return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
   });
 
-  res.json(rows.slice(0, 500));
+  res.json(rows.slice(0, 700));
 });

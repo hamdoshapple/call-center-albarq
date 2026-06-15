@@ -173,8 +173,8 @@ export default function PushNotificationsPage() {
   });
   const settingsQuery = useQuery({ queryKey: ['pushSettings'], queryFn: pushNotificationsApi.settings });
   const pushSubscribers = useQuery({
-    queryKey: ['pushSubscribers', subscriberSearch],
-    queryFn: () => pushNotificationsApi.subscribers(subscriberSearch),
+    queryKey: ['pushSubscribers', subscriberSearch, form.channel],
+    queryFn: () => pushNotificationsApi.subscribers(subscriberSearch, form.channel),
     refetchInterval: 30000,
   });
 
@@ -379,7 +379,8 @@ export default function PushNotificationsPage() {
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <Badge variant="secondary">مختار {selectedPhones.length}</Badge>
-                        <Badge variant="outline">المعروض {(pushSubscribers.data || []).filter((sub: any) => subscriberFilter === 'all' || (subscriberFilter === 'debt' && isWantedSub(sub)) || (subscriberFilter === 'near' && isNearExpirySub(sub)) || (subscriberFilter === 'expired' && isExpiredSub(sub)) || (subscriberFilter === 'multi' && Number(sub.accountsCount || 0) > 1)).length}</Badge>
+                        <Badge variant="secondary">القائمة حسب قناة الإرسال</Badge>
+                      <Badge variant="outline">المعروض {(pushSubscribers.data || []).filter((sub: any) => subscriberFilter === 'all' || (subscriberFilter === 'debt' && isWantedSub(sub)) || (subscriberFilter === 'near' && isNearExpirySub(sub)) || (subscriberFilter === 'expired' && isExpiredSub(sub)) || (subscriberFilter === 'multi' && Number(sub.accountsCount || 0) > 1)).length}</Badge>
                       </div>
                     </div>
 
@@ -393,7 +394,7 @@ export default function PushNotificationsPage() {
                       />
                     </div>
 
-                    <div className="mt-3 flex flex-wrap gap-2">
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {[
                         { value: 'all', label: 'الكل' },
                         { value: 'debt', label: 'المطلوبين' },
@@ -416,7 +417,7 @@ export default function PushNotificationsPage() {
                       ))}
                     </div>
 
-                    <div className="mt-4 max-h-[430px] overflow-y-auto rounded-2xl border bg-muted/20">
+                    <div className="mt-4 max-h-[360px] overflow-y-auto rounded-2xl border bg-muted/20">
                       {pushSubscribers.isLoading ? (
                         <div className="p-6"><Loader /></div>
                       ) : (pushSubscribers.data || []).length ? (
@@ -445,12 +446,12 @@ export default function PushNotificationsPage() {
                               onClick={() => {
                                 setSelectedPhones((prev) => checked ? prev.filter((x) => x !== phone) : [...prev, phone]);
                               }}
-                              className={`group w-full border-b p-4 text-start transition last:border-b-0 ${checked ? 'bg-primary/10' : 'hover:bg-background'}`}
+                              className={`group w-full border-b px-3 py-2 text-start transition last:border-b-0 ${checked ? 'bg-primary/10' : 'hover:bg-background'}`}
                             >
-                              <div className="flex items-start justify-between gap-3">
+                              <div className="flex items-center justify-between gap-3">
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-2">
-                                    <div className="min-w-0 truncate text-lg font-black">
+                                    <div className="min-w-0 truncate text-sm font-black">
                                       {sub.name || 'مشترك'}
                                     </div>
                                     {Number(sub.accountsCount || 0) > 1 && (
@@ -460,7 +461,7 @@ export default function PushNotificationsPage() {
                                     )}
                                   </div>
 
-                                  <div className="mt-1 font-mono text-sm text-muted-foreground">
+                                  <div className="mt-0.5 font-mono text-xs text-muted-foreground">
                                     {phone}
                                   </div>
 
@@ -493,7 +494,7 @@ export default function PushNotificationsPage() {
                                     </div>
                                   )}
 
-                                  <div className="mt-3 flex flex-wrap gap-2">
+                                  <div className="mt-1.5 flex flex-wrap gap-1.5">
                                     <Badge variant="outline">
                                       الحسابات: {Number(sub.accountsCount || 0) || 1}
                                     </Badge>
@@ -508,7 +509,7 @@ export default function PushNotificationsPage() {
                                   </div>
                                 </div>
 
-                                <div className={`mt-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-sm font-black ${checked ? 'border-primary bg-primary text-primary-foreground' : 'bg-background text-transparent group-hover:text-muted-foreground'}`}>
+                                <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-sm font-black ${checked ? 'border-primary bg-primary text-primary-foreground' : 'bg-background text-transparent group-hover:text-muted-foreground'}`}>
                                   ✓
                                 </div>
                               </div>
@@ -525,7 +526,22 @@ export default function PushNotificationsPage() {
                 )}
 
 
-                <Button className="h-12 w-full md:w-auto" disabled={sendMutation.isPending || !form.title.trim() || !form.message.trim() || (form.targetType === 'phone' && selectedPhones.length === 0)} onClick={() => sendMutation.mutate()}>
+                
+                <div className="grid gap-2">
+                  <Label>قناة الإرسال</Label>
+                  <Select value={form.channel} onValueChange={(v) => setForm({ ...form, channel: v })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="اختر قناة الإرسال" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="push">تطبيق / Push فقط</SelectItem>
+                      <SelectItem value="whatsapp">واتساب فقط</SelectItem>
+                      <SelectItem value="both">تطبيق + واتساب</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+<Button className="h-12 w-full md:w-auto" disabled={sendMutation.isPending || !form.title.trim() || !form.message.trim() || (form.targetType === 'phone' && selectedPhones.length === 0)} onClick={() => sendMutation.mutate()}>
                   <Send className="ml-2 h-4 w-4" />
                   {sendMutation.isPending ? 'جاري الإرسال...' : 'إرسال الآن'}
                 </Button>
@@ -539,7 +555,7 @@ export default function PushNotificationsPage() {
                   <div key={x.id} className="rounded-2xl border bg-muted/20 p-3">
                     <div className="font-bold">{x.title}</div>
                     <div className="mt-1 line-clamp-2 text-sm text-muted-foreground">{x.message}</div>
-                    <div className="mt-3 flex flex-wrap gap-2">
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
                       <Badge variant="secondary">{targetLabels[x.targetType] || x.targetType}</Badge>
                       <Badge variant="outline">وصل {x.sentCount}</Badge>
                       <Badge variant={Number(x.failedCount) ? 'destructive' : 'outline'}>فشل {x.failedCount}</Badge>
