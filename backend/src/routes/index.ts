@@ -22,6 +22,7 @@ import * as misc from '../controllers/misc.controller.js';
 import * as vpn from '../controllers/vpn.controller.js';
 import * as dataSource from '../controllers/data-source.controller.js';
 import * as subscriberApp from '../controllers/subscriber-app.controller.js';
+import * as push from '../controllers/push.controller.js';
 
 export const router = Router();
 
@@ -29,6 +30,8 @@ export const router = Router();
 router.post('/auth/login', h(auth.login));
 router.post('/subscriber-portal/request-code', h(subscriberPortal.requestCode));
 router.post('/subscriber-portal/login', h(subscriberPortal.login));
+router.get('/subscriber-portal/push/public-key', h(push.publicKey));
+router.post('/subscriber-portal/push/subscribe', h(push.subscribe));
 router.get('/subscriber-portal/me', h(subscriberPortal.me));
 router.get('/subscriber-portal/accounts', h(subscriberPortal.accounts));
 router.get('/subscriber-portal/accounts/:id/payments', h(subscriberPortal.accountPayments));
@@ -204,6 +207,10 @@ router.delete(
   h(subscriberApp.deleteImage)
 );
 
+
+// ---------- Push Notifications ----------
+router.get('/push/stats', h(push.stats));
+router.post('/push/send', h(push.send));
 
 // ---------- Notifications ----------
 router.get('/notifications', h(misc.listNotifications));

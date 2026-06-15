@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Settings,
   MessageSquare,
+  BellRing,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -35,6 +36,7 @@ export const NAV_ITEMS: NavItem[] = [
   { module: 'call_transfer', path: '/call-transfer', icon: ArrowRightLeft, group: 'operations' },
   { module: 'subscribers', path: '/subscribers', icon: UserSearch, group: 'operations' },
   { module: 'admin_tickets' as ModuleKey, path: '/admin-tickets', icon: MessageSquare, group: 'operations' },
+  { module: 'push_notifications' as ModuleKey, path: '/push-notifications', icon: BellRing, group: 'operations' },
 
   { module: 'agents', path: '/agents', icon: Users, group: 'management' },
   { module: 'departments', path: '/departments', icon: Building2, group: 'management' },

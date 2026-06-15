@@ -22,6 +22,15 @@ import { CompanySettingsPage } from '@/pages/company-settings';
 import { NotFoundPage } from '@/pages/not-found';
 import { VpnPage } from '@/pages/vpn';
 import AdminTicketsPage from '@/pages/admin-tickets';
+import PushNotificationsPage from '@/pages/push-notifications';
+
+function RootRedirect() {
+  const host = window.location.hostname;
+  if (host === 'user.albarq.app') {
+    return <Navigate to="/my" replace />;
+  }
+  return <Navigate to="/dashboard" replace />;
+}
 
 export function App() {
   return (
@@ -41,6 +50,7 @@ export function App() {
         <Route path="/subscribers" element={<ProtectedRoute module="subscribers"><SubscribersPage /></ProtectedRoute>} />
         <Route path="/subscribers/:id" element={<ProtectedRoute module="subscribers"><SubscribersPage /></ProtectedRoute>} />
         <Route path="/admin-tickets" element={<ProtectedRoute><AdminTicketsPage /></ProtectedRoute>} />
+        <Route path="/push-notifications" element={<ProtectedRoute><PushNotificationsPage /></ProtectedRoute>} />
         <Route path="/agents" element={<ProtectedRoute module="agents"><AgentsPage /></ProtectedRoute>} />
         <Route path="/departments" element={<ProtectedRoute module="departments"><DepartmentsPage /></ProtectedRoute>} />
         <Route path="/queues" element={<ProtectedRoute module="queues"><QueuesPage /></ProtectedRoute>} />
@@ -55,7 +65,7 @@ export function App() {
         <Route path="/permissions" element={<ProtectedRoute module="permissions"><PermissionsPage /></ProtectedRoute>} />
         <Route path="/company-settings" element={<ProtectedRoute module="company_settings"><CompanySettingsPage /></ProtectedRoute>} />
       </Route>
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/" element={<RootRedirect />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );

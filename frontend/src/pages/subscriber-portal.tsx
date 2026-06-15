@@ -124,6 +124,13 @@ function assetUrl(v?: string | null) {
   return v;
 }
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+}
+
 function waLink(v?: string | null, msg = '') {
   if (!v) return '';
   let n = String(v).replace(/[^\d]/g, '');
@@ -171,6 +178,15 @@ export function SubscriberPortalPage() {
   const [ticketModalOpen, setTicketModalOpen] = useState(false);
   const [ticketsAccountId, setTicketsAccountId] = useState('');
   const [accountPickerOpen, setAccountPickerOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [pushStatus, setPushStatus] = useState('');
+  const [readNotifications, setReadNotifications] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('subscriber_read_notifications') || '[]');
+    } catch {
+      return [];
+    }
+  });
 
   const primary = config.primaryColor || '#4f46e5';
   const secondary = config.secondaryColor || '#06b6d4';
@@ -186,6 +202,131 @@ export function SubscriberPortalPage() {
 
   const cardColor = isExpired ? expiredColor : isWarning ? warningColor : primary;
   const statusText = isExpired ? 'منتهي' : isWarning ? 'ينتهي قريباً' : 'فعال';
+
+  const appNotifications = useMemo(() => {
+    const rows: Array<{
+      id: string;
+      title: string;
+      message: string;
+      type: 'danger' | 'warning' | 'info' | 'success';
+      time: string;
+      action?: () => void;
+    }> = [];
+
+    if (active) {
+      if (isExpired) {
+        rows.push({
+          id: `expired-${active.id}-${active.expiration || ''}`,
+          title: 'اشتراكك منتهي',
+          message: `الحساب ${active.pppoeUsername || active.name} منتهي، يرجى التجديد لتجنب توقف الخدمة.`,
+          type: 'danger',
+          time: 'الآن',
+          action: () => setTab('support'),
+        });
+      } else if (isWarning) {
+        rows.push({
+          id: `warning-${active.id}-${active.expiration || ''}`,
+          title: 'اشتراكك ينتهي قريباً',
+          message: `متبقي ${left} يوم على انتهاء الاشتراك.`,
+          type: 'warning',
+          time: 'الآن',
+          action: () => setTab('accounts'),
+        });
+      }
+
+      if (Number(active.debt || 0) > 0) {
+        rows.push({
+          id: `debt-${active.id}-${active.debt}`,
+          title: 'يوجد مبلغ مستحق',
+          message: `عليك ${money(active.debt)} د.ع على هذا الحساب.`,
+          type: 'warning',
+          time: 'الآن',
+          action: () => setTab('accounts'),
+        });
+      }
+    }
+
+    if (latestTicket) {
+      rows.push({
+        id: `ticket-${latestTicket.id}-${latestTicket.status}-${latestTicket.updatedAt}`,
+        title: 'تحديث على التذكرة',
+        message: `${latestTicket.subject} — الحالة: ${latestTicket.status}`,
+        type: latestTicket.status === 'resolved' || latestTicket.status === 'closed' ? 'success' : 'info',
+        time: new Date(latestTicket.updatedAt || latestTicket.createdAt).toLocaleString('ar-IQ'),
+        action: () => {
+          setSelectedTicketId(latestTicket.id);
+          setTab('support');
+        },
+      });
+    }
+
+    if (payments?.rows?.[0] && paymentsAccountId === active?.id) {
+      const p = payments.rows[0];
+      rows.push({
+        id: `payment-${active?.id}-${p.id}`,
+        title: p.type === 'payment' ? 'تم تسجيل دفعة' : 'حركة مالية جديدة',
+        message: `${p.title} — ${money(p.amount)} د.ع`,
+        type: p.type === 'payment' ? 'success' : 'info',
+        time: p.date ? new Date(p.date).toLocaleString('ar-IQ') : '—',
+        action: () => setTab('accounts'),
+      });
+    }
+
+    return rows;
+  }, [active?.id, active?.debt, active?.expiration, active?.pppoeUsername, active?.name, isExpired, isWarning, left, latestTicket?.id, latestTicket?.status, latestTicket?.updatedAt, paymentsAccountId, payments?.rows]);
+
+  const unreadNotifications = appNotifications.filter((n) => !readNotifications.includes(n.id)).length;
+
+  function markNotificationRead(id: string) {
+    setReadNotifications((prev) => {
+      const next = Array.from(new Set([...prev, id]));
+      localStorage.setItem('subscriber_read_notifications', JSON.stringify(next));
+      return next;
+    });
+  }
+
+  async function enablePushNotifications() {
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+        setPushStatus('هذا الجهاز لا يدعم إشعارات Push');
+        return;
+      }
+
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        setPushStatus('لم يتم السماح بالإشعارات');
+        return;
+      }
+
+      const reg = await navigator.serviceWorker.register('/subscriber-sw.js');
+      const keyRes = await fetch(`${API}/push/public-key`);
+      const keyData = await keyRes.json();
+
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(keyData.publicKey),
+      });
+
+      await fetch(`${API}/push/subscribe`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ subscription: sub }),
+      });
+
+      setPushStatus('تم تفعيل الإشعارات بنجاح');
+    } catch {
+      setPushStatus('تعذر تفعيل الإشعارات');
+    }
+  }
+
+  function markAllNotificationsRead() {
+    const next = appNotifications.map((n) => n.id);
+    setReadNotifications(next);
+    localStorage.setItem('subscriber_read_notifications', JSON.stringify(next));
+  }
 
   async function loadAppConfig() {
     try {
@@ -586,7 +727,19 @@ export function SubscriberPortalPage() {
             </div>
           </div>
           <div className="flex gap-2">
-            {config.enableNotifications !== false && <IconButton icon={Bell} />}
+            {config.enableNotifications !== false && (
+              <button
+                onClick={() => setNotificationsOpen(true)}
+                className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm"
+              >
+                <Bell className="h-5 w-5" />
+                {unreadNotifications > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-black text-white">
+                    {unreadNotifications > 9 ? '9+' : unreadNotifications}
+                  </span>
+                )}
+              </button>
+            )}
             <button onClick={logout} className="flex h-12 items-center gap-2 rounded-2xl bg-white px-4 text-sm font-bold shadow-sm">
               <LogOut className="h-4 w-4" />
               خروج
@@ -908,6 +1061,93 @@ export function SubscriberPortalPage() {
         )}
       </div>
 
+
+      {notificationsOpen && (
+        <div className="fixed inset-0 z-[92] flex items-end justify-center bg-black/40 p-4" onClick={() => setNotificationsOpen(false)}>
+          <div className="max-h-[78vh] w-full max-w-md overflow-y-auto rounded-t-[32px] bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-2xl font-black">الإشعارات</h3>
+                <p className="mt-1 text-sm text-slate-400">
+                  {unreadNotifications ? `${unreadNotifications} غير مقروءة` : 'كل الإشعارات مقروءة'}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                {appNotifications.length > 0 && (
+                  <button onClick={markAllNotificationsRead} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold">
+                    قراءة الكل
+                  </button>
+                )}
+                <button onClick={() => setNotificationsOpen(false)} className="rounded-full bg-slate-100 px-3 py-1 font-bold">
+                  إغلاق
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={enablePushNotifications}
+              className="mb-3 w-full rounded-2xl px-4 py-3 text-center text-sm font-black text-white"
+              style={{ backgroundColor: primary }}
+            >
+              تفعيل إشعارات الجهاز
+            </button>
+
+            {pushStatus && (
+              <div className="mb-3 rounded-2xl bg-slate-50 p-3 text-center text-sm font-bold text-slate-600">
+                {pushStatus}
+              </div>
+            )}
+
+            {appNotifications.length ? (
+              <div className="space-y-2">
+                {appNotifications.map((n) => {
+                  const unread = !readNotifications.includes(n.id);
+                  const color =
+                    n.type === 'danger' ? '#dc2626' :
+                    n.type === 'warning' ? '#d97706' :
+                    n.type === 'success' ? '#16a34a' :
+                    primary;
+
+                  return (
+                    <button
+                      key={n.id}
+                      onClick={() => {
+                        markNotificationRead(n.id);
+                        setNotificationsOpen(false);
+                        n.action?.();
+                      }}
+                      className="w-full rounded-3xl p-4 text-start transition active:scale-[0.99]"
+                      style={{
+                        backgroundColor: unread ? `${color}12` : '#f8fafc',
+                        boxShadow: unread ? `0 0 0 1px ${color}30` : undefined,
+                      }}
+                    >
+                      <div className="flex items-start gap-3">
+                        <span className="mt-1 h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <h4 className="line-clamp-1 font-black" style={{ color: unread ? color : '#0f172a' }}>
+                              {n.title}
+                            </h4>
+                            {unread && <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-black" style={{ color }}>جديد</span>}
+                          </div>
+                          <p className="mt-1 line-clamp-2 text-sm leading-6 text-slate-600">{n.message}</p>
+                          <div className="mt-2 text-xs text-slate-400">{n.time}</div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-3xl bg-slate-50 p-5 text-center text-slate-500">
+                لا توجد إشعارات حالياً.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {accountPickerOpen && (
         <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/40 p-4" onClick={() => setAccountPickerOpen(false)}>
           <div className="w-full max-w-md rounded-t-[32px] bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -1185,13 +1425,6 @@ function TicketBadge({ status, primary }: { status: string; primary: string }) {
   );
 }
 
-function IconButton({ icon: Icon }: any) {
-  return (
-    <button className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm">
-      <Icon className="h-5 w-5" />
-    </button>
-  );
-}
 
 function ActionCard({ title, icon: Icon, color = '#4f46e5', onClick }: any) {
   return (

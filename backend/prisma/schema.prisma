@@ -664,3 +664,36 @@ model AdminTicketMention {
   @@index([ticketId])
   @@map("AdminTicketMention")
 }
+
+// ===================== Subscriber Push Notifications =====================
+model SubscriberPushSubscription {
+  id           String   @id
+  phone        String
+  phoneNorm    String
+  endpointHash String   @unique
+  endpoint     String   @db.Text
+  p256dh       String   @db.Text
+  auth         String   @db.Text
+  userAgent    String?  @db.Text
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([phoneNorm])
+  @@index([active])
+}
+
+model PushCampaign {
+  id          String   @id
+  title       String
+  message     String   @db.Text
+  targetType  String
+  targetValue String?  @db.Text
+  sentCount   Int      @default(0)
+  failedCount Int      @default(0)
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([targetType])
+  @@index([createdAt])
+}
