@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import webpush from 'web-push';
 import { prisma } from '../config/prisma.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { getExternalSubscriberPayments } from '../services/external-subscriber.service.js';
+import { getExternalSubscriberPayments, searchExternalSubscribers, listExternalSubscribersForCache } from '../services/external-subscriber.service.js';
 
 const VAPID_PUBLIC_KEY = 'BJjYxPn0SyB-EMzUAIFbbpZNL5sDODn4hm779RcGRzZOuspNnHWkX_6FbbTdSWaE5_S6cmVhG0Z8RBc48Odvn7o';
 const VAPID_PRIVATE_KEY = '0mDNdlscgDSoriN-3kBQdkIi4ep1ABcTr4ZYay1-NfQ';
@@ -904,10 +904,10 @@ export const logs = asyncHandler(async (req: Request, res: Response) => {
     FROM PushNotificationLog
   `);
 
-  res.json({
+  res.json(jsonSafe({
     summary: summaryRows[0] || {},
     rows,
-  });
+  }));
 });
 
 
@@ -935,7 +935,7 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
   });
 
   const externalAccounts = await prisma.externalSubscriberCache.findMany({
-    take: 10000,
+    take: 50000,
     select: {
       phoneNorm: true,
       phone: true,
@@ -947,7 +947,7 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
   }).catch(() => []);
 
   const localAccounts = await prisma.subscriberCache.findMany({
-    take: 10000,
+    take: 50000,
     select: {
       normalizedPhone: true,
       phone: true,
@@ -957,6 +957,29 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
       expiration: true,
     } as any,
   }).catch(() => []);
+
+
+  let liveAccounts: any[] = [];
+  if (includeAll) {
+    try {
+      liveAccounts = await listExternalSubscribersForCache(50000);
+
+      if (q) {
+        liveAccounts = liveAccounts.filter((x: any) =>
+          String(x.phone || '').toLowerCase().includes(q) ||
+          String((x as any).phoneNorm || '').toLowerCase().includes(q) ||
+          String(x.name || '').toLowerCase().includes(q) ||
+          String(x.pppoeUsername || '').toLowerCase().includes(q)
+        );
+      }
+    } catch (e) {
+      try {
+        liveAccounts = await searchExternalSubscribers(q || '');
+      } catch {
+        liveAccounts = [];
+      }
+    }
+  }
 
   const map = new Map<string, any>();
 
@@ -1023,6 +1046,7 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
     map.set(phoneNorm, cur);
   }
 
+  for (const a of liveAccounts as any[]) addAccount(a, a.phoneNorm || a.phone || a.normalizedPhone);
   for (const a of externalAccounts as any[]) addAccount(a, a.phoneNorm || a.phone);
   for (const a of localAccounts as any[]) addAccount(a, a.normalizedPhone || a.phone);
 
@@ -1065,5 +1089,5 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
     return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
   });
 
-  res.json(rows.slice(0, 700));
+  res.json(rows);
 });
