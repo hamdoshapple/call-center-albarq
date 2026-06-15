@@ -371,45 +371,28 @@ function amountText(v: any) {
   return Number(v || 0).toLocaleString('en-US');
 }
 
+async function addSubscriberInAppNotification(phone: string, title: string, message: string, type = 'finance') {
+  const n = String(phone || '').replace(/\D/g, '');
+  const variants = Array.from(new Set([
+    n,
+    n.startsWith('964') ? '0' + n.slice(3) : n,
+    n.startsWith('0') ? '964' + n.slice(1) : n,
+  ].filter(Boolean)));
+
+  for (const ph of variants) {
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO SubscriberPortalNotification
+      (id, phone, title, message, type, readAt, createdAt)
+      VALUES (?,?,?,?,?,NULL,NOW(3))
+    `, cuid(), ph, title, message, type).catch(() => null);
+  }
+}
+
 function financeTitle(type: string) {
   if (type === 'payment') return 'تم تسديد دفعة';
   if (type === 'activation') return 'تم تفعيل الاشتراك';
   if (type === 'debt') return 'تمت إضافة دين';
   return 'حركة مالية جديدة';
-}
-
-async function cacheExternalPayment(externalId: string, row: any) {
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO ExternalSubscriberPaymentCache
-    (id, externalId, sandId, date, amount, type, title, notes, package, dateFrom, dateTo, moneyIn, moneyOut, cachedAt, updatedAt)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(3),NOW(3))
-    ON DUPLICATE KEY UPDATE
-      date=VALUES(date),
-      amount=VALUES(amount),
-      type=VALUES(type),
-      title=VALUES(title),
-      notes=VALUES(notes),
-      package=VALUES(package),
-      dateFrom=VALUES(dateFrom),
-      dateTo=VALUES(dateTo),
-      moneyIn=VALUES(moneyIn),
-      moneyOut=VALUES(moneyOut),
-      updatedAt=NOW(3)
-  `,
-    cuid(),
-    externalId,
-    Number(row.sandId || row.id || 0),
-    row.date ? new Date(row.date) : null,
-    Number(row.amount || 0),
-    String(row.type || 'other'),
-    String(row.title || ''),
-    row.notes || null,
-    row.package || null,
-    row.dateFrom ? new Date(row.dateFrom) : null,
-    row.dateTo ? new Date(row.dateTo) : null,
-    Number(row.moneyIn || 0),
-    Number(row.moneyOut || 0),
-  );
 }
 
 export const financeEventWatcher = asyncHandler(async (_req: Request, res: Response) => {
@@ -433,80 +416,154 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
     LIMIT 500
   `);
 
-  const result = { subscribers: subscribers.length, checked: 0, seeded: 0, detected: 0, sent: 0, failed: 0 };
+  const result = {
+    subscribers: subscribers.length,
+    liveOk: 0,
+    liveFailed: 0,
+    cacheFallback: 0,
+    scanned: 0,
+    detected: 0,
+    sent: 0,
+    failed: 0,
+    skippedLogged: 0,
+    skippedDisabled: 0,
+  };
 
-  for (const sub of subscribers) {
-    if (!sub.externalId) continue;
-
-    const existingCountRows = await prisma.$queryRawUnsafe<any[]>(
-      'SELECT COUNT(*) AS c FROM ExternalSubscriberPaymentCache WHERE externalId=?',
-      sub.externalId
+  async function saveCache(externalId: string, row: any) {
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO ExternalSubscriberPaymentCache
+      (id, externalId, sandId, date, amount, type, title, notes, package, dateFrom, dateTo, moneyIn, moneyOut, cachedAt, updatedAt)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(3),NOW(3))
+      ON DUPLICATE KEY UPDATE
+        date=VALUES(date),
+        amount=VALUES(amount),
+        type=VALUES(type),
+        title=VALUES(title),
+        notes=VALUES(notes),
+        package=VALUES(package),
+        dateFrom=VALUES(dateFrom),
+        dateTo=VALUES(dateTo),
+        moneyIn=VALUES(moneyIn),
+        moneyOut=VALUES(moneyOut),
+        updatedAt=NOW(3)
+    `,
+      cuid(),
+      externalId,
+      Number(row.sandId || row.id || 0),
+      row.date ? new Date(row.date) : null,
+      Number(row.amount || 0),
+      String(row.type || 'other'),
+      String(row.title || ''),
+      row.notes || null,
+      row.package || null,
+      row.dateFrom ? new Date(row.dateFrom) : null,
+      row.dateTo ? new Date(row.dateTo) : null,
+      Number(row.moneyIn || 0),
+      Number(row.moneyOut || 0),
     );
-    const existingCount = Number(existingCountRows?.[0]?.c || 0);
+  }
 
-    let rows: any[] = [];
-    try {
-      rows = await getExternalSubscriberPayments(String(sub.externalId), 20);
-    } catch {
-      rows = [];
+  async function processRow(row: any, phone: string, source: string) {
+    const type = String(row.type || 'other');
+    if (!['payment', 'debt', 'activation'].includes(type)) return;
+
+    if (type === 'payment' && !settings?.auto?.onPayment) { result.skippedDisabled++; return; }
+    if (type === 'debt' && !settings?.auto?.onDebt) { result.skippedDisabled++; return; }
+    if (type === 'activation' && !settings?.auto?.onActivation && !settings?.auto?.onRenewal) { result.skippedDisabled++; return; }
+
+    const sandId = Number(row.sandId || row.id || 0);
+    if (!sandId) return;
+
+    const eventKey = `finance:${row.externalId}:${sandId}:${type}`;
+
+    const already = await prisma.pushNotificationLog.count({
+      where: { targetType: eventKey } as any,
+    }).catch(() => 0);
+
+    if (already > 0) {
+      result.skippedLogged++;
+      return;
     }
 
-    result.checked += 1;
+    const title = financeTitle(type);
+    let message = '';
+
+    if (type === 'payment') {
+      message = String(settings.templates?.payment || 'تم تسجيل دفعة جديدة بقيمة {amount} د.ع.')
+        .replace('{amount}', amountText(row.amount || row.moneyIn || 0));
+    } else if (type === 'debt') {
+      message = String(settings.templates?.debt || 'يوجد عليك مبلغ مستحق قدره {amount} د.ع.')
+        .replace('{amount}', amountText(row.amount || row.moneyOut || 0));
+    } else if (type === 'activation') {
+      message = String(settings.templates?.activation || 'تم تفعيل اشتراكك بنجاح.');
+    }
+
+    const pushed = await sendPushToPhones([phone], title, message, '/my');
+
+    await prisma.pushNotificationLog.create({
+      data: {
+        phone,
+        title,
+        message,
+        targetType: eventKey,
+        status: pushed.sent > 0 ? 'sent' : 'failed',
+        error: pushed.failed > 0 ? `send failed / source=${source}` : null,
+      } as any,
+    }).catch(() => null);
+
+    await addSubscriberInAppNotification(phone, title, message, `finance_${type}`);
+
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO PushCampaign
+      (id,title,message,targetType,targetValue,sentCount,failedCount,createdById)
+      VALUES (?,?,?,?,?,?,?,?)
+    `, cuid(), title, message, eventKey, phone, pushed.sent, pushed.failed, null);
+
+    result.detected++;
+    result.sent += pushed.sent;
+    result.failed += pushed.failed;
+  }
+
+  for (const sub of subscribers) {
+    const phone = String(sub.phoneNorm || sub.phone || '').trim();
+    const externalId = String(sub.externalId || '').trim();
+    if (!phone || !externalId) continue;
+
+    let rows: any[] = [];
+    let source = 'live';
+
+    try {
+      rows = await getExternalSubscriberPayments(externalId, 30);
+      rows = rows.map((r: any) => ({ ...r, externalId }));
+      result.liveOk++;
+
+      for (const r of rows) {
+        await saveCache(externalId, r).catch(() => null);
+      }
+    } catch {
+      result.liveFailed++;
+      source = 'cache';
+      result.cacheFallback++;
+
+      rows = await prisma.$queryRawUnsafe<any[]>(`
+        SELECT *
+        FROM ExternalSubscriberPaymentCache
+        WHERE externalId=?
+          AND type IN ('payment','debt','activation')
+          AND date >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        ORDER BY date DESC
+        LIMIT 30
+      `, externalId);
+    }
+
+    result.scanned += rows.length;
 
     for (const row of rows) {
-      const sandId = Number(row.sandId || row.id || 0);
-      if (!sandId) continue;
-
-      const exists = await prisma.$queryRawUnsafe<any[]>(
-        'SELECT id FROM ExternalSubscriberPaymentCache WHERE externalId=? AND sandId=? LIMIT 1',
-        sub.externalId,
-        sandId
-      );
-
-      await cacheExternalPayment(String(sub.externalId), row);
-
-      if (exists.length) continue;
-      if (existingCount === 0) {
-        result.seeded += 1;
-        continue;
-      }
-
-      const type = String(row.type || 'other');
-
-      if (type === 'payment' && !settings?.auto?.onPayment) continue;
-      if (type === 'debt' && !settings?.auto?.onDebt) continue;
-      if (type === 'activation' && !settings?.auto?.onActivation && !settings?.auto?.onRenewal) continue;
-
-      const title = financeTitle(type);
-      let message = '';
-
-      if (type === 'payment') {
-        message = String(settings.templates?.payment || 'تم تسجيل دفعة جديدة بقيمة {amount} د.ع.')
-          .replace('{amount}', amountText(row.amount || row.moneyIn || 0));
-      } else if (type === 'debt') {
-        message = String(settings.templates?.debt || 'يوجد عليك مبلغ مستحق قدره {amount} د.ع.')
-          .replace('{amount}', amountText(row.amount || row.moneyOut || 0));
-      } else if (type === 'activation') {
-        message = String(settings.templates?.activation || 'تم تفعيل اشتراكك بنجاح.');
-      } else {
-        message = `${row.title || 'حركة مالية جديدة'} - ${amountText(row.amount)} د.ع`;
-      }
-
-      const pushed = await sendPushToPhones([sub.phoneNorm], title, message, '/my');
-
-      result.detected += 1;
-      result.sent += pushed.sent;
-      result.failed += pushed.failed;
-
-      await prisma.$executeRawUnsafe(`
-        INSERT INTO PushCampaign
-        (id,title,message,targetType,targetValue,sentCount,failedCount,createdById)
-        VALUES (?,?,?,?,?,?,?,?)
-      `, cuid(), title, message, `finance_${type}`, sub.phoneNorm, pushed.sent, pushed.failed, null);
+      await processRow(row, phone, source);
     }
   }
 
-  res.json({ ok: true, result });
+  res.json({ ok: true, mode: 'live-first-cache-fallback', result });
 });
 
 export const stats = asyncHandler(async (_req: Request, res: Response) => {
