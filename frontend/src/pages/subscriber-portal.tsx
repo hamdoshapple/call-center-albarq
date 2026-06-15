@@ -142,6 +142,9 @@ export function SubscriberPortalPage() {
   const [tab, setTab] = useState<'home' | 'accounts' | 'support' | 'profile'>('home');
   const [config, setConfig] = useState<SubscriberAppConfig>({});
   const [banners, setBanners] = useState<Banner[]>([]);
+  const [bannerIndex, setBannerIndex] = useState(0);
+  const [bannerTouchStart, setBannerTouchStart] = useState<number | null>(null);
+  const [bannerPaused, setBannerPaused] = useState(false);
   const [expiredPopupClosed, setExpiredPopupClosed] = useState(false);
   const [payments, setPayments] = useState<PaymentsData | null>(null);
   const [paymentsLoading, setPaymentsLoading] = useState(false);
@@ -152,6 +155,7 @@ export function SubscriberPortalPage() {
   const [ticketSubject, setTicketSubject] = useState('انقطاع خدمة');
   const [ticketBody, setTicketBody] = useState('');
   const [selectedTicketId, setSelectedTicketId] = useState('');
+  const [ticketModalOpen, setTicketModalOpen] = useState(false);
   const [ticketsAccountId, setTicketsAccountId] = useState('');
   const [accountPickerOpen, setAccountPickerOpen] = useState(false);
 
@@ -243,6 +247,16 @@ export function SubscriberPortalPage() {
   }, []);
 
   useEffect(() => {
+    if (banners.length <= 1 || bannerPaused) return;
+
+    const t = window.setInterval(() => {
+      setBannerIndex((i: number) => (i + 1) % banners.length);
+    }, 5000);
+
+    return () => window.clearInterval(t);
+  }, [banners.length, bannerPaused]);
+
+  useEffect(() => {
     if (step === 'home') loadAccounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, token]);
@@ -324,11 +338,34 @@ export function SubscriberPortalPage() {
       if (data?.id) {
         setTicketBody('');
         setSelectedTicketId(data.id);
+        setTicketModalOpen(false);
         await loadTickets(id);
       }
     } finally {
       setTicketsLoading(false);
     }
+  }
+
+  function nextBanner() {
+    if (banners.length <= 1) return;
+    setBannerIndex((i: number) => (i + 1) % banners.length);
+  }
+
+  function prevBanner() {
+    if (banners.length <= 1) return;
+    setBannerIndex((i: number) => (i === 0 ? banners.length - 1 : i - 1));
+  }
+
+  function handleBannerTouchEnd(x: number) {
+    if (bannerTouchStart === null) return;
+    const diff = x - bannerTouchStart;
+
+    if (Math.abs(diff) > 45) {
+      if (diff > 0) prevBanner();
+      else nextBanner();
+    }
+
+    setBannerTouchStart(null);
   }
 
   function logout() {
@@ -495,7 +532,7 @@ export function SubscriberPortalPage() {
               <h1 className="text-3xl font-black">مرحباً</h1>
               <button
                 onClick={() => setAccountPickerOpen(true)}
-                className="mt-1 flex max-w-[185px] items-center gap-1 text-start text-sm font-bold text-slate-500"
+                className="mt-1 flex max-w-[175px] items-center gap-1 text-start text-sm font-bold text-slate-500"
               >
                 <span className="block min-w-0 truncate">
                   {active?.name || config.appName || 'مشترك البرق'}
@@ -516,8 +553,8 @@ export function SubscriberPortalPage() {
         {tab === 'home' && (
           <main className="mt-6 space-y-5">
             <section className="relative overflow-hidden rounded-[28px] p-5 text-white shadow-lg" style={{ background: `linear-gradient(135deg, ${cardColor}, ${secondary})` }}>
-              <div className="pointer-events-none absolute -left-12 -top-12 h-40 w-40 rounded-full bg-white/10" />
-              <div className="pointer-events-none absolute -bottom-16 right-16 h-48 w-48 rounded-full bg-white/10" />
+              <div className="orb-float-a pointer-events-none absolute -left-12 -top-12 h-40 w-40 rounded-full bg-white/10" />
+              <div className="orb-float-b pointer-events-none absolute -bottom-16 right-16 h-48 w-48 rounded-full bg-white/10" />
 
               <div className="flex items-center justify-between">
                 <Badge className="rounded-full bg-white/20 text-white hover:bg-white/20">
@@ -565,69 +602,82 @@ export function SubscriberPortalPage() {
 
             {banners.length > 0 && (
               <section className="space-y-3">
-                <h2 className="text-2xl font-black">العروض والإعلانات</h2>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-black">العروض والإعلانات</h2>
 
-                {banners.slice(0, 1).map((b) => (
-                  <a
-                    key={b.id}
-                    href={b.linkUrl || '#'}
-                    className="relative block h-44 overflow-hidden rounded-[28px] bg-slate-900 shadow-sm"
-                  >
-                    {b.imageUrl && (
-                      <img
-                        src={assetUrl(b.imageUrl)}
-                        className="absolute inset-0 h-full w-full object-cover"
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                    )}
-
-                    <div className="absolute inset-0 bg-gradient-to-l from-black/75 via-black/35 to-black/10" />
-
-                    <div className="relative z-10 flex h-full flex-col justify-end p-5 text-white">
-                      <h3 className="text-2xl font-black">{b.title}</h3>
-                      {b.description && (
-                        <p className="mt-2 line-clamp-2 text-sm text-white/85">
-                          {b.description}
-                        </p>
-                      )}
-                      <div className="mt-3 flex items-center gap-2 text-sm font-bold">
-                        عرض التفاصيل
-                        <span>←</span>
-                      </div>
-                    </div>
-                  </a>
-                ))}
-
-                {banners.length > 1 && (
-                  <div>
-                    <h3 className="mb-3 mt-5 text-xl font-black">اكتشف المزيد</h3>
-                    <div className="flex gap-3 overflow-x-auto pb-2">
-                      {banners.slice(1).map((b) => (
-                        <a
-                          key={b.id}
-                          href={b.linkUrl || '#'}
-                          className="relative h-40 w-28 shrink-0 overflow-hidden rounded-[22px] bg-slate-900 shadow-sm"
-                        >
-                          {b.imageUrl && (
-                            <img
-                              src={assetUrl(b.imageUrl)}
-                              className="absolute inset-0 h-full w-full object-cover"
-                              onError={(e) => {
-                                e.currentTarget.style.display = 'none';
-                              }}
-                            />
-                          )}
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
-                          <div className="absolute bottom-3 right-3 left-3 text-white">
-                            <div className="line-clamp-2 text-sm font-black">{b.title}</div>
-                          </div>
-                        </a>
+                  {banners.length > 1 && (
+                    <div className="flex items-center gap-1 rounded-full bg-white/70 px-2 py-1 shadow-sm backdrop-blur">
+                      {banners.map((_, i) => (
+                        <button
+                          key={i}
+                          onClick={() => setBannerIndex(i)}
+                          className="h-2 rounded-full transition-all duration-300"
+                          style={{
+                            width: bannerIndex === i ? 20 : 8,
+                            backgroundColor: bannerIndex === i ? primary : '#cbd5e1',
+                          }}
+                          aria-label={`إعلان ${i + 1}`}
+                        />
                       ))}
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
+
+                {(() => {
+                  const b = banners[bannerIndex] || banners[0];
+
+                  return (
+                    <div
+                      className="relative overflow-hidden rounded-[30px] shadow-sm"
+                      onMouseEnter={() => setBannerPaused(true)}
+                      onMouseLeave={() => setBannerPaused(false)}
+                      onTouchStart={(e) => {
+                        setBannerPaused(true);
+                        setBannerTouchStart(e.touches[0].clientX);
+                      }}
+                      onTouchEnd={(e) => {
+                        handleBannerTouchEnd(e.changedTouches[0].clientX);
+                        window.setTimeout(() => setBannerPaused(false), 1200);
+                      }}
+                    >
+                      <a
+                        key={b.id}
+                        href={b.linkUrl || '#'}
+                        className="banner-luxury-slide relative block h-44 overflow-hidden rounded-[30px] bg-slate-900"
+                      >
+                        {b.imageUrl && (
+                          <img
+                            src={assetUrl(b.imageUrl)}
+                            className="absolute inset-0 h-full w-full object-cover transition-transform duration-700"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
+                          />
+                        )}
+
+                        <div className="absolute inset-0 bg-gradient-to-l from-black/80 via-black/35 to-black/10" />
+                        <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/65 to-transparent" />
+
+                        <div className="relative z-10 flex h-full flex-col justify-end p-5 text-white">
+                          <div className="mb-2 w-fit rounded-full bg-white/15 px-3 py-1 text-xs font-bold backdrop-blur">
+                            إعلان {bannerIndex + 1} من {banners.length}
+                          </div>
+                          <h3 className="line-clamp-1 max-w-[90%] text-2xl font-black drop-shadow">{b.title}</h3>
+                          {b.description && (
+                            <p className="mt-2 line-clamp-2 max-w-[92%] text-sm leading-6 text-white/85 drop-shadow">
+                              {b.description}
+                            </p>
+                          )}
+                          <div className="mt-3 flex items-center gap-2 text-sm font-bold">
+                            عرض التفاصيل
+                            <span>←</span>
+                          </div>
+                        </div>
+                      </a>
+
+                    </div>
+                  );
+                })()}
               </section>
             )}
 
@@ -732,41 +782,13 @@ export function SubscriberPortalPage() {
             </section>
 
             {config.enableTickets !== false && (
-              <section className="rounded-[28px] bg-white p-5 shadow-sm">
-                <h3 className="text-xl font-black">فتح تذكرة جديدة</h3>
-
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  {['انقطاع خدمة', 'بطء الإنترنت', 'مشكلة فاتورة', 'أخرى'].map((x) => (
-                    <button
-                      key={x}
-                      onClick={() => setTicketSubject(x)}
-                      className="rounded-2xl px-3 py-3 text-sm font-bold"
-                      style={{
-                        backgroundColor: ticketSubject === x ? primary : '#f1f5f9',
-                        color: ticketSubject === x ? 'white' : '#334155',
-                      }}
-                    >
-                      {x}
-                    </button>
-                  ))}
-                </div>
-
-                <textarea
-                  className="mt-3 min-h-28 w-full rounded-2xl border-0 bg-slate-100 p-4 text-sm outline-none"
-                  placeholder="اكتب تفاصيل المشكلة..."
-                  value={ticketBody}
-                  onChange={(e) => setTicketBody(e.target.value)}
-                />
-
-                <Button
-                  disabled={ticketsLoading || !ticketSubject.trim()}
-                  onClick={createTicket}
-                  className="mt-3 h-12 w-full rounded-2xl text-white"
-                  style={{ backgroundColor: primary }}
-                >
-                  {ticketsLoading ? 'جاري الإرسال...' : 'إرسال التذكرة'}
-                </Button>
-              </section>
+              <Button
+                onClick={() => setTicketModalOpen(true)}
+                className="h-14 w-full rounded-3xl text-lg font-black text-white shadow-sm"
+                style={{ backgroundColor: primary }}
+              >
+                فتح تذكرة جديدة
+              </Button>
             )}
 
             <div className="grid grid-cols-2 gap-3">
@@ -891,6 +913,51 @@ export function SubscriberPortalPage() {
                 );
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {ticketModalOpen && (
+        <div className="fixed inset-0 z-[95] flex items-end justify-center bg-black/35 p-4 backdrop-blur-sm" onClick={() => setTicketModalOpen(false)}>
+          <div className="ticket-modal-pop w-full max-w-md rounded-t-[34px] bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-2xl font-black">فتح تذكرة جديدة</h3>
+              <button onClick={() => setTicketModalOpen(false)} className="rounded-full bg-slate-100 px-3 py-1 font-bold">
+                إغلاق
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {['انقطاع خدمة', 'بطء الإنترنت', 'مشكلة فاتورة', 'أخرى'].map((x) => (
+                <button
+                  key={x}
+                  onClick={() => setTicketSubject(x)}
+                  className="rounded-2xl px-3 py-3 text-sm font-bold"
+                  style={{
+                    backgroundColor: ticketSubject === x ? primary : '#f1f5f9',
+                    color: ticketSubject === x ? 'white' : '#334155',
+                  }}
+                >
+                  {x}
+                </button>
+              ))}
+            </div>
+
+            <textarea
+              className="mt-3 min-h-32 w-full rounded-2xl border-0 bg-slate-100 p-4 text-sm outline-none"
+              placeholder="اكتب تفاصيل المشكلة..."
+              value={ticketBody}
+              onChange={(e) => setTicketBody(e.target.value)}
+            />
+
+            <Button
+              disabled={ticketsLoading || !ticketSubject.trim()}
+              onClick={createTicket}
+              className="mt-3 h-13 w-full rounded-2xl text-white"
+              style={{ backgroundColor: primary }}
+            >
+              {ticketsLoading ? 'جاري الإرسال...' : 'إرسال التذكرة'}
+            </Button>
           </div>
         </div>
       )}
@@ -1077,7 +1144,7 @@ function Info({ icon: Icon, label, value }: any) {
         <Icon className="h-5 w-5" />
         <span>{label}</span>
       </div>
-      <b>{value}</b>
+      <b className="min-w-0 max-w-[210px] truncate text-start">{value}</b>
     </div>
   );
 }

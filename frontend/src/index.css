@@ -180,3 +180,75 @@ input, textarea, select, button {
   -webkit-tap-highlight-color: transparent;
 }
 
+
+
+.orb-float-a {
+  animation: orb-float-a 8s ease-in-out infinite;
+}
+
+.orb-float-b {
+  animation: orb-float-b 11s ease-in-out infinite;
+}
+
+.orb-float-c {
+  animation: orb-float-c 13s ease-in-out infinite;
+}
+
+@keyframes orb-float-a {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(18px, 10px, 0) scale(1.06); }
+}
+
+@keyframes orb-float-b {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-14px, -12px, 0) scale(1.04); }
+}
+
+@keyframes orb-float-c {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(12px, -16px, 0) scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orb-float-a,
+  .orb-float-b,
+  .orb-float-c {
+    animation: none !important;
+  }
+}
+
+
+.banner-luxury-slide {
+  animation: banner-soft-in 420ms ease-out both;
+}
+
+@keyframes banner-soft-in {
+  from {
+    opacity: 0.35;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+
+.ticket-modal-pop {
+  animation: ticket-modal-pop 180ms ease-out both;
+}
+
+@keyframes ticket-modal-pop {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.banner-luxury-slide {
+  isolation: isolate;
+}
