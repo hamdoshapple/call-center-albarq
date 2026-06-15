@@ -20,8 +20,18 @@ async function request(path: string, options: RequestInit = {}) {
 
 export const pushNotificationsApi = {
   stats: () => request('/push/stats'),
+  logs: () => request('/push/logs'),
+  settings: () => request('/push/settings'),
+  saveSettings: (data: any) => request('/push/settings', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
   send: (data: any) => request('/push/send', {
     method: 'POST',
     body: JSON.stringify(data),
+  }),
+  runAuto: () => request('/push/auto/expiry-debt', {
+    method: 'POST',
+    body: JSON.stringify({}),
   }),
 };

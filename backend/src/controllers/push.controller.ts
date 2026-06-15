@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import webpush from 'web-push';
 import { prisma } from '../config/prisma.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { getExternalSubscriberPayments } from '../services/external-subscriber.service.js';
 
 const VAPID_PUBLIC_KEY = 'BJjYxPn0SyB-EMzUAIFbbpZNL5sDODn4hm779RcGRzZOuspNnHWkX_6FbbTdSWaE5_S6cmVhG0Z8RBc48Odvn7o';
 const VAPID_PRIVATE_KEY = '0mDNdlscgDSoriN-3kBQdkIi4ep1ABcTr4ZYay1-NfQ';
@@ -160,7 +161,20 @@ async function getTargets(targetType: string, targetValue = '') {
   `);
 }
 
-async function sendOne(row: any, payload: any) {
+async function logPush(row: any, payload: any, targetType: string, status: string, error = '') {
+  await prisma.pushNotificationLog.create({
+    data: {
+      phone: row?.phone || row?.phoneNorm || null,
+      title: payload?.title || 'إشعار',
+      message: payload?.body || payload?.message || '',
+      targetType,
+      status,
+      error: error || null,
+    } as any,
+  }).catch(() => null);
+}
+
+async function sendOne(row: any, payload: any, targetType = 'manual') {
   const subscription = {
     endpoint: row.endpoint,
     keys: {
@@ -188,6 +202,7 @@ async function sendOne(row: any, payload: any) {
         row.id
       );
     }
+    await logPush(row, payload, targetType, 'failed', e?.body || e?.message || String(e));
     return false;
   }
 }
@@ -216,7 +231,7 @@ export async function sendPushToPhones(phones: string[], title: string, message:
   };
 
   for (const row of targets) {
-    const ok = await sendOne(row, payload);
+    const ok = await sendOne(row, payload, 'phone');
     if (ok) sent++;
     else failed++;
   }
@@ -225,58 +240,273 @@ export async function sendPushToPhones(phones: string[], title: string, message:
 }
 
 export const autoExpiryDebt = asyncHandler(async (_req: Request, res: Response) => {
+  const settings = await getNotificationSettingsObject();
+
+  if (!settings?.auto?.enabled) {
+    return res.json({ ok: true, skipped: true, reason: 'auto notifications disabled' });
+  }
+
   const results: any[] = [];
 
-  async function runTarget(targetType: string, targetValue: string, title: string, message: string) {
-    const targets = await getTargets(targetType, targetValue);
+  async function sendRows(rows: any[], targetType: string, title: string, messageTpl: string, days = '') {
+    let sent = 0;
+    let failed = 0;
+    let skippedDuplicate = 0;
+
+    for (const row of rows) {
+      const phone = row.phoneNorm || row.normalizedPhone || row.phone;
+      if (!phone) continue;
+
+      const name = String(row.name || row.pppoeUsername || 'مشترك');
+      const pppoe = String(row.pppoeUsername || '—');
+      const date = row.expiration ? new Date(row.expiration).toLocaleDateString('ar-IQ') : '—';
+
+      const message = String(messageTpl || '')
+        .replaceAll('{name}', name)
+        .replaceAll('{pppoe}', pppoe)
+        .replaceAll('{date}', date)
+        .replaceAll('{days}', String(days));
+
+      const todayCount = await prisma.pushNotificationLog.count({
+        where: {
+          phone: String(phone),
+          targetType,
+          title,
+          message,
+          createdAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+        } as any,
+      }).catch(() => 0);
+
+      if (todayCount > 0) {
+        skippedDuplicate++;
+        continue;
+      }
+
+      const r = await sendPushToPhones([phone], title, message, '/my');
+
+      sent += r.sent;
+      failed += r.failed;
+
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO PushCampaign
+        (id,title,message,targetType,targetValue,sentCount,failedCount,createdById)
+        VALUES (?,?,?,?,?,?,?,?)
+      `, cuid(), title, message, targetType, phone, r.sent, r.failed, null);
+    }
+
+    results.push({ targetType, targets: rows.length, sent, failed, skippedDuplicate });
+  }
+
+  for (const d of settings.expiry.beforeDays || []) {
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT normalizedPhone AS phoneNorm, name, pppoeUsername, expiration
+      FROM SubscriberCache
+      WHERE expiration IS NOT NULL
+        AND DATE(expiration) = DATE(DATE_ADD(NOW(), INTERVAL ? DAY))
+      UNION ALL
+      SELECT phoneNorm, name, pppoeUsername, expiration
+      FROM ExternalSubscriberCache
+      WHERE expiration IS NOT NULL
+        AND DATE(expiration) = DATE(DATE_ADD(NOW(), INTERVAL ? DAY))
+    `, Number(d), Number(d));
+
+    await sendRows(
+      rows,
+      `expiry_before_${d}`,
+      'اشتراكك ينتهي قريباً',
+      settings.templates?.expireBefore || 'اشتراك {name} سينتهي بعد {days} يوم. تاريخ الانتهاء: {date}',
+      String(d)
+    );
+  }
+
+  for (const d of settings.expiry.afterDays || []) {
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT normalizedPhone AS phoneNorm, name, pppoeUsername, expiration
+      FROM SubscriberCache
+      WHERE expiration IS NOT NULL
+        AND DATE(expiration) = DATE(DATE_SUB(NOW(), INTERVAL ? DAY))
+      UNION ALL
+      SELECT phoneNorm, name, pppoeUsername, expiration
+      FROM ExternalSubscriberCache
+      WHERE expiration IS NOT NULL
+        AND DATE(expiration) = DATE(DATE_SUB(NOW(), INTERVAL ? DAY))
+    `, Number(d), Number(d));
+
+    await sendRows(
+      rows,
+      `expired_after_${d}`,
+      'اشتراكك منتهي',
+      settings.templates?.expired || 'اشتراك {name} منتهي منذ {days} يوم. تاريخ الانتهاء: {date}',
+      String(d)
+    );
+  }
+
+  if (settings?.debt?.enabled) {
+    const targets = await getTargets('debt', String(settings.debt.minAmount || 1000));
     let sent = 0;
     let failed = 0;
 
     for (const row of targets) {
       const ok = await sendOne(row, {
-        title,
-        body: message,
+        title: 'يوجد مبلغ مستحق',
+        body: settings.templates?.debt || 'يوجد عليك مبلغ مستحق.',
         icon: '/icons/apple-touch-icon.png',
         badge: '/icons/apple-touch-icon.png',
         url: '/my',
-        tag: `albarq-${targetType}-${Date.now()}`,
-      });
+        tag: `albarq-debt-${Date.now()}`,
+      }, 'auto_debt');
 
       if (ok) sent++;
       else failed++;
     }
 
-    await prisma.$executeRawUnsafe(`
-      INSERT INTO PushCampaign
-      (id,title,message,targetType,targetValue,sentCount,failedCount,createdById)
-      VALUES (?,?,?,?,?,?,?,?)
-    `, cuid(), title, message, targetType, targetValue || null, sent, failed, null);
-
-    results.push({ targetType, targetValue, targets: targets.length, sent, failed });
+    results.push({ targetType: 'debt', targets: targets.length, sent, failed });
   }
 
-  await runTarget(
-    'expire_days',
-    '3',
-    'اشتراكك ينتهي قريباً',
-    'تنبيه: اشتراك الإنترنت ينتهي خلال 3 أيام، يرجى التجديد لتجنب توقف الخدمة.'
-  );
-
-  await runTarget(
-    'expired',
-    '',
-    'اشتراكك منتهي',
-    'اشتراك الإنترنت منتهي، يرجى التواصل مع الدعم أو التجديد.'
-  );
-
-  await runTarget(
-    'debt',
-    '1000',
-    'يوجد مبلغ مستحق',
-    'يرجى مراجعة الحساب، يوجد مبلغ مستحق على اشتراكك.'
-  );
-
   res.json({ ok: true, results });
+});
+
+
+function amountText(v: any) {
+  return Number(v || 0).toLocaleString('en-US');
+}
+
+function financeTitle(type: string) {
+  if (type === 'payment') return 'تم تسديد دفعة';
+  if (type === 'activation') return 'تم تفعيل الاشتراك';
+  if (type === 'debt') return 'تمت إضافة دين';
+  return 'حركة مالية جديدة';
+}
+
+async function cacheExternalPayment(externalId: string, row: any) {
+  await prisma.$executeRawUnsafe(`
+    INSERT INTO ExternalSubscriberPaymentCache
+    (id, externalId, sandId, date, amount, type, title, notes, package, dateFrom, dateTo, moneyIn, moneyOut, cachedAt, updatedAt)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(3),NOW(3))
+    ON DUPLICATE KEY UPDATE
+      date=VALUES(date),
+      amount=VALUES(amount),
+      type=VALUES(type),
+      title=VALUES(title),
+      notes=VALUES(notes),
+      package=VALUES(package),
+      dateFrom=VALUES(dateFrom),
+      dateTo=VALUES(dateTo),
+      moneyIn=VALUES(moneyIn),
+      moneyOut=VALUES(moneyOut),
+      updatedAt=NOW(3)
+  `,
+    cuid(),
+    externalId,
+    Number(row.sandId || row.id || 0),
+    row.date ? new Date(row.date) : null,
+    Number(row.amount || 0),
+    String(row.type || 'other'),
+    String(row.title || ''),
+    row.notes || null,
+    row.package || null,
+    row.dateFrom ? new Date(row.dateFrom) : null,
+    row.dateTo ? new Date(row.dateTo) : null,
+    Number(row.moneyIn || 0),
+    Number(row.moneyOut || 0),
+  );
+}
+
+export const financeEventWatcher = asyncHandler(async (_req: Request, res: Response) => {
+  const settings = await getNotificationSettingsObject();
+  if (!settings?.auto?.enabled) {
+    return res.json({ ok: true, skipped: true, reason: 'auto notifications disabled' });
+  }
+
+  const subscribers = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT
+      ps.phoneNorm,
+      MAX(ps.phone) AS phone,
+      ec.externalId,
+      MAX(ec.name) AS name,
+      MAX(ps.updatedAt) AS lastPushAt
+    FROM SubscriberPushSubscription ps
+    JOIN ExternalSubscriberCache ec ON ec.phoneNorm = ps.phoneNorm
+    WHERE ps.active=1
+    GROUP BY ps.phoneNorm, ec.externalId
+    ORDER BY lastPushAt DESC
+    LIMIT 500
+  `);
+
+  const result = { subscribers: subscribers.length, checked: 0, seeded: 0, detected: 0, sent: 0, failed: 0 };
+
+  for (const sub of subscribers) {
+    if (!sub.externalId) continue;
+
+    const existingCountRows = await prisma.$queryRawUnsafe<any[]>(
+      'SELECT COUNT(*) AS c FROM ExternalSubscriberPaymentCache WHERE externalId=?',
+      sub.externalId
+    );
+    const existingCount = Number(existingCountRows?.[0]?.c || 0);
+
+    let rows: any[] = [];
+    try {
+      rows = await getExternalSubscriberPayments(String(sub.externalId), 20);
+    } catch {
+      rows = [];
+    }
+
+    result.checked += 1;
+
+    for (const row of rows) {
+      const sandId = Number(row.sandId || row.id || 0);
+      if (!sandId) continue;
+
+      const exists = await prisma.$queryRawUnsafe<any[]>(
+        'SELECT id FROM ExternalSubscriberPaymentCache WHERE externalId=? AND sandId=? LIMIT 1',
+        sub.externalId,
+        sandId
+      );
+
+      await cacheExternalPayment(String(sub.externalId), row);
+
+      if (exists.length) continue;
+      if (existingCount === 0) {
+        result.seeded += 1;
+        continue;
+      }
+
+      const type = String(row.type || 'other');
+
+      if (type === 'payment' && !settings?.auto?.onPayment) continue;
+      if (type === 'debt' && !settings?.auto?.onDebt) continue;
+      if (type === 'activation' && !settings?.auto?.onActivation && !settings?.auto?.onRenewal) continue;
+
+      const title = financeTitle(type);
+      let message = '';
+
+      if (type === 'payment') {
+        message = String(settings.templates?.payment || 'تم تسجيل دفعة جديدة بقيمة {amount} د.ع.')
+          .replace('{amount}', amountText(row.amount || row.moneyIn || 0));
+      } else if (type === 'debt') {
+        message = String(settings.templates?.debt || 'يوجد عليك مبلغ مستحق قدره {amount} د.ع.')
+          .replace('{amount}', amountText(row.amount || row.moneyOut || 0));
+      } else if (type === 'activation') {
+        message = String(settings.templates?.activation || 'تم تفعيل اشتراكك بنجاح.');
+      } else {
+        message = `${row.title || 'حركة مالية جديدة'} - ${amountText(row.amount)} د.ع`;
+      }
+
+      const pushed = await sendPushToPhones([sub.phoneNorm], title, message, '/my');
+
+      result.detected += 1;
+      result.sent += pushed.sent;
+      result.failed += pushed.failed;
+
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO PushCampaign
+        (id,title,message,targetType,targetValue,sentCount,failedCount,createdById)
+        VALUES (?,?,?,?,?,?,?,?)
+      `, cuid(), title, message, `finance_${type}`, sub.phoneNorm, pushed.sent, pushed.failed, null);
+    }
+  }
+
+  res.json({ ok: true, result });
 });
 
 export const stats = asyncHandler(async (_req: Request, res: Response) => {
@@ -321,7 +551,7 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
   };
 
   for (const row of targets) {
-    const ok = await sendOne(row, payload);
+    const ok = await sendOne(row, payload, targetType);
     if (ok) sent++;
     else failed++;
   }
@@ -342,4 +572,88 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
   );
 
   res.json({ ok: true, targets: targets.length, sent, failed });
+});
+
+
+const defaultNotificationSettings = {
+  auto: {
+    enabled: true,
+    onActivation: true,
+    onRenewal: true,
+    onPayment: true,
+    onDebt: true,
+    onTicketCreated: true,
+    onTicketReply: true,
+    onTicketStatus: true,
+    onTicketClosed: true
+  },
+  expiry: {
+    beforeDays: [7, 3, 1],
+    afterDays: [1, 3]
+  },
+  debt: {
+    enabled: true,
+    minAmount: 1000,
+    repeatDays: 7
+  },
+  templates: {
+    activation: 'تم تفعيل اشتراكك بنجاح.',
+    renewal: 'تم تجديد اشتراكك بنجاح.',
+    payment: 'تم تسجيل دفعة جديدة بقيمة {amount} د.ع.',
+    debt: 'يوجد عليك مبلغ مستحق قدره {amount} د.ع.',
+    expireBefore: 'اشتراكك سينتهي بعد {days} يوم.',
+    expired: 'اشتراكك منتهي، يرجى التجديد لتجنب توقف الخدمة.',
+    ticketCreated: 'تم إنشاء تذكرتك وسيتم متابعتها من الفريق.',
+    ticketReply: 'يوجد رد جديد على تذكرتك.',
+    ticketStatus: 'تم تحديث حالة التذكرة إلى: {status}.',
+    general: 'لديك إشعار جديد من البرق الرقمي.'
+  }
+};
+
+async function getNotificationSettingsObject() {
+  const row = await prisma.setting.findUnique({ where: { key: 'notification_settings' } }).catch(() => null);
+  if (!row?.value) return defaultNotificationSettings;
+
+  const v: any = row.value;
+  return {
+    ...defaultNotificationSettings,
+    ...v,
+    auto: { ...defaultNotificationSettings.auto, ...(v.auto || {}) },
+    expiry: { ...defaultNotificationSettings.expiry, ...(v.expiry || {}) },
+    debt: { ...defaultNotificationSettings.debt, ...(v.debt || {}) },
+    templates: { ...defaultNotificationSettings.templates, ...(v.templates || {}) },
+  };
+}
+
+export const getSettings = asyncHandler(async (_req: Request, res: Response) => {
+  res.json(await getNotificationSettingsObject());
+});
+
+export const saveSettings = asyncHandler(async (req: Request, res: Response) => {
+  const current = await getNotificationSettingsObject();
+  const next = {
+    ...current,
+    ...(req.body || {}),
+    auto: { ...current.auto, ...(req.body?.auto || {}) },
+    expiry: { ...current.expiry, ...(req.body?.expiry || {}) },
+    debt: { ...current.debt, ...(req.body?.debt || {}) },
+    templates: { ...current.templates, ...(req.body?.templates || {}) },
+  };
+
+  await prisma.setting.upsert({
+    where: { key: 'notification_settings' },
+    update: { value: next as any },
+    create: { key: 'notification_settings', value: next as any },
+  });
+
+  res.json(next);
+});
+
+
+export const logs = asyncHandler(async (_req: Request, res: Response) => {
+  const rows = await prisma.pushNotificationLog.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+  });
+  res.json(rows);
 });

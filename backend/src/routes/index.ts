@@ -210,8 +210,12 @@ router.delete(
 
 // ---------- Push Notifications ----------
 router.get('/push/stats', h(push.stats));
+router.get('/push/logs', h(push.logs));
+router.get('/push/settings', h(push.getSettings));
+router.put('/push/settings', h(push.saveSettings));
 router.post('/push/send', h(push.send));
 router.post('/push/auto/expiry-debt', h(push.autoExpiryDebt));
+router.post('/push/auto/finance-events', h(push.financeEventWatcher));
 
 // ---------- Notifications ----------
 router.get('/notifications', h(misc.listNotifications));
