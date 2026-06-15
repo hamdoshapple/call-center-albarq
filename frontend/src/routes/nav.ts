@@ -16,6 +16,7 @@ import {
   BarChart3,
   ShieldCheck,
   Settings,
+  MessageSquare,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -33,6 +34,7 @@ export const NAV_ITEMS: NavItem[] = [
   { module: 'live_calls', path: '/live-calls', icon: PhoneCall, group: 'operations' },
   { module: 'call_transfer', path: '/call-transfer', icon: ArrowRightLeft, group: 'operations' },
   { module: 'subscribers', path: '/subscribers', icon: UserSearch, group: 'operations' },
+  { module: 'admin_tickets' as ModuleKey, path: '/admin-tickets', icon: MessageSquare, group: 'operations' },
 
   { module: 'agents', path: '/agents', icon: Users, group: 'management' },
   { module: 'departments', path: '/departments', icon: Building2, group: 'management' },
@@ -46,7 +48,7 @@ export const NAV_ITEMS: NavItem[] = [
   { module: 'tg400', path: '/tg400', icon: Signal, group: 'telephony' },
 
   { module: 'asterisk', path: '/asterisk', icon: Server, group: 'system' },
-    { module: 'vpn', path: '/vpn', icon: ShieldCheck, group: 'system' },
+  { module: 'vpn', path: '/vpn', icon: ShieldCheck, group: 'system' },
   { module: 'permissions', path: '/permissions', icon: ShieldCheck, group: 'system' },
   { module: 'company_settings', path: '/company-settings', icon: Settings, group: 'system' },
 ];

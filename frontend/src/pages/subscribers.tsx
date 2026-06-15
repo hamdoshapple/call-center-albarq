@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -75,6 +75,11 @@ export function SubscribersPage() {
   const [editing, setEditing] = useState<Subscriber | null>(null);
   const [form, setForm] = useState<Omit<Subscriber, 'id'>>(emptyForm);
 
+  const [cacheIntervalMinutes, setCacheIntervalMinutes] = useState(15);
+  const [cacheFinalTime, setCacheFinalTime] = useState('22:00');
+  const [cacheLimit, setCacheLimit] = useState(7000);
+  const [cacheSettingsOpen, setCacheSettingsOpen] = useState(false);
+
   const { data: results, isLoading } = useQuery({
     queryKey: ['subscribers', query, searchSource],
     queryFn: () => subscribersApi.searchSubscribers(query, searchSource),
@@ -87,6 +92,15 @@ export function SubscribersPage() {
     refetchInterval: 1000 * 60,
   });
 
+  const cacheSchedule = (cacheStatus as any)?.schedule;
+
+  useEffect(() => {
+    if (!cacheSchedule) return;
+    setCacheIntervalMinutes(Number(cacheSchedule.intervalMinutes || 15));
+    setCacheFinalTime(String(cacheSchedule.finalTime || '22:00'));
+    setCacheLimit(Number(cacheSchedule.limit || 7000));
+  }, [cacheSchedule?.intervalMinutes, cacheSchedule?.finalTime, cacheSchedule?.limit]);
+
   const refreshCacheMutation = useMutation({
     mutationFn: () => subscribersApi.refreshSubscriberCache(),
     onSuccess: (data) => {
@@ -95,6 +109,31 @@ export function SubscribersPage() {
       qc.invalidateQueries({ queryKey: ['subscribers'] });
     },
     onError: () => toast({ title: 'فشل تحديث الكاش', variant: 'destructive' }),
+  });
+
+  const saveCacheSettingsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/subscribers-cache/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}`,
+        },
+        body: JSON.stringify({
+          intervalMinutes: Number(cacheIntervalMinutes || 15),
+          finalTime: cacheFinalTime || '22:00',
+          limit: Number(cacheLimit || 7000),
+        }),
+      });
+
+      if (!res.ok) throw new Error('save failed');
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: data.message || 'تم حفظ إعدادات الكاش' });
+      qc.invalidateQueries({ queryKey: ['subscribers-cache-status'] });
+    },
+    onError: () => toast({ title: 'فشل حفظ إعدادات الكاش', variant: 'destructive' }),
   });
 
   const { data: selected } = useQuery({
@@ -224,16 +263,79 @@ export function SubscribersPage() {
 
           <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/40 p-3 text-sm">
             <Database className="h-4 w-4 text-primary" />
+
             <span>الكاش:</span>
             <b>{Number(cacheStatus?.count || 0).toLocaleString('en-US')}</b>
             <span>مشترك</span>
+
             <span className="text-muted-foreground">
               آخر تحديث: {cacheStatus?.newestCachedAt ? new Date(cacheStatus.newestCachedAt).toLocaleString('ar-IQ') : '—'}
             </span>
+
             <Badge variant={searchSource === 'cache' ? 'default' : 'secondary'}>
               {searchSource === 'cache' ? 'كاش فقط' : searchSource === 'live' ? 'مباشر' : 'تلقائي'}
             </Badge>
+
+            <Badge
+              variant="outline"
+              className="cursor-pointer"
+              onClick={() => setCacheSettingsOpen((v) => !v)}
+            >
+              الإعدادات
+            </Badge>
           </div>
+
+          {cacheSettingsOpen && (
+            <div className="rounded-xl border bg-muted/20 p-3">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="space-y-1">
+                  <Label>كل / دقيقة</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={cacheIntervalMinutes}
+                    onChange={(e) => setCacheIntervalMinutes(Number(e.target.value))}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label>آخر سحبة يومية</Label>
+                  <Input
+                    type="time"
+                    value={cacheFinalTime}
+                    onChange={(e) => setCacheFinalTime(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label>حد السحب</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={100000}
+                    value={cacheLimit}
+                    onChange={(e) => setCacheLimit(Number(e.target.value))}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <div className="text-xs text-muted-foreground">
+                  التلقائي كل {cacheSchedule?.intervalMinutes || cacheIntervalMinutes} دقيقة،
+                  وآخر سحبة الساعة {cacheSchedule?.finalTime || cacheFinalTime}.
+                </div>
+
+                <Button
+                  type="button"
+                  disabled={saveCacheSettingsMutation.isPending}
+                  onClick={() => saveCacheSettingsMutation.mutate()}
+                >
+                  {saveCacheSettingsMutation.isPending ? 'جاري الحفظ...' : 'حفظ'}
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
