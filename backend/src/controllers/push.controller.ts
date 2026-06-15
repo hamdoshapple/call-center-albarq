@@ -27,6 +27,137 @@ function norm(v: unknown) {
   return d;
 }
 
+
+const WA_GATEWAY_URL = process.env.WA_GATEWAY_URL || 'http://wa-gateway:4100';
+const WA_GATEWAY_TOKEN = process.env.WA_GATEWAY_TOKEN || 'change-me';
+
+async function whatsappGateway(path: string, body: any) {
+  const res = await fetch(`${WA_GATEWAY_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${WA_GATEWAY_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const data: any = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `WhatsApp gateway error ${res.status}`);
+  return data;
+}
+
+async function chooseWhatsappSession() {
+  const rows = await prisma.whatsappSession.findMany({
+    where: { active: true, status: 'connected' },
+    orderBy: [{ sentToday: 'asc' }, { updatedAt: 'asc' }],
+  }).catch(() => []);
+  return rows.find((x: any) => Number(x.sentToday || 0) < Number(x.dailyLimit || 200)) || null;
+}
+
+function waSpin(message: string) {
+  return String(message || '').replace(/\{rand:([^}]+)\}/g, (_m, body) => {
+    const parts = String(body).split('|').map((x) => x.trim()).filter(Boolean);
+    return parts.length ? parts[Math.floor(Math.random() * parts.length)] : '';
+  });
+}
+
+async function getWhatsappPhones(targetType: string, targetValue = '') {
+  if (targetType === 'phone') {
+    return Array.from(new Set(targetValue.split(/[,\n]/).map(norm).filter(Boolean)));
+  }
+
+  if (targetType === 'debt') {
+    const minDebt = Number(targetValue || 1);
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT normalizedPhone AS phone FROM SubscriberCache WHERE debt >= ?
+      UNION
+      SELECT phoneNorm AS phone FROM ExternalSubscriberCache WHERE debt >= ?
+    `, minDebt, minDebt);
+    return Array.from(new Set(rows.map((x) => norm(x.phone)).filter(Boolean)));
+  }
+
+  if (targetType === 'expire_days') {
+    const days = Number(targetValue || 3);
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT normalizedPhone AS phone FROM SubscriberCache
+      WHERE expiration IS NOT NULL AND DATE(expiration) BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ? DAY)
+      UNION
+      SELECT phoneNorm AS phone FROM ExternalSubscriberCache
+      WHERE expiration IS NOT NULL AND DATE(expiration) BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ? DAY)
+    `, days, days);
+    return Array.from(new Set(rows.map((x) => norm(x.phone)).filter(Boolean)));
+  }
+
+  if (targetType === 'expired') {
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT normalizedPhone AS phone FROM SubscriberCache
+      WHERE expiration IS NOT NULL AND DATE(expiration) < CURDATE()
+      UNION
+      SELECT phoneNorm AS phone FROM ExternalSubscriberCache
+      WHERE expiration IS NOT NULL AND DATE(expiration) < CURDATE()
+    `);
+    return Array.from(new Set(rows.map((x) => norm(x.phone)).filter(Boolean)));
+  }
+
+  const rows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT phoneNorm AS phone FROM SubscriberPushSubscription WHERE active=1
+    UNION
+    SELECT normalizedPhone AS phone FROM SubscriberCache WHERE normalizedPhone IS NOT NULL AND normalizedPhone <> ''
+    UNION
+    SELECT phoneNorm AS phone FROM ExternalSubscriberCache WHERE phoneNorm IS NOT NULL AND phoneNorm <> ''
+  `);
+  return Array.from(new Set(rows.map((x) => norm(x.phone)).filter(Boolean)));
+}
+
+async function sendWhatsappToPhones(phones: string[], message: string) {
+  const session = await chooseWhatsappSession();
+  if (!session) return { targets: phones.length, sent: 0, failed: phones.length, error: 'No connected WhatsApp session' };
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const phone of phones) {
+    try {
+      const text = waSpin(message);
+      await whatsappGateway('/send', {
+        sessionId: session.sessionId,
+        to: phone,
+        message: text,
+      });
+
+      await prisma.whatsappMessageLog.create({
+        data: {
+          sessionId: session.sessionId,
+          to: phone,
+          message: text,
+          status: 'sent',
+          finishedAt: new Date(),
+        } as any,
+      }).catch(() => null);
+
+      await prisma.whatsappSession.update({
+        where: { sessionId: session.sessionId },
+        data: { sentToday: { increment: 1 } },
+      }).catch(() => null);
+
+      sent++;
+    } catch (e: any) {
+      failed++;
+      await prisma.whatsappMessageLog.create({
+        data: {
+          sessionId: session.sessionId,
+          to: phone,
+          message,
+          status: 'failed',
+          error: e?.message || String(e),
+          finishedAt: new Date(),
+        } as any,
+      }).catch(() => null);
+    }
+  }
+
+  return { targets: phones.length, sent, failed, sessionId: session.sessionId };
+}
+
 function secret() {
   return process.env.SUBSCRIBER_PORTAL_JWT_SECRET || process.env.JWT_SECRET || 'subscriber-portal-secret';
 }
@@ -583,52 +714,75 @@ export const stats = asyncHandler(async (_req: Request, res: Response) => {
 });
 
 export const send = asyncHandler(async (req: Request, res: Response) => {
-  const title = String(req.body?.title || '').trim();
+  const title = String(req.body?.title || 'إشعار من البرق');
   const message = String(req.body?.message || '').trim();
   const targetType = String(req.body?.targetType || 'all');
   const targetValue = String(req.body?.targetValue || '');
   const url = String(req.body?.url || '/my');
+  const channel = String(req.body?.channel || 'push');
 
-  if (!title || !message) {
-    return res.status(400).json({ error: 'title and message required' });
+  if (!message) return res.status(400).json({ error: 'message required' });
+
+  const usePush = channel === 'push' || channel === 'both' || channel === 'all';
+  const useWhatsapp = channel === 'whatsapp' || channel === 'both' || channel === 'all';
+
+  let pushResult = { targets: 0, sent: 0, failed: 0 };
+  let whatsappResult: any = { targets: 0, sent: 0, failed: 0 };
+
+  if (usePush) {
+    const targets = await getTargets(targetType, targetValue);
+
+    const payload = {
+      title,
+      body: message,
+      icon: '/icons/apple-touch-icon.png',
+      badge: '/icons/apple-touch-icon.png',
+      url,
+      tag: 'albarq-manual-' + Date.now(),
+    };
+
+    let sent = 0;
+    let failed = 0;
+
+    for (const row of targets) {
+      const ok = await sendOne(row, payload, targetType || 'manual');
+      if (ok) {
+        sent++;
+        await logPush(row, payload, targetType || 'manual', 'sent', '');
+      } else {
+        failed++;
+      }
+    }
+
+    pushResult = { targets: targets.length, sent, failed };
   }
 
-  const targets = await getTargets(targetType, targetValue);
-
-  let sent = 0;
-  let failed = 0;
-
-  const payload = {
-    title,
-    body: message,
-    icon: '/logo.svg',
-    badge: '/logo.svg',
-    url,
-    tag: 'albarq-' + Date.now(),
-  };
-
-  for (const row of targets) {
-    const ok = await sendOne(row, payload, targetType);
-    if (ok) sent++;
-    else failed++;
+  if (useWhatsapp) {
+    const phones = await getWhatsappPhones(targetType, targetValue);
+    whatsappResult = await sendWhatsappToPhones(phones, `${title}\n\n${message}`);
   }
 
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO PushCampaign
-    (id,title,message,targetType,targetValue,sentCount,failedCount,createdById)
-    VALUES (?,?,?,?,?,?,?,?)
-  `,
-    cuid(),
-    title,
-    message,
-    targetType,
-    targetValue || null,
-    sent,
-    failed,
-    adminUserId(req)
-  );
+  await prisma.pushCampaign.create({
+    data: {
+      title,
+      message,
+      targetType: `${targetType}:${channel}`,
+      targetValue,
+      sentCount: Number(pushResult.sent || 0) + Number(whatsappResult.sent || 0),
+      failedCount: Number(pushResult.failed || 0) + Number(whatsappResult.failed || 0),
+      createdById: adminUserId(req),
+    } as any,
+  }).catch(() => null);
 
-  res.json({ ok: true, targets: targets.length, sent, failed });
+  res.json({
+    ok: true,
+    channel,
+    push: pushResult,
+    whatsapp: whatsappResult,
+    targets: Number(pushResult.targets || 0) + Number(whatsappResult.targets || 0),
+    sent: Number(pushResult.sent || 0) + Number(whatsappResult.sent || 0),
+    failed: Number(pushResult.failed || 0) + Number(whatsappResult.failed || 0),
+  });
 });
 
 

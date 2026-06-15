@@ -156,6 +156,7 @@ export default function PushNotificationsPage() {
     targetType: 'all',
     targetValue: '',
     url: '/my',
+    channel: 'push',
   });
 
   const [settings, setSettings] = useState<any>(defaultSettings);
@@ -190,7 +191,7 @@ export default function PushNotificationsPage() {
   const sendMutation = useMutation({
     mutationFn: () => pushNotificationsApi.send(form.targetType === 'phone' ? { ...form, targetValue: selectedPhones.join(',') } : form),
     onSuccess: (data) => {
-      toast({ title: 'تم الإرسال', description: `وصل: ${data.sent} / فشل: ${data.failed}` });
+      toast({ title: 'تم الإرسال', description: `القناة: ${data.channel || 'push'} — وصل: ${data.sent} / فشل: ${data.failed}` });
       setForm((f) => ({ ...f, message: '' }));
       qc.invalidateQueries({ queryKey: ['pushStats'] });
       qc.invalidateQueries({ queryKey: ['pushLogs'] });
