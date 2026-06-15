@@ -732,36 +732,9 @@ export default function PushNotificationsPage() {
                 قوالب الإشعارات
               </CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-4 md:grid-cols-2">
 
-              <div className="md:col-span-2 rounded-2xl border bg-primary/5 p-4">
-                <div className="font-black mb-2">الترميزات المتاحة داخل القوالب</div>
-                <div className="grid gap-2 text-sm md:grid-cols-2 xl:grid-cols-3">
-                  {[
-                    ['{name}', 'اسم المشترك'],
-                    ['{phone}', 'رقم الهاتف'],
-                    ['{amount}', 'المبلغ'],
-                    ['{pppoe}', 'يوزر الاشتراك'],
-                    ['{date}', 'تاريخ الانتهاء أو العملية'],
-                    ['{days}', 'عدد الأيام'],
-                    ['{status}', 'حالة التذكرة'],
-                    ['{company}', 'اسم الشركة'],
-                    ['{today}', 'تاريخ اليوم'],
-                    ['{time}', 'الوقت الحالي'],
-                    ['{datetime}', 'التاريخ والوقت'],
-                    ['{type}', 'نوع العملية'],
-                    ['{source}', 'مصدر العملية'],
-                  ].map(([code, desc]) => (
-                    <div key={code} className="rounded-xl border bg-background p-2">
-                      <code dir="ltr" className="font-black text-primary">{code}</code>
-                      <div className="text-xs text-muted-foreground mt-1">{desc}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-
-              <div className="md:col-span-2 rounded-2xl border bg-primary/5 p-4">
+            <CardContent className="space-y-5">
+              <div className="rounded-2xl border bg-primary/5 p-4">
                 <div className="mb-3 text-lg font-black">ترميزات القوالب</div>
                 <div className="grid gap-2 text-sm md:grid-cols-2 xl:grid-cols-3">
                   {[
@@ -787,23 +760,35 @@ export default function PushNotificationsPage() {
                     ['{time}', 'الوقت الحالي'],
                     ['{datetime}', 'التاريخ والوقت'],
                   ].map(([code, desc]) => (
-                    <button key={code} type="button" onClick={() => navigator.clipboard?.writeText(code)} className="rounded-xl border bg-background p-2 text-start hover:bg-muted">
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={() => navigator.clipboard?.writeText(code)}
+                      className="rounded-xl border bg-background p-2 text-start hover:bg-muted"
+                      title="اضغط للنسخ"
+                    >
                       <code dir="ltr" className="font-black text-primary">{code}</code>
                       <div className="mt-1 text-xs text-muted-foreground">{desc}</div>
                     </button>
                   ))}
                 </div>
+                <div className="mt-3 text-xs text-muted-foreground">
+                  اضغط على أي ترميز حتى ينسخ، وبعدها الصقه داخل القالب.
+                </div>
               </div>
 
-              {Object.entries(settings.templates || {}).map(([k, v]: any) => (
-                <div key={k} className="rounded-2xl border bg-muted/20 p-4">
-                  <Label className="font-mono text-xs">{k}</Label>
-                  <Textarea className="mt-2" rows={4} value={v} onChange={(e) => setTemplate(k, e.target.value)} />
-                </div>
-              ))}
-              <div className="md:col-span-2">
-                <Button onClick={() => saveMutation.mutate()}>حفظ القوالب</Button>
+              <div className="grid gap-4 md:grid-cols-2">
+                {Object.entries(settings.templates || {}).map(([k, v]: any) => (
+                  <div key={k} className="rounded-2xl border bg-muted/20 p-4">
+                    <Label className="font-mono text-xs">{k}</Label>
+                    <Textarea className="mt-2" rows={5} value={v} onChange={(e) => setTemplate(k, e.target.value)} />
+                  </div>
+                ))}
               </div>
+
+              <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+                حفظ القوالب
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>

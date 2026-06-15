@@ -647,20 +647,20 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
 
   const subscribers = await prisma.$queryRawUnsafe<any[]>(`
     SELECT
-      ps.phoneNorm,
-      MAX(ps.phone) AS phone,
+      ec.phoneNorm,
+      MAX(ec.phone) AS phone,
       ec.externalId,
       MAX(ec.name) AS name,
+      MAX(ec.pppoeUsername) AS pppoeUsername,
       MAX(ec.package) AS package,
       MAX(ec.debt) AS totalDebt,
       MAX(ec.expiration) AS expiration,
-      MAX(ps.updatedAt) AS lastPushAt
-    FROM SubscriberPushSubscription ps
-    JOIN ExternalSubscriberCache ec ON ec.phoneNorm = ps.phoneNorm
-    WHERE ps.active=1
-    GROUP BY ps.phoneNorm, ec.externalId
+      MAX(ec.updatedAt) AS lastPushAt
+    FROM ExternalSubscriberCache ec
+    WHERE ec.phoneNorm IS NOT NULL AND ec.phoneNorm <> ''
+    GROUP BY ec.phoneNorm, ec.externalId
     ORDER BY lastPushAt DESC
-    LIMIT 500
+    LIMIT 5000
   `);
 
   const result = {
@@ -755,9 +755,9 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
 
     const amountValue = Number(row.amount || row.moneyIn || row.moneyOut || 0);
     const paidValue = Number(
-      type === 'payment' ? (row.amount || row.moneyIn || 0) :
-      type === 'activation' ? (row.amount || row.moneyIn || row.moneyOut || 0) :
-      (row.moneyIn || 0)
+      type === 'payment'
+        ? (row.amount || row.moneyIn || 0)
+        : (row.moneyIn || 0)
     );
     const debtValue = Number(type === 'debt' ? (row.amount || row.moneyOut || 0) : (row.moneyOut || 0));
     const totalDebtValue = Number(sub.debt || sub.totalDebt || row.totalDebt || debtValue || 0);
@@ -775,8 +775,8 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
       debt: amountText(debtValue),
       totalDebt: amountText(totalDebtValue),
       remaining: amountText(totalDebtValue),
-      receipt: row.id || row.sandId || sandId,
-      transactionId: row.id || sandId,
+      receipt: sandId || row.id || row.sandId,
+      transactionId: sandId || row.id,
       date: enDate(expireDate),
       expireDate: enDate(expireDate),
       status: cleanNullText(row.status || sub.status || ''),
