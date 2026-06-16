@@ -210,6 +210,9 @@ router.delete(
 
 
 // ---------- WhatsApp ----------
+router.get('/whatsapp/queue-settings', h(whatsapp.getQueueSettings));
+router.put('/whatsapp/queue-settings', h(whatsapp.saveQueueSettings));
+router.post('/whatsapp/queue-settings', h(whatsapp.saveQueueSettings));
 router.get('/whatsapp/sessions', h(whatsapp.list));
 router.post('/whatsapp/sessions/start', h(whatsapp.start));
 router.get('/whatsapp/sessions/:sessionId/status', h(whatsapp.status));

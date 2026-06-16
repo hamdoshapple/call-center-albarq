@@ -46,19 +46,78 @@ async function whatsappGateway(path: string, body: any) {
   return data;
 }
 
-async function chooseWhatsappSession() {
-  const rows = await prisma.whatsappSession.findMany({
-    where: { active: true, status: 'connected' },
-    orderBy: [{ sentToday: 'asc' }, { updatedAt: 'asc' }],
-  }).catch(() => []);
-  return rows.find((x: any) => Number(x.sentToday || 0) < Number(x.dailyLimit || 200)) || null;
+
+async function getWhatsappQueueSettings() {
+  const defaults = {
+    maxFailedToday: 10,
+    maxFailRate: 15,
+    windowHours: 24,
+  };
+
+  const row = await prisma.setting.findUnique({ where: { key: 'whatsapp_queue_settings' } }).catch(() => null);
+  const v: any = row?.value || {};
+
+  return {
+    maxFailedToday: Number(v.maxFailedToday ?? defaults.maxFailedToday),
+    maxFailRate: Number(v.maxFailRate ?? defaults.maxFailRate),
+    windowHours: Number(v.windowHours ?? defaults.windowHours),
+  };
 }
 
-function waSpin(message: string) {
-  return String(message || '').replace(/\{rand:([^}]+)\}/g, (_m, body) => {
-    const parts = String(body).split('|').map((x) => x.trim()).filter(Boolean);
-    return parts.length ? parts[Math.floor(Math.random() * parts.length)] : '';
+async function chooseWhatsappSession() {
+  const q = await getWhatsappQueueSettings();
+
+  const rows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT
+      s.*,
+      COALESCE(x.totalWindow,0) AS totalWindow,
+      COALESCE(x.failedWindow,0) AS failedWindow,
+      CASE
+        WHEN COALESCE(x.totalWindow,0) = 0 THEN 0
+        ELSE ROUND(COALESCE(x.failedWindow,0) / x.totalWindow * 100, 2)
+      END AS failRate
+    FROM WhatsappSession s
+    LEFT JOIN (
+      SELECT
+        sessionId,
+        COUNT(*) AS totalWindow,
+        SUM(status='failed') AS failedWindow
+      FROM WhatsappMessageLog
+      WHERE createdAt >= DATE_SUB(NOW(), INTERVAL ? HOUR)
+      GROUP BY sessionId
+    ) x ON x.sessionId = s.sessionId
+    WHERE s.active=1
+      AND s.status='connected'
+      AND COALESCE(s.sentToday,0) < COALESCE(s.dailyLimit,200)
+    ORDER BY
+      COALESCE(s.sentToday,0) ASC,
+      COALESCE(s.failedToday,0) ASC,
+      s.updatedAt ASC
+  `, Number(q.windowHours || 24));
+
+  if (!rows.length) return null;
+
+  const healthy = rows.filter((s: any) =>
+    Number(s.failedToday || 0) < Number(q.maxFailedToday || 10) &&
+    Number(s.failRate || 0) < Number(q.maxFailRate || 15)
+  );
+
+  const pool = healthy.length ? healthy : rows;
+
+  pool.sort((a: any, b: any) => {
+    const aBad = Number(a.failedToday || 0) + Number(a.failRate || 0);
+    const bBad = Number(b.failedToday || 0) + Number(b.failRate || 0);
+
+    if (healthy.length) {
+      if (Number(a.sentToday || 0) !== Number(b.sentToday || 0)) return Number(a.sentToday || 0) - Number(b.sentToday || 0);
+      if (Number(a.failedToday || 0) !== Number(b.failedToday || 0)) return Number(a.failedToday || 0) - Number(b.failedToday || 0);
+      return new Date(a.updatedAt || 0).getTime() - new Date(b.updatedAt || 0).getTime();
+    }
+
+    return aBad - bBad;
   });
+
+  return pool[0];
 }
 
 async function getWhatsappPhones(targetType: string, targetValue = '') {
@@ -107,6 +166,19 @@ async function getWhatsappPhones(targetType: string, targetValue = '') {
     SELECT phoneNorm AS phone FROM ExternalSubscriberCache WHERE phoneNorm IS NOT NULL AND phoneNorm <> ''
   `);
   return Array.from(new Set(rows.map((x) => norm(x.phone)).filter(Boolean)));
+}
+
+
+function waSpin(text: string) {
+  return String(text || '').replace(/\{rand:([^}]+)\}/g, (_m, body) => {
+    const parts = String(body || '')
+      .split('|')
+      .map((x) => x.trim())
+      .filter(Boolean);
+
+    if (!parts.length) return '';
+    return parts[Math.floor(Math.random() * parts.length)];
+  });
 }
 
 export async function sendWhatsappToPhones(phones: string[], message: string) {

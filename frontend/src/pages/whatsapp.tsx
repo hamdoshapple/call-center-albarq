@@ -77,6 +77,11 @@ export default function WhatsappPage() {
   const [dailyLimit, setDailyLimit] = useState('200');
   const [activeSend, setActiveSend] = useState(true);
 
+  const [queueMaxFailedToday, setQueueMaxFailedToday] = useState('10');
+  const [queueMaxFailRate, setQueueMaxFailRate] = useState('15');
+  const [queueWindowHours, setQueueWindowHours] = useState('24');
+  const [savingQueue, setSavingQueue] = useState(false);
+
   async function load() {
     const s = await api('/whatsapp/sessions');
     const list = s.sessions || [];
@@ -86,6 +91,13 @@ export default function WhatsappPage() {
 
     const l = await api('/whatsapp/logs').catch(() => ({ logs: [] }));
     setLogs(l.logs || []);
+
+    const q = await api('/whatsapp/queue-settings').catch(() => null);
+    if (q) {
+      setQueueMaxFailedToday(String(q.maxFailedToday ?? 10));
+      setQueueMaxFailRate(String(q.maxFailRate ?? 15));
+      setQueueWindowHours(String(q.windowHours ?? 24));
+    }
   }
 
   async function refreshSession(id = activeId) {
@@ -163,6 +175,27 @@ export default function WhatsappPage() {
       toast({ title: 'فشل الحفظ', description: e.message, variant: 'destructive' });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveQueueSettings() {
+    setSavingQueue(true);
+    try {
+      await api('/whatsapp/queue-settings', {
+        method: 'POST',
+        body: JSON.stringify({
+          maxFailedToday: Number(queueMaxFailedToday || 10),
+          maxFailRate: Number(queueMaxFailRate || 15),
+          windowHours: Number(queueWindowHours || 24),
+        }),
+      });
+
+      toast({ title: 'تم حفظ إعدادات توزيع الرسائل' });
+      await load();
+    } catch (e: any) {
+      toast({ title: 'فشل حفظ إعدادات التوزيع', description: e.message, variant: 'destructive' });
+    } finally {
+      setSavingQueue(false);
     }
   }
 
@@ -428,6 +461,41 @@ export default function WhatsappPage() {
               <Button variant="destructive" className="w-full" onClick={logout} disabled={!activeId}>
                 <Trash2 className="ml-2 h-4 w-4" />
                 حذف نهائي من القائمة
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5" />
+                إعدادات توزيع الرسائل
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-2xl border bg-muted/20 p-4 text-xs leading-6 text-muted-foreground">
+                يتجنب النظام الجلسات التي فشلها عالي، ويختار الأقل إرسالاً اليوم حتى يتوزع الحمل بشكل أذكى.
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>أقصى فشل يومي</Label>
+                  <Input className="mt-2" type="number" value={queueMaxFailedToday} onChange={(e) => setQueueMaxFailedToday(e.target.value)} />
+                </div>
+
+                <div>
+                  <Label>أقصى نسبة فشل %</Label>
+                  <Input className="mt-2" type="number" value={queueMaxFailRate} onChange={(e) => setQueueMaxFailRate(e.target.value)} />
+                </div>
+              </div>
+
+              <div>
+                <Label>فترة مراقبة الفشل / ساعة</Label>
+                <Input className="mt-2" type="number" value={queueWindowHours} onChange={(e) => setQueueWindowHours(e.target.value)} />
+              </div>
+
+              <Button className="w-full" onClick={saveQueueSettings} disabled={savingQueue}>
+                {savingQueue ? 'جاري الحفظ...' : 'حفظ إعدادات التوزيع'}
               </Button>
             </CardContent>
           </Card>

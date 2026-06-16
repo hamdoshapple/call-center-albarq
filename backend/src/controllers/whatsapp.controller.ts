@@ -59,6 +59,34 @@ async function chooseSession() {
   return rows.find((x) => Number(x.sentToday || 0) < Number(x.dailyLimit || 200)) || null;
 }
 
+
+export const getQueueSettings = async (_req: Request, res: Response) => {
+  const defaults = {
+    maxFailedToday: 10,
+    maxFailRate: 15,
+    windowHours: 24,
+  };
+
+  const row = await prisma.setting.findUnique({ where: { key: 'whatsapp_queue_settings' } }).catch(() => null);
+  res.json({ ...defaults, ...((row?.value as any) || {}) });
+};
+
+export const saveQueueSettings = async (req: Request, res: Response) => {
+  const next = {
+    maxFailedToday: Number(req.body?.maxFailedToday ?? 10),
+    maxFailRate: Number(req.body?.maxFailRate ?? 15),
+    windowHours: Number(req.body?.windowHours ?? 24),
+  };
+
+  await prisma.setting.upsert({
+    where: { key: 'whatsapp_queue_settings' },
+    update: { value: next as any },
+    create: { key: 'whatsapp_queue_settings', value: next as any },
+  });
+
+  res.json(next);
+};
+
 export const list = asyncHandler(async (_req: Request, res: Response) => {
   const rows = await prisma.whatsappSession.findMany({ orderBy: { createdAt: 'desc' } });
   res.json({ sessions: rows });
