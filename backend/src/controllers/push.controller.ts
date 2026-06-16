@@ -695,7 +695,11 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
     const amountValue = Number(row.amount || row.moneyIn || row.moneyOut || 0);
     const paidValue = Number(type === 'payment' ? (row.amount || row.moneyIn || 0) : (row.moneyIn || 0));
     const debtValue = Number(type === 'debt' ? (row.amount || row.moneyOut || 0) : (row.moneyOut || 0));
-    const totalDebtValue = Number(row.debt || row.totalDebt || debtValue || 0);
+    const totalDebtValue = Number(
+      type === 'activation'
+        ? Math.max(0, Number(row.moneyOut || row.amount || 0) - Number(row.moneyIn || 0))
+        : (row.debt ?? row.totalDebt ?? debtValue ?? 0)
+    );
     const packagePriceValue = Number(type === 'activation' ? (row.amount || row.moneyOut || 0) : (row.packagePrice || row.price || 0));
     const expireDate = row.dateTo || row.expiration || null;
 

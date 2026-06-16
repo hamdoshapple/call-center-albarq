@@ -283,14 +283,14 @@ export async function listTodayExternalFinanceEvents(): Promise<any[]> {
       let amount = 0;
       let title = operation || 'حركة حساب';
 
-      if (moneyIn > 0) {
-        type = 'payment';
-        amount = moneyIn;
-        title = 'دفعة';
-      } else if (moneyOut > 0 && r.Sand_dateto) {
+      if (moneyOut > 0 && r.Sand_dateto) {
         type = 'activation';
         amount = moneyOut;
         title = 'تفعيل اشتراك';
+      } else if (moneyIn > 0) {
+        type = 'payment';
+        amount = moneyIn;
+        title = 'دفعة';
       } else if (moneyOut > 0) {
         type = 'debt';
         amount = moneyOut;
@@ -375,14 +375,14 @@ export async function getExternalSubscriberPayments(id: string, limit = 30): Pro
       let amount = 0;
       let title = operation || 'حركة حساب';
 
-      if (moneyIn > 0) {
-        type = 'payment';
-        amount = moneyIn;
-        title = 'دفعة';
-      } else if (moneyOut > 0 && r.Sand_dateto) {
+      if (moneyOut > 0 && r.Sand_dateto) {
         type = 'activation';
         amount = moneyOut;
         title = 'تفعيل اشتراك';
+      } else if (moneyIn > 0) {
+        type = 'payment';
+        amount = moneyIn;
+        title = 'دفعة';
       } else if (moneyOut > 0) {
         type = 'debt';
         amount = moneyOut;
