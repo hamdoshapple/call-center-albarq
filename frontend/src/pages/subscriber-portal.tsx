@@ -156,6 +156,8 @@ export function SubscriberPortalPage() {
   const [activeId, setActiveId] = useState('');
   const [loading, setLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [otpMessage, setOtpMessage] = useState('');
+  const [otpTimer, setOtpTimer] = useState(0);
   const [tab, setTab] = useState<'home' | 'accounts' | 'support' | 'profile'>('home');
   const [config, setConfig] = useState<SubscriberAppConfig>({});
   const [banners, setBanners] = useState<Banner[]>([]);
@@ -343,9 +345,16 @@ export function SubscriberPortalPage() {
     } catch {}
   }
 
+  useEffect(() => {
+    if (otpTimer <= 0) return;
+    const t = setTimeout(() => setOtpTimer((v) => Math.max(0, v - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [otpTimer]);
+
   async function requestCode() {
     setLoading(true);
     setLoginError('');
+    setOtpMessage('جاري إرسال رمز التحقق إلى واتساب...');
 
     const res = await fetch(`${API}/request-code`, {
       method: 'POST',
@@ -357,12 +366,22 @@ export function SubscriberPortalPage() {
     setLoading(false);
 
     if (!res.ok) {
-      setLoginError(data.message || 'رقم الهاتف غير مسجل لدينا');
+      setLoginError(data.message || 'تعذر إرسال رمز التحقق حالياً، حاول لاحقاً.');
+      setOtpMessage('');
       return;
     }
 
+    setOtpMessage('تم إرسال رمز التحقق إلى واتساب ✅');
+    setOtpTimer(Number(data.retryAfter || 60));
+    setCode('');
     setStep('code');
   }
+
+  useEffect(() => {
+    if (step === 'code' && code.length === 6 && !loading) {
+      login();
+    }
+  }, [code, step]);
 
   async function login() {
     setLoading(true);
@@ -371,14 +390,22 @@ export function SubscriberPortalPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone, code }),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     setLoading(false);
+
+    if (!res.ok) {
+      setLoginError(data.message || 'رمز التحقق غير صحيح');
+      return;
+    }
 
     if (data.token) {
       localStorage.setItem('subscriber_token', data.token);
       setToken(data.token);
       setStep('home');
+      return;
     }
+
+    setLoginError(data.message || 'رمز التحقق غير صحيح');
   }
 
   async function loadAccounts() {
@@ -615,21 +642,52 @@ export function SubscriberPortalPage() {
               </div>
               <Input
                 dir="ltr"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                type="tel"
                 className="h-14 flex-1 rounded-2xl border-0 bg-slate-100 text-center text-lg font-bold"
                 placeholder="77 XXX XXXX"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
               />
             </div>
 
             {step === 'code' && (
               <Input
                 dir="ltr"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                type="tel"
+                autoComplete="one-time-code"
+                maxLength={6}
                 className="mt-3 h-14 rounded-2xl border-0 bg-slate-100 text-center text-lg font-bold"
-                placeholder="رمز التحقق 123456"
+                placeholder="أدخل رمز التحقق"
                 value={code}
-                onChange={(e) => setCode(e.target.value)}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
               />
+            )}
+
+            {otpMessage && !loginError && (
+              <div className="mt-3 rounded-2xl bg-emerald-50 p-3 text-center text-sm font-bold text-emerald-700">
+                {otpMessage}
+              </div>
+            )}
+
+            {step === 'code' && (
+              <div className="mt-3 flex items-center justify-between rounded-2xl bg-slate-50 p-3 text-sm">
+                <span className="font-bold text-slate-500">
+                  {otpTimer > 0 ? `إعادة الإرسال بعد ${otpTimer} ثانية` : 'لم يصلك الرمز؟'}
+                </span>
+                <button
+                  type="button"
+                  disabled={loading || otpTimer > 0}
+                  onClick={requestCode}
+                  className="font-black disabled:opacity-40"
+                  style={{ color: primary }}
+                >
+                  إعادة إرسال
+                </button>
+              </div>
             )}
 
             {loginError && (
@@ -658,9 +716,7 @@ export function SubscriberPortalPage() {
               </Button>
             )}
 
-            <p className="mt-6 text-center text-sm text-slate-400">
-              رمز التحقق التجريبي: <span className="font-bold" style={{ color: primary }}>123456</span>
-            </p>
+
           </div>
         </div>
       </div>
