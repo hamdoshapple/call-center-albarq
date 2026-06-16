@@ -48,35 +48,20 @@ async function whatsappGateway(path: string, body: any) {
 
 
 async function getWhatsappQueueSettings() {
-  const defaults = { maxFailedToday: 10, maxFailRate: 15, windowHours: 24 };
+  const defaults = {
+    maxFailedToday: 10,
+    maxFailRate: 15,
+    windowHours: 24,
+  };
+
   const row = await prisma.setting.findUnique({ where: { key: 'whatsapp_queue_settings' } }).catch(() => null);
   const v: any = row?.value || {};
+
   return {
     maxFailedToday: Number(v.maxFailedToday ?? defaults.maxFailedToday),
     maxFailRate: Number(v.maxFailRate ?? defaults.maxFailRate),
     windowHours: Number(v.windowHours ?? defaults.windowHours),
   };
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function randomDelayMs(minSeconds: any, maxSeconds: any) {
-  const min = Math.max(1, Number(minSeconds || 5));
-  const max = Math.max(min, Number(maxSeconds || min || 15));
-  return Math.floor((min + Math.random() * (max - min + 1)) * 1000);
-}
-
-function messageFingerprint() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const a = Array.from({ length: 2 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-  const b = Math.floor(1000 + Math.random() * 9000);
-  return `\n\nرمز المتابعة: ${a}-${b}`;
-}
-
-function uniqueWhatsappMessage(text: string) {
-  return `${String(text || '').trim()}${messageFingerprint()}`;
 }
 
 async function chooseWhatsappSession() {
@@ -88,12 +73,15 @@ async function chooseWhatsappSession() {
       COALESCE(x.totalWindow,0) AS totalWindow,
       COALESCE(x.failedWindow,0) AS failedWindow,
       CASE
-        WHEN COALESCE(x.totalWindow,0)=0 THEN 0
+        WHEN COALESCE(x.totalWindow,0) = 0 THEN 0
         ELSE ROUND(COALESCE(x.failedWindow,0) / x.totalWindow * 100, 2)
       END AS failRate
     FROM WhatsappSession s
     LEFT JOIN (
-      SELECT sessionId, COUNT(*) AS totalWindow, SUM(status='failed') AS failedWindow
+      SELECT
+        sessionId,
+        COUNT(*) AS totalWindow,
+        SUM(status='failed') AS failedWindow
       FROM WhatsappMessageLog
       WHERE createdAt >= DATE_SUB(NOW(), INTERVAL ? HOUR)
       GROUP BY sessionId
@@ -101,24 +89,35 @@ async function chooseWhatsappSession() {
     WHERE s.active=1
       AND s.status='connected'
       AND COALESCE(s.sentToday,0) < COALESCE(s.dailyLimit,200)
-    ORDER BY COALESCE(s.sentToday,0) ASC, COALESCE(s.failedToday,0) ASC, s.updatedAt ASC
-  `, Number(q.windowHours || 24)).catch(() => []);
+    ORDER BY
+      COALESCE(s.sentToday,0) ASC,
+      COALESCE(s.failedToday,0) ASC,
+      s.updatedAt ASC
+  `, Number(q.windowHours || 24));
 
   if (!rows.length) return null;
 
-  const healthy = rows.filter((x: any) =>
-    Number(x.failedToday || 0) < Number(q.maxFailedToday || 10) &&
-    Number(x.failRate || 0) < Number(q.maxFailRate || 15)
+  const healthy = rows.filter((s: any) =>
+    Number(s.failedToday || 0) < Number(q.maxFailedToday || 10) &&
+    Number(s.failRate || 0) < Number(q.maxFailRate || 15)
   );
 
-  return (healthy.length ? healthy : rows)[0] || null;
-}
+  const pool = healthy.length ? healthy : rows;
 
-function waSpin(message: string) {
-  return String(message || '').replace(/\{rand:([^}]+)\}/g, (_m, body) => {
-    const parts = String(body).split('|').map((x) => x.trim()).filter(Boolean);
-    return parts.length ? parts[Math.floor(Math.random() * parts.length)] : '';
+  pool.sort((a: any, b: any) => {
+    const aBad = Number(a.failedToday || 0) + Number(a.failRate || 0);
+    const bBad = Number(b.failedToday || 0) + Number(b.failRate || 0);
+
+    if (healthy.length) {
+      if (Number(a.sentToday || 0) !== Number(b.sentToday || 0)) return Number(a.sentToday || 0) - Number(b.sentToday || 0);
+      if (Number(a.failedToday || 0) !== Number(b.failedToday || 0)) return Number(a.failedToday || 0) - Number(b.failedToday || 0);
+      return new Date(a.updatedAt || 0).getTime() - new Date(b.updatedAt || 0).getTime();
+    }
+
+    return aBad - bBad;
   });
+
+  return pool[0];
 }
 
 async function getWhatsappPhones(targetType: string, targetValue = '') {
@@ -169,6 +168,31 @@ async function getWhatsappPhones(targetType: string, targetValue = '') {
   return Array.from(new Set(rows.map((x) => norm(x.phone)).filter(Boolean)));
 }
 
+
+
+function messageFingerprint() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const a = Array.from({ length: 2 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  const b = Math.floor(1000 + Math.random() * 9000);
+  return `\n\nرمز المتابعة: ${a}-${b}`;
+}
+
+function uniqueWhatsappMessage(text: string) {
+  return `${String(text || '').trim()}${messageFingerprint()}`;
+}
+
+function waSpin(text: string) {
+  return String(text || '').replace(/\{rand:([^}]+)\}/g, (_m, body) => {
+    const parts = String(body || '')
+      .split('|')
+      .map((x) => x.trim())
+      .filter(Boolean);
+
+    if (!parts.length) return '';
+    return parts[Math.floor(Math.random() * parts.length)];
+  });
+}
+
 export async function sendWhatsappToPhones(phones: string[], message: string) {
   const cleanPhones = Array.from(new Set((phones || []).map(norm).filter(Boolean)));
   if (!cleanPhones.length) return { targets: 0, sent: 0, failed: 0 };
@@ -184,7 +208,14 @@ export async function sendWhatsappToPhones(phones: string[], message: string) {
     if (!session) {
       failed++;
       await prisma.whatsappMessageLog.create({
-        data: { sessionId: 'no-session', to: phone, message, status: 'failed', error: 'No connected WhatsApp session', finishedAt: new Date() } as any,
+        data: {
+          sessionId: 'no-session',
+          to: phone,
+          message,
+          status: 'failed',
+          error: 'No connected WhatsApp session',
+          finishedAt: new Date(),
+        } as any,
       }).catch(() => null);
       continue;
     }
@@ -206,7 +237,13 @@ export async function sendWhatsappToPhones(phones: string[], message: string) {
       });
 
       await prisma.whatsappMessageLog.create({
-        data: { sessionId: session.sessionId, to: phone, message: text, status: 'sent', finishedAt: new Date() } as any,
+        data: {
+          sessionId: session.sessionId,
+          to: phone,
+          message: text,
+          status: 'sent',
+          finishedAt: new Date(),
+        } as any,
       }).catch(() => null);
 
       await prisma.whatsappSession.update({
@@ -219,7 +256,14 @@ export async function sendWhatsappToPhones(phones: string[], message: string) {
       failed++;
 
       await prisma.whatsappMessageLog.create({
-        data: { sessionId: session.sessionId, to: phone, message, status: 'failed', error: e?.message || String(e), finishedAt: new Date() } as any,
+        data: {
+          sessionId: session.sessionId,
+          to: phone,
+          message,
+          status: 'failed',
+          error: e?.message || String(e),
+          finishedAt: new Date(),
+        } as any,
       }).catch(() => null);
 
       await prisma.whatsappSession.update({
@@ -230,249 +274,6 @@ export async function sendWhatsappToPhones(phones: string[], message: string) {
   }
 
   return { targets: cleanPhones.length, sent, failed, sessionId: lastSessionId };
-}
-
-function secret() {
-  return process.env.SUBSCRIBER_PORTAL_JWT_SECRET || process.env.JWT_SECRET || 'subscriber-portal-secret';
-}
-
-function verifySubscriber(req: Request) {
-  const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-  return jwt.verify(token, secret()) as { phone: string; type: string };
-}
-
-function adminUserId(req: Request) {
-  return (req as any).user?.id || null;
-}
-
-function jsonSafe<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v, (_key, value) =>
-    typeof value === 'bigint' ? Number(value) : value
-  ));
-}
-
-export const publicKey = asyncHandler(async (_req: Request, res: Response) => {
-  res.json({ publicKey: VAPID_PUBLIC_KEY });
-});
-
-export const subscribe = asyncHandler(async (req: Request, res: Response) => {
-  const payload = verifySubscriber(req);
-  const phone = norm(payload.phone);
-  const sub = req.body?.subscription || req.body;
-
-  if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) {
-    return res.status(400).json({ error: 'Invalid subscription' });
-  }
-
-  const endpointHash = crypto.createHash('sha256').update(sub.endpoint).digest('hex');
-
-  try {
-    await prisma.subscriberPushSubscription.upsert({
-      where: { endpointHash },
-      update: {
-        phone: payload.phone,
-        phoneNorm: phone,
-        endpoint: sub.endpoint,
-        p256dh: sub.keys.p256dh,
-        auth: sub.keys.auth,
-        userAgent: String(req.headers['user-agent'] || ''),
-        active: true,
-      } as any,
-      create: {
-        id: cuid(),
-        phone: payload.phone,
-        phoneNorm: phone,
-        endpointHash,
-        endpoint: sub.endpoint,
-        p256dh: sub.keys.p256dh,
-        auth: sub.keys.auth,
-        userAgent: String(req.headers['user-agent'] || ''),
-        active: true,
-      } as any,
-    });
-
-    return res.json({ ok: true });
-  } catch (e: any) {
-    console.error('[push.subscribe] failed', e?.code, e?.message, e?.meta || '');
-    return res.status(500).json({
-      error: 'Push subscribe failed',
-      code: e?.code || null,
-      message: e?.message || String(e),
-      meta: e?.meta || null,
-    });
-  }
-});
-
-async function getTargets(targetType: string, targetValue = '') {
-  if (targetType === 'phone') {
-    const phones = targetValue.split(/[,\n]/).map(norm).filter(Boolean);
-    if (!phones.length) return [];
-    const placeholders = phones.map(() => '?').join(',');
-    return prisma.$queryRawUnsafe<any[]>(`
-      SELECT * FROM SubscriberPushSubscription
-      WHERE active=1 AND phoneNorm IN (${placeholders})
-    `, ...phones);
-  }
-
-  if (targetType === 'debt') {
-    const minDebt = Number(targetValue || 1);
-    return prisma.$queryRawUnsafe<any[]>(`
-      SELECT DISTINCT ps.*
-      FROM SubscriberPushSubscription ps
-      WHERE ps.active=1
-      AND ps.phoneNorm IN (
-        SELECT normalizedPhone FROM SubscriberCache WHERE debt >= ?
-        UNION
-        SELECT phoneNorm FROM ExternalSubscriberCache WHERE debt >= ?
-      )
-    `, minDebt, minDebt);
-  }
-
-  if (targetType === 'expire_days') {
-    const days = Number(targetValue || 3);
-    return prisma.$queryRawUnsafe<any[]>(`
-      SELECT DISTINCT ps.*
-      FROM SubscriberPushSubscription ps
-      WHERE ps.active=1
-      AND ps.phoneNorm IN (
-        SELECT normalizedPhone FROM SubscriberCache
-        WHERE expiration IS NOT NULL AND DATE(expiration) BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ? DAY)
-        UNION
-        SELECT phoneNorm FROM ExternalSubscriberCache
-        WHERE expiration IS NOT NULL AND DATE(expiration) BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ? DAY)
-      )
-    `, days, days);
-  }
-
-  if (targetType === 'expired') {
-    return prisma.$queryRawUnsafe<any[]>(`
-      SELECT DISTINCT ps.*
-      FROM SubscriberPushSubscription ps
-      WHERE ps.active=1
-      AND ps.phoneNorm IN (
-        SELECT normalizedPhone FROM SubscriberCache
-        WHERE expiration IS NOT NULL AND DATE(expiration) < CURDATE()
-        UNION
-        SELECT phoneNorm FROM ExternalSubscriberCache
-        WHERE expiration IS NOT NULL AND DATE(expiration) < CURDATE()
-      )
-    `);
-  }
-
-  return prisma.$queryRawUnsafe<any[]>(`
-    SELECT * FROM SubscriberPushSubscription
-    WHERE active=1
-    ORDER BY updatedAt DESC
-  `);
-}
-
-async function logPush(row: any, payload: any, targetType: string, status: string, error = '') {
-  await prisma.pushNotificationLog.create({
-    data: {
-      phone: row?.phone || row?.phoneNorm || null,
-      title: payload?.title || 'إشعار',
-      message: payload?.body || payload?.message || '',
-      targetType,
-      status,
-      error: error || null,
-    } as any,
-  }).catch(() => null);
-}
-
-async function sendOne(row: any, payload: any, targetType = 'manual') {
-  const subscription = {
-    endpoint: row.endpoint,
-    keys: {
-      p256dh: row.p256dh,
-      auth: row.auth,
-    },
-  };
-
-  try {
-    await webPushClient.sendNotification(subscription as any, JSON.stringify(payload));
-    return true;
-  } catch (e: any) {
-    console.error('[push.sendOne] failed', {
-      id: row.id,
-      phone: row.phone,
-      statusCode: e?.statusCode,
-      headers: e?.headers,
-      body: e?.body,
-      message: e?.message,
-    });
-
-    if (e?.statusCode === 404 || e?.statusCode === 410) {
-      await prisma.$executeRawUnsafe(
-        `UPDATE SubscriberPushSubscription SET active=0 WHERE id=?`,
-        row.id
-      );
-    }
-    await logPush(row, payload, targetType, 'failed', e?.body || e?.message || String(e));
-    return false;
-  }
-}
-
-
-export async function sendPushToPhones(phones: string[], title: string, message: string, url = '/my') {
-  const basePhones = Array.from(new Set((phones || []).map(norm).filter(Boolean)));
-  if (!basePhones.length) return { targets: 0, sent: 0, failed: 0 };
-
-  const variants = Array.from(new Set(basePhones.flatMap((p) => {
-    const n = String(p || '').replace(/\D/g, '');
-    return [
-      n,
-      n.startsWith('0') ? n.slice(1) : n,
-      n.startsWith('964') ? n.slice(3) : n,
-      n.startsWith('964') ? '0' + n.slice(3) : '0' + n,
-      n.startsWith('964') ? n : '964' + (n.startsWith('0') ? n.slice(1) : n),
-    ].filter(Boolean);
-  })));
-
-  const placeholders = variants.map(() => '?').join(',');
-  const targets = await prisma.$queryRawUnsafe<any[]>(`
-    SELECT *
-    FROM SubscriberPushSubscription
-    WHERE active=1
-      AND (phoneNorm IN (${placeholders}) OR phone IN (${placeholders}))
-  `, ...variants, ...variants);
-
-  let sent = 0;
-  let failed = 0;
-
-  const payload = {
-    title,
-    body: message,
-    icon: '/icons/apple-touch-icon.png',
-    badge: '/icons/apple-touch-icon.png',
-    url,
-    tag: 'albarq-auto-' + Date.now(),
-  };
-
-  for (const row of targets) {
-    const ok = await sendOne(row, payload, 'phone');
-    if (ok) sent++;
-    else failed++;
-  }
-
-  return { targets: targets.length, sent, failed };
-}
-
-
-function normalizeAutoChannel(v: any) {
-  const x = String(v || 'push');
-  if (['off', 'none', 'disabled'].includes(x)) return 'off';
-  if (['push', 'whatsapp', 'both', 'all'].includes(x)) return x;
-  return 'push';
-}
-
-function usesPushChannel(ch: any) {
-  const x = normalizeAutoChannel(ch);
-  return x === 'push' || x === 'both' || x === 'all';
-}
-
-function usesWhatsappChannel(ch: any) {
-  const x = normalizeAutoChannel(ch);
-  return x === 'whatsapp' || x === 'both' || x === 'all';
 }
 
 async function sendAutoByChannel(phone: string, title: string, message: string, targetType: string, channel: any) {

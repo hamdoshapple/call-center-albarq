@@ -46,72 +46,12 @@ async function whatsappGateway(path: string, body: any) {
   return data;
 }
 
-
-async function getWhatsappQueueSettings() {
-  const defaults = { maxFailedToday: 10, maxFailRate: 15, windowHours: 24 };
-  const row = await prisma.setting.findUnique({ where: { key: 'whatsapp_queue_settings' } }).catch(() => null);
-  const v: any = row?.value || {};
-  return {
-    maxFailedToday: Number(v.maxFailedToday ?? defaults.maxFailedToday),
-    maxFailRate: Number(v.maxFailRate ?? defaults.maxFailRate),
-    windowHours: Number(v.windowHours ?? defaults.windowHours),
-  };
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function randomDelayMs(minSeconds: any, maxSeconds: any) {
-  const min = Math.max(1, Number(minSeconds || 5));
-  const max = Math.max(min, Number(maxSeconds || min || 15));
-  return Math.floor((min + Math.random() * (max - min + 1)) * 1000);
-}
-
-function messageFingerprint() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const a = Array.from({ length: 2 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-  const b = Math.floor(1000 + Math.random() * 9000);
-  return `\n\nرمز المتابعة: ${a}-${b}`;
-}
-
-function uniqueWhatsappMessage(text: string) {
-  return `${String(text || '').trim()}${messageFingerprint()}`;
-}
-
 async function chooseWhatsappSession() {
-  const q = await getWhatsappQueueSettings();
-
-  const rows = await prisma.$queryRawUnsafe<any[]>(`
-    SELECT
-      s.*,
-      COALESCE(x.totalWindow,0) AS totalWindow,
-      COALESCE(x.failedWindow,0) AS failedWindow,
-      CASE
-        WHEN COALESCE(x.totalWindow,0)=0 THEN 0
-        ELSE ROUND(COALESCE(x.failedWindow,0) / x.totalWindow * 100, 2)
-      END AS failRate
-    FROM WhatsappSession s
-    LEFT JOIN (
-      SELECT sessionId, COUNT(*) AS totalWindow, SUM(status='failed') AS failedWindow
-      FROM WhatsappMessageLog
-      WHERE createdAt >= DATE_SUB(NOW(), INTERVAL ? HOUR)
-      GROUP BY sessionId
-    ) x ON x.sessionId = s.sessionId
-    WHERE s.active=1
-      AND s.status='connected'
-      AND COALESCE(s.sentToday,0) < COALESCE(s.dailyLimit,200)
-    ORDER BY COALESCE(s.sentToday,0) ASC, COALESCE(s.failedToday,0) ASC, s.updatedAt ASC
-  `, Number(q.windowHours || 24)).catch(() => []);
-
-  if (!rows.length) return null;
-
-  const healthy = rows.filter((x: any) =>
-    Number(x.failedToday || 0) < Number(q.maxFailedToday || 10) &&
-    Number(x.failRate || 0) < Number(q.maxFailRate || 15)
-  );
-
-  return (healthy.length ? healthy : rows)[0] || null;
+  const rows = await prisma.whatsappSession.findMany({
+    where: { active: true, status: 'connected' },
+    orderBy: [{ sentToday: 'asc' }, { updatedAt: 'asc' }],
+  }).catch(() => []);
+  return rows.find((x: any) => Number(x.sentToday || 0) < Number(x.dailyLimit || 200)) || null;
 }
 
 function waSpin(message: string) {
@@ -170,43 +110,29 @@ async function getWhatsappPhones(targetType: string, targetValue = '') {
 }
 
 export async function sendWhatsappToPhones(phones: string[], message: string) {
-  const cleanPhones = Array.from(new Set((phones || []).map(norm).filter(Boolean)));
-  if (!cleanPhones.length) return { targets: 0, sent: 0, failed: 0 };
+  const session = await chooseWhatsappSession();
+  if (!session) return { targets: phones.length, sent: 0, failed: phones.length, error: 'No connected WhatsApp session' };
 
   let sent = 0;
   let failed = 0;
-  let lastSessionId = '';
 
-  for (let i = 0; i < cleanPhones.length; i++) {
-    const phone = cleanPhones[i];
-    const session = await chooseWhatsappSession();
-
-    if (!session) {
-      failed++;
-      await prisma.whatsappMessageLog.create({
-        data: { sessionId: 'no-session', to: phone, message, status: 'failed', error: 'No connected WhatsApp session', finishedAt: new Date() } as any,
-      }).catch(() => null);
-      continue;
-    }
-
-    lastSessionId = session.sessionId;
-
-    if (i > 0) {
-      await sleep(randomDelayMs((session as any).delayMin, (session as any).delayMax));
-    }
-
+  for (const phone of phones) {
     try {
-      const text = uniqueWhatsappMessage(waSpin(message));
-
+      const text = waSpin(message);
       await whatsappGateway('/send', {
         sessionId: session.sessionId,
         to: phone,
         message: text,
-        delay: randomDelayMs((session as any).delayMin, (session as any).delayMax),
       });
 
       await prisma.whatsappMessageLog.create({
-        data: { sessionId: session.sessionId, to: phone, message: text, status: 'sent', finishedAt: new Date() } as any,
+        data: {
+          sessionId: session.sessionId,
+          to: phone,
+          message: text,
+          status: 'sent',
+          finishedAt: new Date(),
+        } as any,
       }).catch(() => null);
 
       await prisma.whatsappSession.update({
@@ -217,19 +143,20 @@ export async function sendWhatsappToPhones(phones: string[], message: string) {
       sent++;
     } catch (e: any) {
       failed++;
-
       await prisma.whatsappMessageLog.create({
-        data: { sessionId: session.sessionId, to: phone, message, status: 'failed', error: e?.message || String(e), finishedAt: new Date() } as any,
-      }).catch(() => null);
-
-      await prisma.whatsappSession.update({
-        where: { sessionId: session.sessionId },
-        data: { failedToday: { increment: 1 }, lastError: e?.message || String(e) },
+        data: {
+          sessionId: session.sessionId,
+          to: phone,
+          message,
+          status: 'failed',
+          error: e?.message || String(e),
+          finishedAt: new Date(),
+        } as any,
       }).catch(() => null);
     }
   }
 
-  return { targets: cleanPhones.length, sent, failed, sessionId: lastSessionId };
+  return { targets: phones.length, sent, failed, sessionId: session.sessionId };
 }
 
 function secret() {
