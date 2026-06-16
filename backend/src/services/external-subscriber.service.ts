@@ -252,6 +252,12 @@ export async function listTodayExternalFinanceEvents(): Promise<any[]> {
         c.cost_note,
         c.cost_dateFrom,
         c.cost_dateTo,
+        (
+          SELECT ISNULL(SUM(ISNULL(s2.Sand_money,0) - ISNULL(s2.Sand_moneyin,0)),0)
+          FROM dbo.Sand s2
+          WHERE s2.Sand_cosFk = c.cost_id
+            AND ISNULL(s2.Sand_isdel,0)=0
+        ) AS debt,
         s.Sand_id,
         s.Sand_date,
         s.Sand_notes,

@@ -109,7 +109,7 @@ async function getWhatsappPhones(targetType: string, targetValue = '') {
   return Array.from(new Set(rows.map((x) => norm(x.phone)).filter(Boolean)));
 }
 
-async function sendWhatsappToPhones(phones: string[], message: string) {
+export async function sendWhatsappToPhones(phones: string[], message: string) {
   const session = await chooseWhatsappSession();
   if (!session) return { targets: phones.length, sent: 0, failed: phones.length, error: 'No connected WhatsApp session' };
 
@@ -695,11 +695,7 @@ export const financeEventWatcher = asyncHandler(async (_req: Request, res: Respo
     const amountValue = Number(row.amount || row.moneyIn || row.moneyOut || 0);
     const paidValue = Number(type === 'payment' ? (row.amount || row.moneyIn || 0) : (row.moneyIn || 0));
     const debtValue = Number(type === 'debt' ? (row.amount || row.moneyOut || 0) : (row.moneyOut || 0));
-    const totalDebtValue = Number(
-      type === 'activation'
-        ? Math.max(0, Number(row.moneyOut || row.amount || 0) - Number(row.moneyIn || 0))
-        : (row.debt ?? row.totalDebt ?? debtValue ?? 0)
-    );
+    const totalDebtValue = Number(row.debt ?? row.totalDebt ?? debtValue ?? 0);
     const packagePriceValue = Number(type === 'activation' ? (row.amount || row.moneyOut || 0) : (row.packagePrice || row.price || 0));
     const expireDate = row.dateTo || row.expiration || null;
 
@@ -781,6 +777,51 @@ export const stats = asyncHandler(async (_req: Request, res: Response) => {
   res.json(jsonSafe({ stats: { ...(rows[0] || {}), ...(waRows[0] || {}) }, campaigns }));
 });
 
+
+async function getCampaignVarsByPhone(phoneRaw: any, targetType = '') {
+  const phone = normPushPhone(phoneRaw);
+
+  const rows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT phoneNorm, phone, name, pppoeUsername, package, debt, expiration
+    FROM ExternalSubscriberCache
+    WHERE phoneNorm=? OR phoneNorm=? OR phone=?
+    UNION ALL
+    SELECT normalizedPhone AS phoneNorm, phone, name, pppoeUsername, package, debt, expiration
+    FROM SubscriberCache
+    WHERE normalizedPhone=? OR phone=?
+    LIMIT 1
+  `, phone, '0' + phone, phone, phone, phone).catch(() => []);
+
+  const r = rows[0] || {};
+  const debt = Number(r.debt || 0);
+
+  return {
+    name: cleanNullText(r.name || 'مشترك'),
+    phone: String(r.phone || phoneRaw || ''),
+    pppoe: cleanNullText(r.pppoeUsername || ''),
+    package: cleanNullText(r.package || ''),
+    packagePrice: '',
+    amount: amountText(debt),
+    paid: '',
+    debt: amountText(debt),
+    totalDebt: amountText(debt),
+    remaining: amountText(debt),
+    receipt: '',
+    transactionId: '',
+    date: enDate(r.expiration || null),
+    expireDate: enDate(r.expiration || null),
+    days: '',
+    status: '',
+    type: targetType,
+  };
+}
+
+async function renderCampaignMessage(message: string, phone: any, targetType = '') {
+  const vars = await getCampaignVarsByPhone(phone, targetType);
+  return renderFinanceTemplate(message, vars);
+}
+
+
 export const send = asyncHandler(async (req: Request, res: Response) => {
   const title = String(req.body?.title || 'إشعار من البرق');
   const message = String(req.body?.message || '').trim();
@@ -800,19 +841,21 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
   if (usePush) {
     const targets = await getTargets(targetType, targetValue);
 
-    const payload = {
-      title,
-      body: message,
-      icon: '/icons/apple-touch-icon.png',
-      badge: '/icons/apple-touch-icon.png',
-      url,
-      tag: 'albarq-manual-' + Date.now(),
-    };
-
     let sent = 0;
     let failed = 0;
 
     for (const row of targets) {
+      const renderedMessage = await renderCampaignMessage(message, row.phoneNorm || row.phone, targetType || 'manual');
+
+      const payload = {
+        title,
+        body: renderedMessage,
+        icon: '/icons/apple-touch-icon.png',
+        badge: '/icons/apple-touch-icon.png',
+        url,
+        tag: 'albarq-manual-' + Date.now(),
+      };
+
       const ok = await sendOne(row, payload, targetType || 'manual');
       if (ok) {
         sent++;
@@ -827,7 +870,17 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
 
   if (useWhatsapp) {
     const phones = await getWhatsappPhones(targetType, targetValue);
-    whatsappResult = await sendWhatsappToPhones(phones, `${title}\n\n${message}`);
+    let sent = 0;
+    let failed = 0;
+
+    for (const phone of phones) {
+      const renderedMessage = await renderCampaignMessage(message, phone, targetType || 'manual');
+      const r = await sendWhatsappToPhones([phone], `${title}\n\n${renderedMessage}`);
+      sent += Number(r.sent || 0);
+      failed += Number(r.failed || 0);
+    }
+
+    whatsappResult = { targets: phones.length, sent, failed };
   }
 
   await prisma.pushCampaign.create({
@@ -1042,9 +1095,13 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
 
 
   let liveAccounts: any[] = [];
+  let useCacheAccounts = true;
+
   if (includeAll) {
     try {
-      liveAccounts = await listExternalSubscribersForCache(50000);
+      liveAccounts = q
+        ? await searchExternalSubscribers(q || '')
+        : await listExternalSubscribersForCache(50000);
 
       if (q) {
         liveAccounts = liveAccounts.filter((x: any) =>
@@ -1054,12 +1111,11 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
           String(x.pppoeUsername || '').toLowerCase().includes(q)
         );
       }
+
+      useCacheAccounts = liveAccounts.length === 0;
     } catch (e) {
-      try {
-        liveAccounts = await searchExternalSubscribers(q || '');
-      } catch {
-        liveAccounts = [];
-      }
+      liveAccounts = [];
+      useCacheAccounts = true;
     }
   }
 
@@ -1129,8 +1185,11 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
   }
 
   for (const a of liveAccounts as any[]) addAccount(a, a.phoneNorm || a.phone || a.normalizedPhone);
-  for (const a of externalAccounts as any[]) addAccount(a, a.phoneNorm || a.phone);
-  for (const a of localAccounts as any[]) addAccount(a, a.normalizedPhone || a.phone);
+
+  if (!includeAll || useCacheAccounts) {
+    for (const a of externalAccounts as any[]) addAccount(a, a.phoneNorm || a.phone);
+    for (const a of localAccounts as any[]) addAccount(a, a.normalizedPhone || a.phone);
+  }
 
   let rows = [...map.values()].map((x) => ({
     phone: String(x.phone || x.phoneNorm),

@@ -3,8 +3,17 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '../config/prisma.js';
 import { searchSubscriberCache, cacheSubscriberPayments, getCachedSubscriberPayments } from '../services/subscriber-cache.service.js';
 import { searchExternalSubscribers, getExternalSubscriberPayments } from '../services/external-subscriber.service.js';
+import { sendWhatsappToPhones } from './push.controller.js';
 
-const CODE = '123456';
+const otpStore = new Map<string, { code: string; expiresAt: number; lastSentAt: number; attempts: number }>();
+
+function makeCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function otpMessage(code: string) {
+  return `رمز الدخول إلى تطبيق البرق هو: ${code}\nصالح لمدة 5 دقائق.\nإذا لم تطلب الرمز تجاهل هذه الرسالة.`;
+}
 
 function norm(v: unknown) {
   const d = String(v || '').replace(/\D/g, '');
@@ -53,20 +62,71 @@ export async function requestCode(req: Request, res: Response) {
     });
   }
 
+  const now = Date.now();
+  const old = otpStore.get(phone);
+
+  if (old && now - old.lastSentAt < 60_000) {
+    return res.status(429).json({
+      error: 'Too many requests',
+      message: 'انتظر دقيقة قبل طلب رمز جديد.',
+      retryAfter: Math.ceil((60_000 - (now - old.lastSentAt)) / 1000),
+    });
+  }
+
+  const code = makeCode();
+  otpStore.set(phone, {
+    code,
+    expiresAt: now + 5 * 60_000,
+    lastSentAt: now,
+    attempts: 0,
+  });
+
+  const wa = await sendWhatsappToPhones([phone], otpMessage(code));
+
+  if (!wa.sent) {
+    return res.status(503).json({
+      error: 'OTP send failed',
+      message: 'تعذر إرسال رمز التحقق حالياً، تأكد من جلسات الواتساب.',
+      wa,
+    });
+  }
+
   res.json({
     ok: true,
-    message: 'تم إرسال رمز التحقق',
-    devCode: CODE,
+    message: 'تم إرسال رمز التحقق عبر واتساب',
+    expiresIn: 300,
+    retryAfter: 60,
   });
 }
 
 export async function login(req: Request, res: Response) {
   const phone = norm(req.body?.phone);
-  const code = String(req.body?.code || '');
+  const code = String(req.body?.code || '').replace(/\D/g, '');
 
   if (!phone) return res.status(400).json({ error: 'Phone is required' });
-  if (code !== CODE) return res.status(401).json({ error: 'Invalid code' });
 
+  const row = otpStore.get(phone);
+  if (!row) {
+    return res.status(401).json({ error: 'Code not requested', message: 'اطلب رمز تحقق أولاً.' });
+  }
+
+  if (Date.now() > row.expiresAt) {
+    otpStore.delete(phone);
+    return res.status(401).json({ error: 'Code expired', message: 'انتهت صلاحية الرمز، اطلب رمز جديد.' });
+  }
+
+  row.attempts += 1;
+  if (row.attempts > 5) {
+    otpStore.delete(phone);
+    return res.status(429).json({ error: 'Too many attempts', message: 'محاولات كثيرة، اطلب رمز جديد.' });
+  }
+
+  if (code !== row.code) {
+    otpStore.set(phone, row);
+    return res.status(401).json({ error: 'Invalid code', message: 'رمز التحقق غير صحيح.' });
+  }
+
+  otpStore.delete(phone);
   res.json({ token: sign(phone), phone });
 }
 

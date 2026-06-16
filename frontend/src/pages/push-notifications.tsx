@@ -200,6 +200,7 @@ export default function PushNotificationsPage() {
   const [subscriberSearch, setSubscriberSearch] = useState('');
   const [selectedPhones, setSelectedPhones] = useState<string[]>([]);
   const [subscriberFilter, setSubscriberFilter] = useState('all');
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState('');
 
   const stats = useQuery({ queryKey: ['pushStats'], queryFn: pushNotificationsApi.stats });
   const pushLogs = useQuery({
@@ -363,6 +364,75 @@ export default function PushNotificationsPage() {
                   <div className="grid gap-2">
                     <Label>الرابط عند الضغط</Label>
                     <Input dir="ltr" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} />
+                  </div>
+                </div>
+
+                <div className="grid gap-3 rounded-2xl border bg-muted/20 p-4">
+                  <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+                    <div className="grid gap-2">
+                      <Label>اختيار قالب جاهز</Label>
+                      <Select
+                        value={selectedTemplateKey || 'none'}
+                        onValueChange={(v) => {
+                          if (v === 'none') {
+                            setSelectedTemplateKey('');
+                            return;
+                          }
+                          setSelectedTemplateKey(v);
+                          const tpl = String(settings.templates?.[v] || '');
+                          setForm((f) => ({ ...f, message: tpl }));
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="اختر قالب" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">بدون قالب</SelectItem>
+                          {Object.keys(settings.templates || {}).map((k) => (
+                            <SelectItem key={k} value={k}>{k}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        const tpl = selectedTemplateKey ? String(settings.templates?.[selectedTemplateKey] || '') : '';
+                        if (tpl) setForm((f) => ({ ...f, message: tpl }));
+                      }}
+                      disabled={!selectedTemplateKey}
+                    >
+                      تطبيق القالب
+                    </Button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      '{name}',
+                      '{phone}',
+                      '{pppoe}',
+                      '{package}',
+                      '{packagePrice}',
+                      '{amount}',
+                      '{paid}',
+                      '{debt}',
+                      '{totalDebt}',
+                      '{remaining}',
+                      '{expireDate}',
+                      '{days}',
+                      '{company}',
+                    ].map((code) => (
+                      <button
+                        key={code}
+                        type="button"
+                        onClick={() => setForm((f) => ({ ...f, message: `${f.message || ''}${f.message ? ' ' : ''}${code}` }))}
+                        className="rounded-full border bg-background px-2.5 py-1 text-xs font-black text-primary hover:bg-muted"
+                      >
+                        {code}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
