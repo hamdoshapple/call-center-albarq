@@ -81,6 +81,21 @@ export default function WhatsappPage() {
   const [queueMaxFailRate, setQueueMaxFailRate] = useState('15');
   const [queueWindowHours, setQueueWindowHours] = useState('24');
   const [savingQueue, setSavingQueue] = useState(false);
+  const [queueMode, setQueueMode] = useState('balanced');
+  const [fingerprintEnabled, setFingerprintEnabled] = useState(true);
+  const [uniqueMessageEnabled, setUniqueMessageEnabled] = useState(true);
+  const [fingerprintMinLetters, setFingerprintMinLetters] = useState('2');
+  const [fingerprintMaxLetters, setFingerprintMaxLetters] = useState('3');
+  const [fingerprintMinDigits, setFingerprintMinDigits] = useState('1000');
+  const [fingerprintMaxDigits, setFingerprintMaxDigits] = useState('9999');
+  const [fingerprintLabels, setFingerprintLabels] = useState('رمز المتابعة,مرجع الخدمة,رقم العملية,رقم الطلب,كود الخدمة,معرّف الرسالة');
+  const [extraDelayEvery, setExtraDelayEvery] = useState('20');
+  const [extraDelaySeconds, setExtraDelaySeconds] = useState('60');
+  const [warmupEnabled, setWarmupEnabled] = useState(true);
+  const [warmupHours, setWarmupHours] = useState('72');
+  const [warmupDailyLimit, setWarmupDailyLimit] = useState('30');
+  const [cooldownEnabled, setCooldownEnabled] = useState(true);
+  const [cooldownMinutes, setCooldownMinutes] = useState('30');
 
   async function load() {
     const s = await api('/whatsapp/sessions');
@@ -97,6 +112,21 @@ export default function WhatsappPage() {
       setQueueMaxFailedToday(String(q.maxFailedToday ?? 10));
       setQueueMaxFailRate(String(q.maxFailRate ?? 15));
       setQueueWindowHours(String(q.windowHours ?? 24));
+      setQueueMode(String(q.queueMode ?? 'balanced'));
+      setFingerprintEnabled(q.fingerprintEnabled !== false);
+      setUniqueMessageEnabled(q.uniqueMessageEnabled !== false);
+      setFingerprintMinLetters(String(q.fingerprintMinLetters ?? 2));
+      setFingerprintMaxLetters(String(q.fingerprintMaxLetters ?? 3));
+      setFingerprintMinDigits(String(q.fingerprintMinDigits ?? 1000));
+      setFingerprintMaxDigits(String(q.fingerprintMaxDigits ?? 9999));
+      setFingerprintLabels(Array.isArray(q.fingerprintLabels) ? q.fingerprintLabels.join(',') : String(q.fingerprintLabels || 'رمز المتابعة,مرجع الخدمة,رقم العملية,رقم الطلب,كود الخدمة,معرّف الرسالة'));
+      setExtraDelayEvery(String(q.extraDelayEvery ?? 20));
+      setExtraDelaySeconds(String(q.extraDelaySeconds ?? 60));
+      setWarmupEnabled(q.warmupEnabled !== false);
+      setWarmupHours(String(q.warmupHours ?? 72));
+      setWarmupDailyLimit(String(q.warmupDailyLimit ?? 30));
+      setCooldownEnabled(q.cooldownEnabled !== false);
+      setCooldownMinutes(String(q.cooldownMinutes ?? 30));
     }
   }
 
@@ -187,6 +217,21 @@ export default function WhatsappPage() {
           maxFailedToday: Number(queueMaxFailedToday || 10),
           maxFailRate: Number(queueMaxFailRate || 15),
           windowHours: Number(queueWindowHours || 24),
+          queueMode,
+          fingerprintEnabled,
+          uniqueMessageEnabled,
+          fingerprintMinLetters: Number(fingerprintMinLetters || 2),
+          fingerprintMaxLetters: Number(fingerprintMaxLetters || 3),
+          fingerprintMinDigits: Number(fingerprintMinDigits || 1000),
+          fingerprintMaxDigits: Number(fingerprintMaxDigits || 9999),
+          fingerprintLabels: fingerprintLabels.split(',').map((x) => x.trim()).filter(Boolean),
+          extraDelayEvery: Number(extraDelayEvery || 20),
+          extraDelaySeconds: Number(extraDelaySeconds || 60),
+          warmupEnabled,
+          warmupHours: Number(warmupHours || 72),
+          warmupDailyLimit: Number(warmupDailyLimit || 30),
+          cooldownEnabled,
+          cooldownMinutes: Number(cooldownMinutes || 30),
         }),
       });
 
@@ -492,6 +537,107 @@ export default function WhatsappPage() {
               <div>
                 <Label>فترة مراقبة الفشل / ساعة</Label>
                 <Input className="mt-2" type="number" value={queueWindowHours} onChange={(e) => setQueueWindowHours(e.target.value)} />
+              </div>
+
+              <div>
+                <Label>طريقة اختيار الجلسة</Label>
+                <select
+                  className="mt-2 h-10 w-full rounded-md border bg-background px-3 text-sm"
+                  value={queueMode}
+                  onChange={(e) => setQueueMode(e.target.value)}
+                >
+                  <option value="balanced">متوازن</option>
+                  <option value="least_sent">الأقل إرسالاً</option>
+                  <option value="least_failed">الأقل فشلاً</option>
+                </select>
+              </div>
+
+              <div className="rounded-2xl border bg-muted/20 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <Label className="font-bold">تفعيل تمييز الرسائل</Label>
+                    <div className="text-xs text-muted-foreground">يضيف مرجع مختلف لكل رسالة.</div>
+                  </div>
+                  <Switch checked={fingerprintEnabled} onCheckedChange={setFingerprintEnabled} />
+                </div>
+
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <Label className="font-bold">تفعيل اختلاف المحتوى</Label>
+                    <div className="text-xs text-muted-foreground">يستخدم الرموز والعشوائية داخل الرسالة.</div>
+                  </div>
+                  <Switch checked={uniqueMessageEnabled} onCheckedChange={setUniqueMessageEnabled} />
+                </div>
+
+                <Label>أسماء المراجع / مفصولة بفاصلة</Label>
+                <Input className="mt-2" value={fingerprintLabels} onChange={(e) => setFingerprintLabels(e.target.value)} />
+
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>أقل حروف</Label>
+                    <Input className="mt-2" type="number" value={fingerprintMinLetters} onChange={(e) => setFingerprintMinLetters(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label>أكثر حروف</Label>
+                    <Input className="mt-2" type="number" value={fingerprintMaxLetters} onChange={(e) => setFingerprintMaxLetters(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label>أقل رقم</Label>
+                    <Input className="mt-2" type="number" value={fingerprintMinDigits} onChange={(e) => setFingerprintMinDigits(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label>أعلى رقم</Label>
+                    <Input className="mt-2" type="number" value={fingerprintMaxDigits} onChange={(e) => setFingerprintMaxDigits(e.target.value)} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border bg-muted/20 p-4">
+                <Label className="font-bold">استراحة إضافية</Label>
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>كل كم رسالة</Label>
+                    <Input className="mt-2" type="number" value={extraDelayEvery} onChange={(e) => setExtraDelayEvery(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label>مدة الاستراحة / ثانية</Label>
+                    <Input className="mt-2" type="number" value={extraDelaySeconds} onChange={(e) => setExtraDelaySeconds(e.target.value)} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border bg-muted/20 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <Label className="font-bold">Warmup للجلسات الجديدة</Label>
+                    <div className="text-xs text-muted-foreground">يقلل إرسال الجلسات الجديدة بالبداية.</div>
+                  </div>
+                  <Switch checked={warmupEnabled} onCheckedChange={setWarmupEnabled} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>مدة Warmup / ساعة</Label>
+                    <Input className="mt-2" type="number" value={warmupHours} onChange={(e) => setWarmupHours(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label>حد يومي أثناء Warmup</Label>
+                    <Input className="mt-2" type="number" value={warmupDailyLimit} onChange={(e) => setWarmupDailyLimit(e.target.value)} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border bg-muted/20 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <Label className="font-bold">Cooldown عند الفشل</Label>
+                    <div className="text-xs text-muted-foreground">يبرد الجلسة مؤقتاً إذا فشل الإرسال.</div>
+                  </div>
+                  <Switch checked={cooldownEnabled} onCheckedChange={setCooldownEnabled} />
+                </div>
+
+                <Label>مدة التبريد / دقيقة</Label>
+                <Input className="mt-2" type="number" value={cooldownMinutes} onChange={(e) => setCooldownMinutes(e.target.value)} />
               </div>
 
               <Button className="w-full" onClick={saveQueueSettings} disabled={savingQueue}>

@@ -48,15 +48,48 @@ async function whatsappGateway(path: string, body: any) {
 
 
 async function getWhatsappQueueSettings() {
-  const defaults = { maxFailedToday: 10, maxFailRate: 15, windowHours: 24 };
+  const defaults = {
+    maxFailedToday: 10,
+    maxFailRate: 15,
+    windowHours: 24,
+    queueMode: 'balanced',
+    fingerprintEnabled: true,
+    uniqueMessageEnabled: true,
+    fingerprintMinLetters: 2,
+    fingerprintMaxLetters: 3,
+    fingerprintMinDigits: 1000,
+    fingerprintMaxDigits: 9999,
+    fingerprintLabels: ['رمز المتابعة', 'مرجع الخدمة', 'رقم العملية', 'رقم الطلب', 'كود الخدمة', 'معرّف الرسالة'],
+    extraDelayEvery: 20,
+    extraDelaySeconds: 60,
+    warmupEnabled: true,
+    warmupHours: 72,
+    warmupDailyLimit: 30,
+    cooldownEnabled: true,
+    cooldownMinutes: 30,
+  };
   const row = await prisma.setting.findUnique({ where: { key: 'whatsapp_queue_settings' } }).catch(() => null);
   const v: any = row?.value || {};
   return {
+    ...defaults,
+    ...(v || {}),
     maxFailedToday: Number(v.maxFailedToday ?? defaults.maxFailedToday),
     maxFailRate: Number(v.maxFailRate ?? defaults.maxFailRate),
     windowHours: Number(v.windowHours ?? defaults.windowHours),
+    fingerprintMinLetters: Number(v.fingerprintMinLetters ?? defaults.fingerprintMinLetters),
+    fingerprintMaxLetters: Number(v.fingerprintMaxLetters ?? defaults.fingerprintMaxLetters),
+    fingerprintMinDigits: Number(v.fingerprintMinDigits ?? defaults.fingerprintMinDigits),
+    fingerprintMaxDigits: Number(v.fingerprintMaxDigits ?? defaults.fingerprintMaxDigits),
+    extraDelayEvery: Number(v.extraDelayEvery ?? defaults.extraDelayEvery),
+    extraDelaySeconds: Number(v.extraDelaySeconds ?? defaults.extraDelaySeconds),
+    warmupHours: Number(v.warmupHours ?? defaults.warmupHours),
+    warmupDailyLimit: Number(v.warmupDailyLimit ?? defaults.warmupDailyLimit),
+    cooldownMinutes: Number(v.cooldownMinutes ?? defaults.cooldownMinutes),
   };
 }
+
+let lastWhatsappSendAt = 0;
+let whatsappSentCounter = 0;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -68,21 +101,86 @@ function randomDelayMs(minSeconds: any, maxSeconds: any) {
   return Math.floor((min + Math.random() * (max - min + 1)) * 1000);
 }
 
-function messageFingerprint() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const a = Array.from({ length: 2 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-  const b = Math.floor(1000 + Math.random() * 9000);
-  return `\n\nرمز المتابعة: ${a}-${b}`;
+
+async function getWhatsappCooldowns() {
+  const row = await prisma.setting.findUnique({ where: { key: 'whatsapp_session_cooldowns' } }).catch(() => null);
+  return ((row?.value as any) || {}) as Record<string, number>;
 }
 
-function uniqueWhatsappMessage(text: string) {
-  return `${String(text || '').trim()}${messageFingerprint()}`;
+async function setWhatsappCooldown(sessionId: string, minutes: number) {
+  const current = await getWhatsappCooldowns();
+  current[sessionId] = Date.now() + Math.max(1, Number(minutes || 30)) * 60 * 1000;
+
+  await prisma.setting.upsert({
+    where: { key: 'whatsapp_session_cooldowns' },
+    update: { value: current as any },
+    create: { key: 'whatsapp_session_cooldowns', value: current as any },
+  }).catch(() => null);
+}
+
+async function waitBeforeWhatsappSend(session: any, q: any) {
+  if (Number(q.extraDelayEvery || 0) > 0 && whatsappSentCounter > 0 && whatsappSentCounter % Number(q.extraDelayEvery || 20) === 0) {
+    await sleep(Math.max(1, Number(q.extraDelaySeconds || 60)) * 1000);
+  }
+
+  const delay = randomDelayMs(session?.delayMin, session?.delayMax);
+  const elapsed = Date.now() - lastWhatsappSendAt;
+
+  if (lastWhatsappSendAt > 0 && elapsed < delay) {
+    await sleep(delay - elapsed);
+  }
+
+  lastWhatsappSendAt = Date.now();
+  whatsappSentCounter++;
+}
+
+
+function messageFingerprint(q: any = {}) {
+  if (q.fingerprintEnabled === false || q.uniqueMessageEnabled === false) return '';
+
+  const labels = Array.isArray(q.fingerprintLabels) && q.fingerprintLabels.length
+    ? q.fingerprintLabels
+    : ['رمز المتابعة', 'مرجع الخدمة', 'رقم العملية', 'رقم الطلب', 'كود الخدمة', 'معرّف الرسالة'];
+
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const label = labels[Math.floor(Math.random() * labels.length)];
+
+  const minLetters = Math.max(1, Number(q.fingerprintMinLetters || 2));
+  const maxLetters = Math.max(minLetters, Number(q.fingerprintMaxLetters || 3));
+  const lettersLen = minLetters + Math.floor(Math.random() * (maxLetters - minLetters + 1));
+
+  const letters = Array.from(
+    { length: lettersLen },
+    () => chars[Math.floor(Math.random() * chars.length)]
+  ).join('');
+
+  const minDigits = Math.max(1, Number(q.fingerprintMinDigits || 1000));
+  const maxDigits = Math.max(minDigits, Number(q.fingerprintMaxDigits || 9999));
+  const digits = Math.floor(minDigits + Math.random() * (maxDigits - minDigits + 1));
+
+  const forms = [
+    `${label}: ${letters}-${digits}`,
+    `${label}: ${digits}-${letters}`,
+    `${label}: ${letters}${digits}`,
+  ];
+
+  return `
+
+${forms[Math.floor(Math.random() * forms.length)]}`;
+}
+
+function uniqueWhatsappMessage(text: string, q: any = {}) {
+  const base = String(text || '').trim();
+  if (q.uniqueMessageEnabled === false) return base;
+  return `${base}${messageFingerprint(q)}`;
 }
 
 async function chooseWhatsappSession() {
   const q = await getWhatsappQueueSettings();
+  const cooldowns = await getWhatsappCooldowns();
+  const now = Date.now();
 
-  const rows = await prisma.$queryRawUnsafe<any[]>(`
+  let rows = await prisma.$queryRawUnsafe<any[]>(`
     SELECT
       s.*,
       COALESCE(x.totalWindow,0) AS totalWindow,
@@ -101,8 +199,17 @@ async function chooseWhatsappSession() {
     WHERE s.active=1
       AND s.status='connected'
       AND COALESCE(s.sentToday,0) < COALESCE(s.dailyLimit,200)
-    ORDER BY COALESCE(s.sentToday,0) ASC, COALESCE(s.failedToday,0) ASC, s.updatedAt ASC
   `, Number(q.windowHours || 24)).catch(() => []);
+
+  rows = rows.filter((x: any) => Number(cooldowns[x.sessionId] || 0) <= now);
+
+  rows = rows.filter((x: any) => {
+    if (!q.warmupEnabled) return true;
+    const startedAt = new Date(x.connectedAt || x.createdAt || x.updatedAt || 0).getTime();
+    const ageHours = startedAt ? (now - startedAt) / 3600000 : 999999;
+    if (ageHours > Number(q.warmupHours || 72)) return true;
+    return Number(x.sentToday || 0) < Number(q.warmupDailyLimit || 30);
+  });
 
   if (!rows.length) return null;
 
@@ -111,7 +218,18 @@ async function chooseWhatsappSession() {
     Number(x.failRate || 0) < Number(q.maxFailRate || 15)
   );
 
-  return (healthy.length ? healthy : rows)[0] || null;
+  const pool = healthy.length ? healthy : rows;
+  const mode = String(q.queueMode || 'balanced');
+
+  pool.sort((a: any, b: any) => {
+    if (mode === 'least_sent') return Number(a.sentToday || 0) - Number(b.sentToday || 0);
+    if (mode === 'least_failed') return Number(a.failedToday || 0) - Number(b.failedToday || 0);
+    const scoreA = Number(a.sentToday || 0) + Number(a.failedToday || 0) * 5 + Number(a.failRate || 0) * 2;
+    const scoreB = Number(b.sentToday || 0) + Number(b.failedToday || 0) * 5 + Number(b.failRate || 0) * 2;
+    return scoreA - scoreB;
+  });
+
+  return pool[0] || null;
 }
 
 function waSpin(message: string) {
@@ -173,6 +291,8 @@ export async function sendWhatsappToPhones(phones: string[], message: string) {
   const cleanPhones = Array.from(new Set((phones || []).map(norm).filter(Boolean)));
   if (!cleanPhones.length) return { targets: 0, sent: 0, failed: 0 };
 
+  const q = await getWhatsappQueueSettings();
+
   let sent = 0;
   let failed = 0;
   let lastSessionId = '';
@@ -191,12 +311,10 @@ export async function sendWhatsappToPhones(phones: string[], message: string) {
 
     lastSessionId = session.sessionId;
 
-    if (i > 0) {
-      await sleep(randomDelayMs((session as any).delayMin, (session as any).delayMax));
-    }
-
     try {
-      const text = uniqueWhatsappMessage(waSpin(message));
+      const text = uniqueWhatsappMessage(waSpin(message), q);
+
+      await waitBeforeWhatsappSend(session, q);
 
       await whatsappGateway('/send', {
         sessionId: session.sessionId,
@@ -226,6 +344,10 @@ export async function sendWhatsappToPhones(phones: string[], message: string) {
         where: { sessionId: session.sessionId },
         data: { failedToday: { increment: 1 }, lastError: e?.message || String(e) },
       }).catch(() => null);
+
+      if (q.cooldownEnabled) {
+        await setWhatsappCooldown(session.sessionId, Number(q.cooldownMinutes || 30));
+      }
     }
   }
 
@@ -943,14 +1065,20 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
 
   if (useWhatsapp) {
     const phones = await getWhatsappPhones(targetType, targetValue);
+
     let sent = 0;
     let failed = 0;
 
-    for (const phone of phones) {
+    for (let i = 0; i < phones.length; i++) {
+      const phone = phones[i];
       const renderedMessage = await renderCampaignMessage(message, phone, targetType || 'manual');
       const r = await sendWhatsappToPhones([phone], `${title}\n\n${renderedMessage}`);
       sent += Number(r.sent || 0);
       failed += Number(r.failed || 0);
+
+      if (i < phones.length - 1) {
+        await sleep(randomDelayMs(5, 15));
+      }
     }
 
     whatsappResult = { targets: phones.length, sent, failed };

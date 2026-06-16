@@ -65,6 +65,21 @@ export const getQueueSettings = async (_req: Request, res: Response) => {
     maxFailedToday: 10,
     maxFailRate: 15,
     windowHours: 24,
+    queueMode: 'balanced',
+    fingerprintEnabled: true,
+    uniqueMessageEnabled: true,
+    fingerprintMinLetters: 2,
+    fingerprintMaxLetters: 3,
+    fingerprintMinDigits: 1000,
+    fingerprintMaxDigits: 9999,
+    fingerprintLabels: ['رمز المتابعة', 'مرجع الخدمة', 'رقم العملية', 'رقم الطلب', 'كود الخدمة', 'معرّف الرسالة'],
+    extraDelayEvery: 20,
+    extraDelaySeconds: 60,
+    warmupEnabled: true,
+    warmupHours: 72,
+    warmupDailyLimit: 30,
+    cooldownEnabled: true,
+    cooldownMinutes: 30,
   };
 
   const row = await prisma.setting.findUnique({ where: { key: 'whatsapp_queue_settings' } }).catch(() => null);
@@ -76,6 +91,23 @@ export const saveQueueSettings = async (req: Request, res: Response) => {
     maxFailedToday: Number(req.body?.maxFailedToday ?? 10),
     maxFailRate: Number(req.body?.maxFailRate ?? 15),
     windowHours: Number(req.body?.windowHours ?? 24),
+    queueMode: String(req.body?.queueMode || 'balanced'),
+    fingerprintEnabled: req.body?.fingerprintEnabled !== false,
+    uniqueMessageEnabled: req.body?.uniqueMessageEnabled !== false,
+    fingerprintMinLetters: Number(req.body?.fingerprintMinLetters ?? 2),
+    fingerprintMaxLetters: Number(req.body?.fingerprintMaxLetters ?? 3),
+    fingerprintMinDigits: Number(req.body?.fingerprintMinDigits ?? 1000),
+    fingerprintMaxDigits: Number(req.body?.fingerprintMaxDigits ?? 9999),
+    fingerprintLabels: Array.isArray(req.body?.fingerprintLabels)
+      ? req.body.fingerprintLabels
+      : String(req.body?.fingerprintLabels || 'رمز المتابعة,مرجع الخدمة,رقم العملية,رقم الطلب,كود الخدمة,معرّف الرسالة').split(',').map((x) => x.trim()).filter(Boolean),
+    extraDelayEvery: Number(req.body?.extraDelayEvery ?? 20),
+    extraDelaySeconds: Number(req.body?.extraDelaySeconds ?? 60),
+    warmupEnabled: req.body?.warmupEnabled !== false,
+    warmupHours: Number(req.body?.warmupHours ?? 72),
+    warmupDailyLimit: Number(req.body?.warmupDailyLimit ?? 30),
+    cooldownEnabled: req.body?.cooldownEnabled !== false,
+    cooldownMinutes: Number(req.body?.cooldownMinutes ?? 30),
   };
 
   await prisma.setting.upsert({
