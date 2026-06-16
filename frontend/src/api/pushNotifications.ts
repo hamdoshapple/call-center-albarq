@@ -31,6 +31,11 @@ export const pushNotificationsApi = {
     method: 'POST',
     body: JSON.stringify(data),
   }),
+  campaignJob: (id: string) => request(`/push/campaign-jobs/${encodeURIComponent(id)}`),
+  cancelCampaignJob: (id: string) => request(`/push/campaign-jobs/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  }),
   runAuto: () => request('/push/auto/finance-events', {
     method: 'POST',
     body: JSON.stringify({}),
