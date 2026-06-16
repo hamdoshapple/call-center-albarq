@@ -185,10 +185,6 @@ export function SubscriberPortalPage() {
   const [accountPickerOpen, setAccountPickerOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [pushStatus, setPushStatus] = useState('');
-  const [pushPromptOpen, setPushPromptOpen] = useState(false);
-  const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>('default');
-  const [pushChecking, setPushChecking] = useState(false);
-
   const [readNotifications, setReadNotifications] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('subscriber_read_notifications') || '[]');
@@ -294,39 +290,16 @@ export function SubscriberPortalPage() {
     });
   }
 
-  async function checkPushPermission() {
-    if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
-      setPushPermission('unsupported');
-      setPushPromptOpen(false);
-      return;
-    }
-
-    const permission = Notification.permission;
-    setPushPermission(permission);
-
-    if (step === 'home' && isPwaMode && config.enableNotifications !== false) {
-      setPushPromptOpen(permission !== 'granted');
-    }
-  }
-
   async function enablePushNotifications() {
     try {
-      setPushChecking(true);
-
       if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
-        setPushPermission('unsupported');
         setPushStatus('هذا الجهاز لا يدعم إشعارات Push');
-        setPushChecking(false);
         return;
       }
 
       const permission = await Notification.requestPermission();
-      setPushPermission(permission);
-
       if (permission !== 'granted') {
         setPushStatus('لم يتم السماح بالإشعارات');
-        setPushPromptOpen(true);
-        setPushChecking(false);
         return;
       }
 
@@ -351,17 +324,12 @@ export function SubscriberPortalPage() {
       const saveData = await saveRes.json().catch(() => ({}));
       if (!saveRes.ok) {
         setPushStatus(saveData.message || saveData.error || 'تعذر حفظ اشتراك الإشعارات');
-        setPushChecking(false);
         return;
       }
 
       setPushStatus('تم تفعيل الإشعارات بنجاح');
-      setPushPromptOpen(false);
-      await checkPushPermission();
     } catch {
       setPushStatus('تعذر تفعيل الإشعارات');
-    } finally {
-      setPushChecking(false);
     }
   }
 
@@ -518,24 +486,6 @@ export function SubscriberPortalPage() {
     if (step === 'home') loadAccounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, token]);
-
-  useEffect(() => {
-    checkPushPermission();
-
-    const onFocus = () => checkPushPermission();
-    const onVisibility = () => {
-      if (!document.hidden) checkPushPermission();
-    };
-
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onVisibility);
-
-    return () => {
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, isPwaMode, token, config.enableNotifications]);
 
   useEffect(() => {
     if (step === 'home' && activeId) {
@@ -883,91 +833,6 @@ export function SubscriberPortalPage() {
 
   return (
     <div dir="rtl" className="min-h-screen bg-slate-100 pb-40 pt-[150px] text-slate-950">
-      {pushPromptOpen && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-5 backdrop-blur-sm">
-          <div className="w-full max-w-sm overflow-hidden rounded-[34px] bg-white shadow-2xl">
-            <div
-              className="relative p-6 text-white"
-              style={{ background: `linear-gradient(135deg, ${primary}, ${secondary})` }}
-            >
-              <div className="absolute -left-10 -top-10 h-32 w-32 rounded-full bg-white/10" />
-              <div className="absolute -bottom-12 right-12 h-36 w-36 rounded-full bg-white/10" />
-
-              <div className="relative flex items-start gap-4">
-                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-3xl bg-white/20 backdrop-blur">
-                  <Bell className="h-7 w-7" />
-                </div>
-
-                <div>
-                  <h3 className="text-2xl font-black">فعّل الإشعارات</h3>
-                  <p className="mt-2 text-sm leading-7 text-white/85">
-                    حتى توصلك تنبيهات التجديد، انتهاء الاشتراك، الديون، وتحديثات التذاكر أول بأول.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-3 p-5">
-              <div className="rounded-3xl bg-slate-50 p-4">
-                <div className="mb-3 text-sm font-black text-slate-700">راح تستفاد من:</div>
-
-                <div className="space-y-3 text-sm font-bold text-slate-600">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-2xl bg-red-50 text-red-600">
-                      <Wifi className="h-4 w-4" />
-                    </span>
-                    تنبيه قبل انتهاء الاشتراك
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
-                      <Wallet className="h-4 w-4" />
-                    </span>
-                    إشعارات الديون والمدفوعات
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
-                      <MessageCircle className="h-4 w-4" />
-                    </span>
-                    متابعة تذاكر الدعم الفني
-                  </div>
-                </div>
-              </div>
-
-              {pushPermission === 'denied' && (
-                <div className="rounded-2xl bg-red-50 p-3 text-sm font-bold leading-6 text-red-600">
-                  الإشعارات محظورة من إعدادات الجهاز أو المتصفح. افتح إعدادات التطبيق وفعّل السماح بالإشعارات.
-                </div>
-              )}
-
-              {pushStatus && (
-                <div className="rounded-2xl bg-slate-50 p-3 text-center text-sm font-bold text-slate-600">
-                  {pushStatus}
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={enablePushNotifications}
-                disabled={pushChecking || pushPermission === 'denied'}
-                className="h-14 w-full rounded-2xl text-lg font-black text-white disabled:opacity-50"
-                style={{ backgroundColor: primary }}
-              >
-                {pushChecking ? 'جاري التفعيل...' : 'تفعيل الإشعارات الآن'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setPushPromptOpen(false)}
-                className="h-12 w-full rounded-2xl bg-slate-100 text-sm font-black text-slate-500"
-              >
-                لاحقاً
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {isExpired && config.popupEnabled && !expiredPopupClosed && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-5">
           <div className="w-full max-w-sm rounded-[28px] bg-white p-5 shadow-xl">
