@@ -156,6 +156,9 @@ export function SubscriberPortalPage() {
   const [activeId, setActiveId] = useState('');
   const [loading, setLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [isPwaMode, setIsPwaMode] = useState(false);
+  const [deviceType, setDeviceType] = useState<'ios' | 'android' | 'other'>('other');
+  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<any>(null);
   const [otpMessage, setOtpMessage] = useState('');
   const [otpTimer, setOtpTimer] = useState(0);
   const [tab, setTab] = useState<'home' | 'accounts' | 'support' | 'profile'>('home');
@@ -351,6 +354,42 @@ export function SubscriberPortalPage() {
     return () => clearTimeout(t);
   }, [otpTimer]);
 
+  useEffect(() => {
+    const checkPwa = () => {
+      const standalone =
+        window.matchMedia?.('(display-mode: standalone)').matches ||
+        (window.navigator as any).standalone === true;
+      setIsPwaMode(!!standalone);
+
+      const ua = navigator.userAgent || '';
+      if (/iPhone|iPad|iPod/i.test(ua)) setDeviceType('ios');
+      else if (/Android/i.test(ua)) setDeviceType('android');
+      else setDeviceType('other');
+    };
+
+    checkPwa();
+    window.addEventListener('resize', checkPwa);
+    return () => window.removeEventListener('resize', checkPwa);
+  }, []);
+
+  useEffect(() => {
+    const onBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredInstallPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt as any);
+    return () => window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt as any);
+  }, []);
+
+  async function installPwaNow() {
+    if (!deferredInstallPrompt) return;
+
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice.catch(() => null);
+    setDeferredInstallPrompt(null);
+  }
+
   async function requestCode() {
     setLoading(true);
     setLoginError('');
@@ -371,7 +410,7 @@ export function SubscriberPortalPage() {
       return;
     }
 
-    setOtpMessage('تم إرسال رمز التحقق إلى واتساب ✅');
+    setOtpMessage('تم إرسال رمز التحقق إلى واتساب، أدخل الرمز لإكمال تسجيل الدخول');
     setOtpTimer(Number(data.retryAfter || 60));
     setCode('');
     setStep('code');
@@ -598,6 +637,75 @@ export function SubscriberPortalPage() {
   if (step !== 'home') {
     return (
       <div dir="rtl" className="min-h-screen overflow-hidden bg-white text-slate-950">
+        {!isPwaMode && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/70 p-5 backdrop-blur-sm">
+            <div className="w-full max-w-sm rounded-[32px] bg-white p-6 text-center shadow-2xl">
+              <img
+                src="/icons/apple-touch-icon.png"
+                alt="App"
+                className="mx-auto mb-4 h-16 w-16 rounded-3xl shadow-sm"
+              />
+
+              <h2 className="text-2xl font-black text-slate-950">
+                افتح التطبيق من الشاشة الرئيسية
+              </h2>
+
+              <p className="mt-3 leading-7 text-slate-500">
+                لضمان أفضل تجربة واستقبال الإشعارات بشكل صحيح، افتح التطبيق من الأيقونة المثبتة على جهازك.
+              </p>
+
+              {deviceType === 'ios' && (
+                <div className="mt-5 rounded-3xl bg-slate-50 p-4 text-start text-sm leading-7 text-slate-600">
+                  <div className="font-black text-slate-800">على iPhone</div>
+                  <div>1- اضغط زر المشاركة في Safari</div>
+                  <div>2- اختر: إضافة إلى الشاشة الرئيسية</div>
+                  <div>3- افتح التطبيق من الأيقونة الجديدة</div>
+                </div>
+              )}
+
+              {deviceType === 'android' && (
+                <div className="mt-5 rounded-3xl bg-slate-50 p-4 text-start text-sm leading-7 text-slate-600">
+                  <div className="font-black text-slate-800">على Android</div>
+                  {deferredInstallPrompt ? (
+                    <button
+                      type="button"
+                      onClick={installPwaNow}
+                      className="mt-3 h-11 w-full rounded-2xl font-black text-white"
+                      style={{ backgroundColor: primary }}
+                    >
+                      تثبيت التطبيق الآن
+                    </button>
+                  ) : (
+                    <>
+                      <div>من قائمة المتصفح اختر:</div>
+                      <div>تثبيت التطبيق</div>
+                      <div>أو Add to Home Screen</div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {deviceType === 'other' && (
+                <div className="mt-5 rounded-3xl bg-slate-50 p-4 text-start text-sm leading-7 text-slate-600">
+                  <div className="font-black text-slate-800">طريقة التثبيت</div>
+                  <div>من قائمة المتصفح اختر تثبيت التطبيق</div>
+                  <div>أو أضفه إلى الشاشة الرئيسية</div>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="mt-5 h-12 w-full rounded-2xl font-black text-white"
+                style={{ backgroundColor: primary }}
+              >
+                تم التثبيت، تحقق الآن
+              </button>
+            </div>
+          </div>
+        )}
+
+
         <div className="pointer-events-none fixed inset-0 opacity-50">
           <div className="absolute -left-40 top-20 h-[520px] w-[520px] rounded-full border-[70px] border-slate-100" />
           <div className="absolute -left-20 top-80 h-[360px] w-[360px] rounded-full border-[55px] border-slate-100" />
@@ -676,7 +784,7 @@ export function SubscriberPortalPage() {
             {step === 'code' && (
               <div className="mt-3 flex items-center justify-between rounded-2xl bg-slate-50 p-3 text-sm">
                 <span className="font-bold text-slate-500">
-                  {otpTimer > 0 ? `إعادة الإرسال بعد ${otpTimer} ثانية` : 'لم يصلك الرمز؟'}
+                  {otpTimer > 0 ? `يمكنك إعادة الإرسال خلال ${otpTimer} ثوانٍ` : 'لم يصلك الرمز؟'}
                 </span>
                 <button
                   type="button"
