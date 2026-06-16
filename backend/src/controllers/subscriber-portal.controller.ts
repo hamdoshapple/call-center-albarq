@@ -12,7 +12,7 @@ function makeCode() {
 }
 
 function otpMessage(code: string) {
-  return `${code}
+  return `رمز التحقق: ${code}
 
 رمز الدخول إلى تطبيق البرق
 

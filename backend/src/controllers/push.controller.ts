@@ -175,6 +175,30 @@ function uniqueWhatsappMessage(text: string, q: any = {}) {
   return `${base}${messageFingerprint(q)}`;
 }
 
+
+async function refreshWhatsappSessionStatus(sessionId: string) {
+  try {
+    const res = await fetch(`${WA_GATEWAY_URL}/sessions/status/${encodeURIComponent(sessionId)}`, {
+      headers: { Authorization: `Bearer ${WA_GATEWAY_TOKEN}` },
+    });
+    const data: any = await res.json().catch(() => ({}));
+    const status = String(data.status || 'unknown');
+
+    await prisma.whatsappSession.update({
+      where: { sessionId },
+      data: {
+        status,
+        lastError: data.lastError || null,
+        active: status === 'connected' ? undefined : false,
+      } as any,
+    }).catch(() => null);
+
+    return status;
+  } catch {
+    return 'error';
+  }
+}
+
 async function chooseWhatsappSession() {
   const q = await getWhatsappQueueSettings();
   const cooldowns = await getWhatsappCooldowns();
@@ -211,6 +235,15 @@ async function chooseWhatsappSession() {
     return Number(x.sentToday || 0) < Number(q.warmupDailyLimit || 30);
   });
 
+  if (!rows.length) return null;
+
+  const verified: any[] = [];
+  for (const row of rows) {
+    const st = await refreshWhatsappSessionStatus(row.sessionId);
+    if (st === 'connected') verified.push(row);
+  }
+
+  rows = verified;
   if (!rows.length) return null;
 
   const healthy = rows.filter((x: any) =>
