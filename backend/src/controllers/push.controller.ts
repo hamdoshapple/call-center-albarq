@@ -341,14 +341,27 @@ async function sendOne(row: any, payload: any, targetType = 'manual') {
 
 
 export async function sendPushToPhones(phones: string[], title: string, message: string, url = '/my') {
-  const cleanPhones = Array.from(new Set((phones || []).map(norm).filter(Boolean)));
-  if (!cleanPhones.length) return { targets: 0, sent: 0, failed: 0 };
+  const basePhones = Array.from(new Set((phones || []).map(norm).filter(Boolean)));
+  if (!basePhones.length) return { targets: 0, sent: 0, failed: 0 };
 
-  const placeholders = cleanPhones.map(() => '?').join(',');
+  const variants = Array.from(new Set(basePhones.flatMap((p) => {
+    const n = String(p || '').replace(/\D/g, '');
+    return [
+      n,
+      n.startsWith('0') ? n.slice(1) : n,
+      n.startsWith('964') ? n.slice(3) : n,
+      n.startsWith('964') ? '0' + n.slice(3) : '0' + n,
+      n.startsWith('964') ? n : '964' + (n.startsWith('0') ? n.slice(1) : n),
+    ].filter(Boolean);
+  })));
+
+  const placeholders = variants.map(() => '?').join(',');
   const targets = await prisma.$queryRawUnsafe<any[]>(`
-    SELECT * FROM SubscriberPushSubscription
-    WHERE active=1 AND phoneNorm IN (${placeholders})
-  `, ...cleanPhones);
+    SELECT *
+    FROM SubscriberPushSubscription
+    WHERE active=1
+      AND (phoneNorm IN (${placeholders}) OR phone IN (${placeholders}))
+  `, ...variants, ...variants);
 
   let sent = 0;
   let failed = 0;

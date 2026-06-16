@@ -216,7 +216,9 @@ router.get('/whatsapp/sessions/:sessionId/status', h(whatsapp.status));
 router.get('/whatsapp/sessions/:sessionId/qr', h(whatsapp.qr));
 router.post('/whatsapp/sessions/:sessionId/pair-code', h(whatsapp.pairCode));
 router.post('/whatsapp/sessions/logout', h(whatsapp.logout));
+router.delete('/whatsapp/sessions/:sessionId', h(whatsapp.deleteSession));
 router.put('/whatsapp/sessions/settings', h(whatsapp.updateSettings));
+router.post('/whatsapp/sessions/settings', h(whatsapp.updateSettings));
 router.post('/whatsapp/send', h(whatsapp.send));
 router.get('/whatsapp/logs', h(whatsapp.logs));
 

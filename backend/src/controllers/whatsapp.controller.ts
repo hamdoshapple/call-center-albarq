@@ -94,6 +94,27 @@ export const pairCode = asyncHandler(async (req: Request, res: Response) => {
   }));
 });
 
+
+export const deleteSession = asyncHandler(async (req: Request, res: Response) => {
+  const sessionId = String(req.params.sessionId || req.body?.sessionId || '').trim();
+  if (!sessionId) return res.status(400).json({ error: 'sessionId required' });
+
+  await gw('/sessions/logout', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId }),
+  }).catch(() => null);
+
+  await prisma.whatsappMessageLog.deleteMany({
+    where: { sessionId },
+  }).catch(() => null);
+
+  await prisma.whatsappSession.delete({
+    where: { sessionId },
+  }).catch(() => null);
+
+  res.json({ ok: true, deleted: true, sessionId });
+});
+
 export const logout = asyncHandler(async (req: Request, res: Response) => {
   const sessionId = String(req.body?.sessionId || '');
   await gw('/sessions/logout', { method: 'POST', body: JSON.stringify({ sessionId }) }).catch(() => null);
@@ -160,9 +181,15 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const logs = asyncHandler(async (_req: Request, res: Response) => {
-  const logs = await prisma.whatsappMessageLog.findMany({
-    orderBy: { createdAt: 'desc' },
-    take: 120,
-  });
+  const logs = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT
+      l.*,
+      COALESCE(s.name, l.sessionId) AS sessionName
+    FROM WhatsappMessageLog l
+    LEFT JOIN WhatsappSession s ON s.sessionId = l.sessionId
+    ORDER BY l.createdAt DESC
+    LIMIT 120
+  `);
+
   res.json({ logs });
 });

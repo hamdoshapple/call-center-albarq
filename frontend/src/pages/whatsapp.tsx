@@ -168,16 +168,20 @@ export default function WhatsappPage() {
 
   async function logout() {
     if (!activeId) return;
-    if (!confirm('متأكد تريد حذف/فصل هذه الجلسة؟')) return;
+    const id = activeId;
+    if (!confirm('متأكد تريد حذف هذه الجلسة نهائياً من القائمة؟')) return;
 
-    await api('/whatsapp/sessions/logout', {
-      method: 'POST',
-      body: JSON.stringify({ sessionId: activeId }),
-    });
-    setQrImage(null);
-    setPairCode('');
-    setActiveId('');
-    await load();
+    try {
+      await api(`/whatsapp/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      setSessions((prev) => prev.filter((x) => x.sessionId !== id));
+      setQrImage(null);
+      setPairCode('');
+      setActiveId('');
+      toast({ title: 'تم حذف الجلسة نهائياً' });
+      await load();
+    } catch (e: any) {
+      toast({ title: 'فشل حذف الجلسة', description: e.message, variant: 'destructive' });
+    }
   }
 
   async function pair() {
@@ -213,8 +217,6 @@ export default function WhatsappPage() {
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 8000);
-    return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
@@ -425,7 +427,7 @@ export default function WhatsappPage() {
 
               <Button variant="destructive" className="w-full" onClick={logout} disabled={!activeId}>
                 <Trash2 className="ml-2 h-4 w-4" />
-                حذف / فصل الجلسة
+                حذف نهائي من القائمة
               </Button>
             </CardContent>
           </Card>
@@ -445,6 +447,9 @@ export default function WhatsappPage() {
                     <Badge variant={l.status === 'sent' ? 'default' : l.status === 'failed' ? 'destructive' : 'secondary'}>
                       {l.status}
                     </Badge>
+                  </div>
+                  <div className="mt-1 text-[11px] font-bold text-muted-foreground">
+                    الجلسة: {l.sessionName || l.sessionId || '—'}
                   </div>
                   <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{l.message}</div>
                 </div>
