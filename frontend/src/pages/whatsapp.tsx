@@ -10,6 +10,8 @@ import {
   Settings2,
   Clock,
   TimerReset,
+  SendHorizontal,
+  KeyRound,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
@@ -20,6 +22,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/ui/use-toast';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 function token() {
   return localStorage.getItem('cc_token') || '';
@@ -72,6 +75,7 @@ export default function WhatsappPage() {
 
   const active = useMemo(() => sessions.find((x) => x.sessionId === activeId), [sessions, activeId]);
 
+
   const [delayMin, setDelayMin] = useState('5');
   const [delayMax, setDelayMax] = useState('15');
   const [dailyLimit, setDailyLimit] = useState('200');
@@ -96,6 +100,27 @@ export default function WhatsappPage() {
   const [warmupDailyLimit, setWarmupDailyLimit] = useState('30');
   const [cooldownEnabled, setCooldownEnabled] = useState(true);
   const [cooldownMinutes, setCooldownMinutes] = useState('30');
+  const [mainTab, setMainTab] = useState('whatsapp');
+
+  const [tgSessions, setTgSessions] = useState<any[]>([]);
+  const [tgLogs, setTgLogs] = useState<any[]>([]);
+  const [tgActiveId, setTgActiveId] = useState('');
+  const tgActive = useMemo(() => tgSessions.find((x) => x.sessionId === tgActiveId), [tgSessions, tgActiveId]);
+  const [tgName, setTgName] = useState('');
+  const [tgQrImage, setTgQrImage] = useState<string | null>(null);
+  const [tgTo, setTgTo] = useState('');
+  const [tgMessage, setTgMessage] = useState('مرحباً، هذه رسالة تجربة من تليكرام البرق الرقمي.');
+  const [tgApiId, setTgApiId] = useState('');
+  const [tgApiHash, setTgApiHash] = useState('');
+  const [tgHasApiHash, setTgHasApiHash] = useState(false);
+  const [tgDelayMin, setTgDelayMin] = useState('5');
+  const [tgDelayMax, setTgDelayMax] = useState('15');
+  const [tgDailyLimit, setTgDailyLimit] = useState('200');
+  const [tgActiveSend, setTgActiveSend] = useState(true);
+  const [tgLoading, setTgLoading] = useState(false);
+  const [tgSaving, setTgSaving] = useState(false);
+
+
 
   async function load() {
     const s = await api('/whatsapp/sessions');
@@ -106,6 +131,21 @@ export default function WhatsappPage() {
 
     const l = await api('/whatsapp/logs').catch(() => ({ logs: [] }));
     setLogs(l.logs || []);
+
+    const tgApi = await api('/telegram/api-settings').catch(() => null);
+    if (tgApi) {
+      setTgApiId(String(tgApi.apiId || ''));
+      setTgApiHash(String(tgApi.apiHash || ''));
+      setTgHasApiHash(!!tgApi.hasApiHash);
+    }
+
+    const tgS = await api('/telegram/sessions').catch(() => ({ sessions: [] }));
+    const tgList = tgS.sessions || [];
+    setTgSessions(tgList);
+    if (!tgActiveId && tgList[0]?.sessionId) setTgActiveId(tgList[0].sessionId);
+
+    const tgL = await api('/telegram/logs').catch(() => ({ logs: [] }));
+    setTgLogs(tgL.logs || []);
 
     const q = await api('/whatsapp/queue-settings').catch(() => null);
     if (q) {
@@ -278,6 +318,136 @@ export default function WhatsappPage() {
     }
   }
 
+
+  async function saveTelegramApi() {
+    if (!tgApiId.trim() || !tgApiHash.trim()) {
+      return toast({ title: 'اكتب API ID و API HASH', variant: 'destructive' });
+    }
+
+    setTgSaving(true);
+    try {
+      await api('/telegram/api-settings', {
+        method: 'POST',
+        body: JSON.stringify({ apiId: tgApiId, apiHash: tgApiHash }),
+      });
+      setTgHasApiHash(true);
+      toast({ title: 'تم حفظ إعدادات Telegram API' });
+      await load();
+    } catch (e: any) {
+      toast({ title: 'فشل حفظ إعدادات تليكرام', description: e.message, variant: 'destructive' });
+    } finally {
+      setTgSaving(false);
+    }
+  }
+
+  async function refreshTelegramSession(id = tgActiveId) {
+    if (!id) return;
+    const st = await api(`/telegram/sessions/${id}/status`);
+    if (st.status === 'qr' || st.hasQr) {
+      const q = await api(`/telegram/sessions/${id}/qr`);
+      setTgQrImage(q.qrImage || null);
+    } else {
+      setTgQrImage(null);
+    }
+    await load();
+  }
+
+  async function startTelegramNew() {
+    setTgLoading(true);
+    setTgQrImage(null);
+
+    try {
+      const data = await api('/telegram/sessions/start', {
+        method: 'POST',
+        body: JSON.stringify({ name: tgName || undefined }),
+      });
+      setTgActiveId(data.session.sessionId);
+      toast({ title: 'تم إنشاء جلسة تليكرام' });
+      setTimeout(() => refreshTelegramSession(data.session.sessionId), 1200);
+    } catch (e: any) {
+      toast({ title: 'فشل إنشاء جلسة تليكرام', description: e.message, variant: 'destructive' });
+    } finally {
+      setTgLoading(false);
+    }
+  }
+
+  async function reconnectTelegram() {
+    if (!tgActiveId) return toast({ title: 'اختر جلسة تليكرام أولاً', variant: 'destructive' });
+
+    setTgLoading(true);
+    setTgQrImage(null);
+
+    try {
+      const data = await api('/telegram/sessions/start', {
+        method: 'POST',
+        body: JSON.stringify({ name: tgName || tgActive?.name || undefined, sessionId: tgActiveId, force: true }),
+      });
+      setTgActiveId(data.session.sessionId);
+      toast({ title: 'تمت إعادة ربط تليكرام' });
+      setTimeout(() => refreshTelegramSession(data.session.sessionId), 1200);
+    } catch (e: any) {
+      toast({ title: 'فشل إعادة الربط', description: e.message, variant: 'destructive' });
+    } finally {
+      setTgLoading(false);
+    }
+  }
+
+  async function saveTelegramSessionSettings() {
+    if (!tgActiveId) return toast({ title: 'اختر جلسة تليكرام أولاً', variant: 'destructive' });
+
+    setTgSaving(true);
+    try {
+      await api('/telegram/sessions/settings', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: tgActiveId,
+          delayMin: Number(tgDelayMin || 5),
+          delayMax: Number(tgDelayMax || 15),
+          dailyLimit: Number(tgDailyLimit || 200),
+          active: tgActiveSend,
+        }),
+      });
+      toast({ title: 'تم حفظ إعدادات جلسة تليكرام' });
+      await load();
+    } catch (e: any) {
+      toast({ title: 'فشل الحفظ', description: e.message, variant: 'destructive' });
+    } finally {
+      setTgSaving(false);
+    }
+  }
+
+  async function deleteTelegramSession() {
+    if (!tgActiveId) return;
+    const id = tgActiveId;
+    if (!confirm('متأكد تريد حذف جلسة تليكرام نهائياً؟')) return;
+
+    try {
+      await api(`/telegram/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      setTgSessions((prev) => prev.filter((x) => x.sessionId !== id));
+      setTgQrImage(null);
+      setTgActiveId('');
+      toast({ title: 'تم حذف جلسة تليكرام' });
+      await load();
+    } catch (e: any) {
+      toast({ title: 'فشل حذف جلسة تليكرام', description: e.message, variant: 'destructive' });
+    }
+  }
+
+  async function sendTelegramTest() {
+    if (!tgTo.trim() || !tgMessage.trim()) return toast({ title: 'اكتب الرقم والرسالة', variant: 'destructive' });
+
+    try {
+      await api('/telegram/send', {
+        method: 'POST',
+        body: JSON.stringify({ to: tgTo, message: tgMessage, sessionId: tgActiveId || undefined }),
+      });
+      toast({ title: 'تم إرسال تجربة تليكرام' });
+      await load();
+    } catch (e: any) {
+      toast({ title: 'فشل إرسال تليكرام', description: e.message, variant: 'destructive' });
+    }
+  }
+
   async function sendTest() {
     if (!to.trim() || !message.trim()) return toast({ title: 'اكتب الرقم والرسالة', variant: 'destructive' });
 
@@ -305,13 +475,25 @@ export default function WhatsappPage() {
     setActiveSend(active.active !== false);
   }, [activeId, active?.updatedAt]);
 
+  useEffect(() => {
+    if (!tgActive) return;
+    setTgDelayMin(String(tgActive.delayMin ?? 5));
+    setTgDelayMax(String(tgActive.delayMax ?? 15));
+    setTgDailyLimit(String(tgActive.dailyLimit ?? 200));
+    setTgActiveSend(tgActive.active !== false);
+  }, [tgActiveId, tgActive?.updatedAt]);
+
   const connected = sessions.filter((x) => x.status === 'connected' && x.active !== false).length;
   const sentToday = sessions.reduce((sum, x) => sum + Number(x.sentToday || 0), 0);
   const failedToday = sessions.reduce((sum, x) => sum + Number(x.failedToday || 0), 0);
 
+  const tgConnected = tgSessions.filter((x) => x.status === 'connected' && x.active !== false).length;
+  const tgSentToday = tgSessions.reduce((sum, x) => sum + Number(x.sentToday || 0), 0);
+  const tgFailedToday = tgSessions.reduce((sum, x) => sum + Number(x.failedToday || 0), 0);
+
   return (
     <div className="space-y-6">
-      <PageHeader title="إدارة واتساب" />
+      <PageHeader title="قنوات الرسائل" />
 
       <div className="rounded-[28px] border bg-gradient-to-l from-emerald-500/15 via-background to-background p-6 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -335,7 +517,14 @@ export default function WhatsappPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[360px_1fr_380px]">
+      <Tabs value={mainTab} onValueChange={setMainTab} className="space-y-5">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-2xl bg-muted/60 p-2">
+          <TabsTrigger value="whatsapp" className="rounded-xl">واتساب</TabsTrigger>
+          <TabsTrigger value="telegram" className="rounded-xl">تليكرام</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="whatsapp">
+          <div className="grid gap-4 xl:grid-cols-[360px_1fr_380px]">
         <Card className="shadow-sm">
           <CardHeader>
             <CardTitle>الجلسات</CardTitle>
@@ -673,7 +862,253 @@ export default function WhatsappPage() {
             </CardContent>
           </Card>
         </div>
-      </div>
+
+          </div>
+        </TabsContent>
+
+        <TabsContent value="telegram">
+          <div className="rounded-[28px] border bg-gradient-to-l from-sky-500/15 via-background to-background p-6 shadow-sm">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-600 text-white">
+                  <SendHorizontal className="h-6 w-6" />
+                </div>
+                <div>
+                  <h1 className="text-2xl font-black">تليكرام متعدد الجلسات</h1>
+                  <p className="text-sm text-muted-foreground">
+                    إرسال عبر حسابات Telegram شخصية باستخدام QR Login ورقم الهاتف.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="secondary">متصل {n(tgConnected)}</Badge>
+                <Badge variant="outline">مرسل اليوم {n(tgSentToday)}</Badge>
+                <Badge variant={tgFailedToday ? 'destructive' : 'outline'}>فشل {n(tgFailedToday)}</Badge>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-[360px_1fr_380px]">
+            <Card className="shadow-sm">
+              <CardHeader>
+                <CardTitle>جلسات تليكرام</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="rounded-2xl border bg-sky-50 p-3 text-xs leading-6 text-sky-900">
+                  <div className="mb-1 font-black">تعليمات الربط</div>
+                  <div>1- افتح my.telegram.org/apps</div>
+                  <div>2- سجل دخول برقم تليكرام</div>
+                  <div>3- اختر API Development Tools</div>
+                  <div>4- انسخ API ID و API HASH واحفظها هنا</div>
+                  <div>5- بعدها أنشئ جلسة وامسح QR من تطبيق Telegram</div>
+                </div>
+
+                <div className="rounded-2xl border bg-muted/20 p-4">
+                  <div className="mb-3 flex items-center gap-2 font-black">
+                    <KeyRound className="h-4 w-4" />
+                    إعدادات Telegram API
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>API ID</Label>
+                    <Input dir="ltr" value={tgApiId} onChange={(e) => setTgApiId(e.target.value)} placeholder="مثال: 123456" />
+                  </div>
+
+                  <div className="mt-3 grid gap-2">
+                    <Label>API HASH</Label>
+                    <Input dir="ltr" value={tgApiHash} onChange={(e) => setTgApiHash(e.target.value)} placeholder={tgHasApiHash ? 'محفوظ سابقاً، اتركه أو غيّره' : 'ضع API HASH'} />
+                  </div>
+
+                  <Button className="mt-3 w-full" onClick={saveTelegramApi} disabled={tgSaving}>
+                    {tgSaving ? 'جاري الحفظ...' : 'حفظ إعدادات API'}
+                  </Button>
+                </div>
+
+                <Input
+                  placeholder="اسم جلسة تليكرام الجديدة"
+                  value={tgName}
+                  onChange={(e) => setTgName(e.target.value)}
+                />
+
+                <div className="grid grid-cols-2 gap-2">
+                  <Button onClick={startTelegramNew} disabled={tgLoading || !tgHasApiHash}>
+                    <Link2 className="ml-2 h-4 w-4" />
+                    إضافة جلسة
+                  </Button>
+                  <Button variant="outline" onClick={reconnectTelegram} disabled={tgLoading || !tgActiveId || !tgHasApiHash}>
+                    إعادة ربط
+                  </Button>
+                </div>
+
+                <Button variant="outline" className="w-full" onClick={() => tgActiveId && refreshTelegramSession(tgActiveId)} disabled={!tgActiveId}>
+                  <RefreshCw className="ml-2 h-4 w-4" />
+                  تحديث الحالة
+                </Button>
+
+                <div className="max-h-[420px] space-y-2 overflow-y-auto">
+                  {tgSessions.map((s) => (
+                    <button
+                      key={s.sessionId}
+                      type="button"
+                      onClick={() => { setTgActiveId(s.sessionId); setTimeout(() => refreshTelegramSession(s.sessionId), 200); }}
+                      className={`w-full rounded-2xl border p-3 text-start transition ${
+                        tgActiveId === s.sessionId ? 'border-primary bg-primary/10' : 'bg-background hover:bg-muted/40'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-black">{s.name || 'جلسة تليكرام'}</div>
+                        <Badge variant={s.status === 'connected' ? 'default' : s.status === 'qr' ? 'secondary' : 'outline'}>
+                          {statusText(s.status)}
+                        </Badge>
+                      </div>
+                      <div className="mt-2 break-all font-mono text-[11px] text-muted-foreground">{s.sessionId}</div>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        <Badge variant="outline">Delay {s.delayMin ?? 5}-{s.delayMax ?? 15}s</Badge>
+                        <Badge variant="outline">حد {s.dailyLimit ?? 200}</Badge>
+                        <Badge variant="outline">اليوم {s.sentToday ?? 0}</Badge>
+                      </div>
+                    </button>
+                  ))}
+
+                  {!tgSessions.length && <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">لا توجد جلسات تليكرام بعد</div>}
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="space-y-4">
+              <Card className="shadow-sm">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <QrCode className="h-5 w-5" />
+                    ربط تليكرام
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {tgActiveId && (
+                    <div className="rounded-2xl border bg-muted/20 p-3 font-mono text-xs" dir="ltr">
+                      {tgActiveId}
+                    </div>
+                  )}
+
+                  <div className="flex min-h-[310px] items-center justify-center rounded-3xl border border-dashed p-5">
+                    {tgQrImage ? (
+                      <div className="space-y-3 text-center">
+                        <img src={tgQrImage} alt="Telegram QR" className="mx-auto h-72 w-72 rounded-2xl bg-white p-3" />
+                        <p className="text-xs text-muted-foreground">امسح QR من تطبيق Telegram</p>
+                      </div>
+                    ) : tgActive?.status === 'connected' ? (
+                      <div className="space-y-3 text-center">
+                        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-sky-500/10 text-sky-600">
+                          <ShieldCheck className="h-8 w-8" />
+                        </div>
+                        <div className="font-black">جلسة تليكرام متصلة</div>
+                      </div>
+                    ) : (
+                      <div className="text-center text-muted-foreground">
+                        <QrCode className="mx-auto mb-3 h-12 w-12 opacity-50" />
+                        احفظ API ثم أضف جلسة جديدة
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="shadow-sm">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Send className="h-5 w-5" />
+                    إرسال تجربة تليكرام
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <Input value={tgTo} onChange={(e) => setTgTo(e.target.value)} placeholder="078XXXXXXXX أو 9647XXXXXXXX" dir="ltr" />
+                  <Textarea rows={4} value={tgMessage} onChange={(e) => setTgMessage(e.target.value)} />
+                  <Button className="w-full" onClick={sendTelegramTest}>
+                    إرسال تجربة تليكرام
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div className="space-y-4">
+              <Card className="shadow-sm">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Settings2 className="h-5 w-5" />
+                    إعدادات جلسة تليكرام
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="rounded-2xl border bg-muted/20 p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <Label className="font-bold">تفعيل هذه الجلسة للإرسال</Label>
+                        <div className="text-xs text-muted-foreground">إذا مطفأة، لا تدخل بالتوزيع.</div>
+                      </div>
+                      <Switch checked={tgActiveSend} onCheckedChange={setTgActiveSend} />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>أقل انتظار / ثانية</Label>
+                      <Input className="mt-2" type="number" value={tgDelayMin} onChange={(e) => setTgDelayMin(e.target.value)} />
+                    </div>
+                    <div>
+                      <Label>أعلى انتظار / ثانية</Label>
+                      <Input className="mt-2" type="number" value={tgDelayMax} onChange={(e) => setTgDelayMax(e.target.value)} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label>الحد اليومي للجلسة</Label>
+                    <Input className="mt-2" type="number" value={tgDailyLimit} onChange={(e) => setTgDailyLimit(e.target.value)} />
+                  </div>
+
+                  <Button className="w-full" onClick={saveTelegramSessionSettings} disabled={!tgActiveId || tgSaving}>
+                    {tgSaving ? 'جاري الحفظ...' : 'حفظ إعدادات تليكرام'}
+                  </Button>
+
+                  <Button variant="destructive" className="w-full" onClick={deleteTelegramSession} disabled={!tgActiveId}>
+                    <Trash2 className="ml-2 h-4 w-4" />
+                    حذف جلسة تليكرام
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="shadow-sm">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Clock className="h-5 w-5" />
+                    آخر رسائل تليكرام
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {tgLogs.slice(0, 10).map((l) => (
+                    <div key={l.id} className="rounded-xl border p-3 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <span dir="ltr">{l.to}</span>
+                        <Badge variant={l.status === 'sent' ? 'default' : l.status === 'failed' ? 'destructive' : 'secondary'}>
+                          {l.status}
+                        </Badge>
+                      </div>
+                      <div className="mt-1 text-[11px] font-bold text-muted-foreground">
+                        الجلسة: {l.sessionName || l.sessionId || '—'}
+                      </div>
+                      <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{l.message}</div>
+                      {l.error && <div className="mt-2 rounded-lg bg-red-50 p-2 text-xs text-red-600">{l.error}</div>}
+                    </div>
+                  ))}
+
+                  {!tgLogs.length && <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">لا توجد رسائل تليكرام بعد</div>}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
+
     </div>
   );
 }
