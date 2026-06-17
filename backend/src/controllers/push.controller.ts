@@ -1050,6 +1050,110 @@ async function renderCampaignMessage(message: string, phone: any, targetType = '
 }
 
 
+
+type CampaignJobState = {
+  id: string;
+  status: 'queued' | 'running' | 'paused' | 'done' | 'failed' | 'cancelled';
+  title: string;
+  message: string;
+  channel: string;
+  targetType: string;
+  targetValue: string;
+  total: number;
+  processed: number;
+  sent: number;
+  failed: number;
+  pushSent: number;
+  pushFailed: number;
+  whatsappSent: number;
+  whatsappFailed: number;
+  currentPhone?: string;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const campaignJobsStore = new Map<string, CampaignJobState>();
+
+function createCampaignJob(data: Partial<CampaignJobState>) {
+  const now = new Date().toISOString();
+  const job: CampaignJobState = {
+    id: cuid(),
+    status: 'running',
+    title: '',
+    message: '',
+    channel: 'push',
+    targetType: 'all',
+    targetValue: '',
+    total: 0,
+    processed: 0,
+    sent: 0,
+    failed: 0,
+    pushSent: 0,
+    pushFailed: 0,
+    whatsappSent: 0,
+    whatsappFailed: 0,
+    createdAt: now,
+    updatedAt: now,
+    ...data,
+  };
+  campaignJobsStore.set(job.id, job);
+  return job;
+}
+
+function updateCampaignJob(id: string, patch: Partial<CampaignJobState>) {
+  const cur = campaignJobsStore.get(id);
+  if (!cur) return null;
+  const next = { ...cur, ...patch, updatedAt: new Date().toISOString() };
+  campaignJobsStore.set(id, next);
+  return next;
+}
+
+async function waitIfCampaignPaused(jobId: string) {
+  while (campaignJobsStore.get(jobId)?.status === 'paused') {
+    await sleep(1000);
+  }
+}
+
+export const campaignJobs = asyncHandler(async (_req: Request, res: Response) => {
+  const jobs = Array.from(campaignJobsStore.values())
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 100);
+
+  res.json(jsonSafe({ ok: true, jobs }));
+});
+
+export const campaignJob = asyncHandler(async (req: Request, res: Response) => {
+  const job = campaignJobsStore.get(String(req.params.id || ''));
+  if (!job) return res.status(404).json({ error: 'Campaign job not found' });
+  res.json(jsonSafe({ ok: true, job }));
+});
+
+export const cancelCampaignJob = asyncHandler(async (req: Request, res: Response) => {
+  const id = String(req.params.id || '');
+  const job = campaignJobsStore.get(id);
+  if (!job) return res.status(404).json({ error: 'Campaign job not found' });
+  updateCampaignJob(id, { status: 'cancelled' });
+  res.json(jsonSafe({ ok: true, job: campaignJobsStore.get(id) }));
+});
+
+export const pauseCampaignJob = asyncHandler(async (req: Request, res: Response) => {
+  const id = String(req.params.id || '');
+  const job = campaignJobsStore.get(id);
+  if (!job) return res.status(404).json({ error: 'Campaign job not found' });
+  if (job.status === 'running') updateCampaignJob(id, { status: 'paused' });
+  res.json(jsonSafe({ ok: true, job: campaignJobsStore.get(id) }));
+});
+
+export const resumeCampaignJob = asyncHandler(async (req: Request, res: Response) => {
+  const id = String(req.params.id || '');
+  const job = campaignJobsStore.get(id);
+  if (!job) return res.status(404).json({ error: 'Campaign job not found' });
+  if (job.status === 'paused') updateCampaignJob(id, { status: 'running' });
+  res.json(jsonSafe({ ok: true, job: campaignJobsStore.get(id) }));
+});
+
+
 export const send = asyncHandler(async (req: Request, res: Response) => {
   const title = String(req.body?.title || 'إشعار من البرق');
   const message = String(req.body?.message || '').trim();
@@ -1057,88 +1161,135 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
   const targetValue = String(req.body?.targetValue || '');
   const url = String(req.body?.url || '/my');
   const channel = String(req.body?.channel || 'push');
+  const createdById = adminUserId(req);
 
   if (!message) return res.status(400).json({ error: 'message required' });
 
   const usePush = channel === 'push' || channel === 'both' || channel === 'all';
   const useWhatsapp = channel === 'whatsapp' || channel === 'both' || channel === 'all';
 
-  let pushResult = { targets: 0, sent: 0, failed: 0 };
-  let whatsappResult: any = { targets: 0, sent: 0, failed: 0 };
+  const pushTargets = usePush ? await getTargets(targetType, targetValue) : [];
+  const whatsappPhones = useWhatsapp ? await getWhatsappPhones(targetType, targetValue) : [];
 
-  if (usePush) {
-    const targets = await getTargets(targetType, targetValue);
-
-    let sent = 0;
-    let failed = 0;
-
-    for (const row of targets) {
-      const renderedMessage = await renderCampaignMessage(message, row.phoneNorm || row.phone, targetType || 'manual');
-
-      const payload = {
-        title,
-        body: renderedMessage,
-        icon: '/icons/apple-touch-icon.png',
-        badge: '/icons/apple-touch-icon.png',
-        url,
-        tag: 'albarq-manual-' + Date.now(),
-      };
-
-      const ok = await sendOne(row, payload, targetType || 'manual');
-      if (ok) {
-        sent++;
-        await logPush(row, payload, targetType || 'manual', 'sent', '');
-      } else {
-        failed++;
-      }
-    }
-
-    pushResult = { targets: targets.length, sent, failed };
-  }
-
-  if (useWhatsapp) {
-    const phones = await getWhatsappPhones(targetType, targetValue);
-
-    let sent = 0;
-    let failed = 0;
-
-    for (let i = 0; i < phones.length; i++) {
-      const phone = phones[i];
-      const renderedMessage = await renderCampaignMessage(message, phone, targetType || 'manual');
-      const r = await sendWhatsappToPhones([phone], `${title}\n\n${renderedMessage}`);
-      sent += Number(r.sent || 0);
-      failed += Number(r.failed || 0);
-
-      if (i < phones.length - 1) {
-        await sleep(randomDelayMs(5, 15));
-      }
-    }
-
-    whatsappResult = { targets: phones.length, sent, failed };
-  }
-
-  await prisma.pushCampaign.create({
-    data: {
-      title,
-      message,
-      targetType: `${targetType}:${channel}`,
-      targetValue,
-      sentCount: Number(pushResult.sent || 0) + Number(whatsappResult.sent || 0),
-      failedCount: Number(pushResult.failed || 0) + Number(whatsappResult.failed || 0),
-      createdById: adminUserId(req),
-    } as any,
-  }).catch(() => null);
-
-  res.json({
-    ok: true,
+  const job = createCampaignJob({
+    title,
+    message,
     channel,
-    push: pushResult,
-    whatsapp: whatsappResult,
-    targets: Number(pushResult.targets || 0) + Number(whatsappResult.targets || 0),
-    sent: Number(pushResult.sent || 0) + Number(whatsappResult.sent || 0),
-    failed: Number(pushResult.failed || 0) + Number(whatsappResult.failed || 0),
+    targetType,
+    targetValue,
+    total: Number(pushTargets.length || 0) + Number(whatsappPhones.length || 0),
+  });
+
+  res.json({ ok: true, background: true, jobId: job.id, job: jsonSafe(job) });
+
+  setImmediate(async () => {
+    let pushSent = 0;
+    let pushFailed = 0;
+    let whatsappSent = 0;
+    let whatsappFailed = 0;
+
+    try {
+      if (usePush) {
+        for (const row of pushTargets) {
+          const cur = campaignJobsStore.get(job.id);
+          if (cur?.status === 'cancelled') break;
+          await waitIfCampaignPaused(job.id);
+
+          const phone = row.phoneNorm || row.phone || '';
+          updateCampaignJob(job.id, { currentPhone: String(phone) });
+
+          const renderedMessage = await renderCampaignMessage(message, phone, targetType || 'manual');
+
+          const payload = {
+            title,
+            body: renderedMessage,
+            icon: '/icons/apple-touch-icon.png',
+            badge: '/icons/apple-touch-icon.png',
+            url,
+            tag: 'albarq-manual-' + Date.now(),
+          };
+
+          const ok = await sendOne(row, payload, targetType || 'manual');
+          if (ok) {
+            pushSent++;
+            await logPush(row, payload, `${targetType}:push`, 'sent', '');
+          } else {
+            pushFailed++;
+          }
+
+          updateCampaignJob(job.id, {
+            processed: pushSent + pushFailed + whatsappSent + whatsappFailed,
+            sent: pushSent + whatsappSent,
+            failed: pushFailed + whatsappFailed,
+            pushSent,
+            pushFailed,
+            whatsappSent,
+            whatsappFailed,
+          });
+        }
+      }
+
+      if (useWhatsapp) {
+        for (const phone of whatsappPhones) {
+          const cur = campaignJobsStore.get(job.id);
+          if (cur?.status === 'cancelled') break;
+          await waitIfCampaignPaused(job.id);
+
+          updateCampaignJob(job.id, { currentPhone: String(phone) });
+
+          const renderedMessage = await renderCampaignMessage(message, phone, targetType || 'manual');
+          const r = await sendWhatsappToPhones([phone], `${title}\n\n${renderedMessage}`);
+
+          whatsappSent += Number(r.sent || 0);
+          whatsappFailed += Number(r.failed || 0);
+
+          updateCampaignJob(job.id, {
+            processed: pushSent + pushFailed + whatsappSent + whatsappFailed,
+            sent: pushSent + whatsappSent,
+            failed: pushFailed + whatsappFailed,
+            pushSent,
+            pushFailed,
+            whatsappSent,
+            whatsappFailed,
+          });
+        }
+      }
+
+      const cur = campaignJobsStore.get(job.id);
+      const finalStatus = cur?.status === 'cancelled' ? 'cancelled' : 'done';
+
+      await prisma.pushCampaign.create({
+        data: {
+          title,
+          message,
+          targetType: `${targetType}:${channel}`,
+          targetValue,
+          sentCount: Number(pushSent || 0) + Number(whatsappSent || 0),
+          failedCount: Number(pushFailed || 0) + Number(whatsappFailed || 0),
+          createdById,
+        } as any,
+      }).catch(() => null);
+
+      updateCampaignJob(job.id, {
+        status: finalStatus,
+        processed: pushSent + pushFailed + whatsappSent + whatsappFailed,
+        sent: pushSent + whatsappSent,
+        failed: pushFailed + whatsappFailed,
+        pushSent,
+        pushFailed,
+        whatsappSent,
+        whatsappFailed,
+        currentPhone: '',
+      });
+    } catch (e: any) {
+      updateCampaignJob(job.id, {
+        status: 'failed',
+        error: e?.message || String(e),
+      });
+    }
   });
 });
+
 
 
 const defaultNotificationSettings = {
