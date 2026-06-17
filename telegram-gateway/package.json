@@ -1,0 +1,10 @@
+{
+  "type": "module",
+  "scripts": { "start": "node src/index.js" },
+  "dependencies": {
+    "express": "^5.2.1",
+    "fs-extra": "^11.3.4",
+    "qrcode": "^1.5.4",
+    "telegram": "^2.26.22"
+  }
+}

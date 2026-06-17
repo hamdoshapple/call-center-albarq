@@ -33,9 +33,22 @@ services:
     environment:
       PORT: 4100
       WA_GATEWAY_TOKEN: "wa_21f8e5db100787ba2b5db05447819c69b776719060414c7b"
+      TG_GATEWAY_URL: "http://telegram-gateway:4200"
+      TG_GATEWAY_TOKEN: "tg_internal_please_change_123"
     volumes:
       - ./wa-sessions:/app/sessions
       - ./wa-gateway/data:/app/data
+
+
+  telegram-gateway:
+    build: ./telegram-gateway
+    container_name: albarq-telegram-gateway
+    restart: unless-stopped
+    environment:
+      PORT: 4200
+      TG_GATEWAY_TOKEN: "tg_internal_please_change_123"
+    volumes:
+      - ./telegram-sessions:/app/sessions
 
   backend:
     build: ./backend
@@ -69,6 +82,8 @@ services:
       EXTERNAL_MSSQL_PASSWORD: "Itech@@1122"
       WA_GATEWAY_URL: "http://wa-gateway:4100"
       WA_GATEWAY_TOKEN: "wa_21f8e5db100787ba2b5db05447819c69b776719060414c7b"
+      TG_GATEWAY_URL: "http://telegram-gateway:4200"
+      TG_GATEWAY_TOKEN: "tg_internal_please_change_123"
     ports:
       - "127.0.0.1:4000:4000"
     volumes:

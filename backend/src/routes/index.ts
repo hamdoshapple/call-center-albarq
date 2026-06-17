@@ -24,6 +24,7 @@ import * as dataSource from '../controllers/data-source.controller.js';
 import * as subscriberApp from '../controllers/subscriber-app.controller.js';
 import * as push from '../controllers/push.controller.js';
 import * as whatsapp from '../controllers/whatsapp.controller.js';
+import * as telegram from '../controllers/telegram.controller.js';
 
 export const router = Router();
 
@@ -210,6 +211,19 @@ router.delete(
 
 
 // ---------- WhatsApp ----------
+router.get('/telegram/api-settings', h(telegram.getApi));
+router.post('/telegram/api-settings', h(telegram.saveApi));
+router.put('/telegram/api-settings', h(telegram.saveApi));
+router.get('/telegram/sessions', h(telegram.list));
+router.post('/telegram/sessions/start', h(telegram.start));
+router.get('/telegram/sessions/:sessionId/status', h(telegram.status));
+router.get('/telegram/sessions/:sessionId/qr', h(telegram.qr));
+router.delete('/telegram/sessions/:sessionId', h(telegram.deleteSession));
+router.put('/telegram/sessions/settings', h(telegram.updateSettings));
+router.post('/telegram/sessions/settings', h(telegram.updateSettings));
+router.post('/telegram/send', h(telegram.send));
+router.get('/telegram/logs', h(telegram.logs));
+
 router.get('/whatsapp/queue-settings', h(whatsapp.getQueueSettings));
 router.put('/whatsapp/queue-settings', h(whatsapp.saveQueueSettings));
 router.post('/whatsapp/queue-settings', h(whatsapp.saveQueueSettings));
