@@ -204,6 +204,12 @@ export default function PushNotificationsPage() {
     queryFn: () => pushNotificationsApi.subscribers(subscriberSearch, form.channel),
     refetchInterval: 30000,
   });
+  const campaignJobsQuery = useQuery({
+    queryKey: ['campaignJobs'],
+    queryFn: pushNotificationsApi.campaignJobs,
+    refetchInterval: 2000,
+  });
+
   const jobQuery = useQuery({
     queryKey: ['campaignJob', jobId],
     queryFn: () => pushNotificationsApi.campaignJob(jobId),
@@ -390,6 +396,7 @@ export default function PushNotificationsPage() {
           <TabsTrigger value="auto" className="rounded-xl">التلقائي</TabsTrigger>
           <TabsTrigger value="expiry" className="rounded-xl">الانتهاء</TabsTrigger>
           <TabsTrigger value="debt" className="rounded-xl">الديون</TabsTrigger>
+          <TabsTrigger value="campaignManager" className="rounded-xl">إدارة الحملات</TabsTrigger>
           <TabsTrigger value="logs" className="rounded-xl">السجل</TabsTrigger>
         </TabsList>
 
@@ -842,6 +849,127 @@ export default function PushNotificationsPage() {
                 <Input className="mt-2" type="number" value={settings.debt?.repeatDays || 7} onChange={(e) => setSettings((s: any) => ({ ...s, debt: { ...s.debt, repeatDays: Number(e.target.value) } }))} />
               </div>
               <div className="md:col-span-3"><Button onClick={() => saveMutation.mutate()}>حفظ إعدادات الديون</Button></div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+
+        <TabsContent value="campaignManager">
+          <Card className="shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Megaphone className="h-5 w-5 text-primary" />
+                إدارة الحملات
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {campaignJobsQuery.isLoading ? (
+                <Loader />
+              ) : (campaignJobsQuery.data?.jobs || []).length ? (
+                <div className="space-y-3">
+                  {(campaignJobsQuery.data?.jobs || []).map((j: any) => {
+                    const percent = j.total ? Math.round((Number(j.processed || 0) / Number(j.total || 1)) * 100) : 0;
+                    const remaining = Math.max(0, Number(j.total || 0) - Number(j.processed || 0));
+
+                    return (
+                      <div key={j.id} className="rounded-3xl border bg-muted/20 p-4">
+                        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="truncate text-lg font-black">{j.title}</div>
+                              <Badge variant={
+                                j.status === 'done' ? 'default' :
+                                j.status === 'failed' || j.status === 'cancelled' ? 'destructive' :
+                                j.status === 'paused' ? 'secondary' : 'outline'
+                              }>
+                                {j.status === 'running' ? 'قيد التنفيذ' :
+                                 j.status === 'paused' ? 'متوقفة مؤقتاً' :
+                                 j.status === 'cancelled' ? 'ملغية' :
+                                 j.status === 'done' ? 'مكتملة' :
+                                 j.status === 'failed' ? 'فاشلة' : j.status}
+                              </Badge>
+                              <Badge variant="outline">{channelLabel(j.channel)}</Badge>
+                              <Badge variant="secondary">{niceType(j.targetType)}</Badge>
+                            </div>
+
+                            <div className="mt-2 line-clamp-2 text-sm text-muted-foreground">{j.message}</div>
+
+                            <div className="mt-4 h-3 overflow-hidden rounded-full bg-background">
+                              <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${percent}%` }} />
+                            </div>
+
+                            <div className="mt-3 grid gap-2 md:grid-cols-4 xl:grid-cols-8">
+                              <Badge variant="outline">الكلي {money(j.total)}</Badge>
+                              <Badge variant="outline">تم {money(j.processed)}</Badge>
+                              <Badge variant="outline">المتبقي {money(remaining)}</Badge>
+                              <Badge variant="default">نجاح {money(j.sent)}</Badge>
+                              <Badge variant={Number(j.failed) ? 'destructive' : 'outline'}>فشل {money(j.failed)}</Badge>
+                              <Badge variant="outline">Push {money(j.pushSent)}/{money(j.pushFailed)}</Badge>
+                              <Badge variant="outline">WA {money(j.whatsappSent)}/{money(j.whatsappFailed)}</Badge>
+                              <Badge variant="secondary">{percent}%</Badge>
+                            </div>
+
+                            <div className="mt-3 grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
+                              <div>آخر رقم: <span dir="ltr" className="font-mono">{j.currentPhone || '—'}</span></div>
+                              <div>وقت البدء: {new Date(j.createdAt).toLocaleString('ar-IQ')}</div>
+                              <div>آخر تحديث: {new Date(j.updatedAt).toLocaleString('ar-IQ')}</div>
+                              <div>Job ID: <span dir="ltr" className="font-mono">{j.id}</span></div>
+                            </div>
+
+                            {j.error && (
+                              <div className="mt-3 rounded-2xl bg-red-50 p-3 text-sm text-red-600">
+                                {j.error}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex shrink-0 flex-wrap gap-2">
+                            {j.status === 'running' && (
+                              <Button
+                                variant="outline"
+                                onClick={async () => {
+                                  await pushNotificationsApi.pauseCampaignJob(j.id);
+                                  campaignJobsQuery.refetch();
+                                }}
+                              >
+                                إيقاف مؤقت
+                              </Button>
+                            )}
+
+                            {j.status === 'paused' && (
+                              <Button
+                                onClick={async () => {
+                                  await pushNotificationsApi.resumeCampaignJob(j.id);
+                                  campaignJobsQuery.refetch();
+                                }}
+                              >
+                                استئناف
+                              </Button>
+                            )}
+
+                            {['running', 'paused', 'queued'].includes(j.status) && (
+                              <Button
+                                variant="destructive"
+                                onClick={async () => {
+                                  if (!confirm('متأكد تريد إلغاء هذه الحملة؟')) return;
+                                  await pushNotificationsApi.cancelCampaignJob(j.id);
+                                  campaignJobsQuery.refetch();
+                                }}
+                              >
+                                إلغاء الحملة
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-2xl border p-8 text-center text-muted-foreground">
+                  لا توجد حملات قيد الإدارة حالياً.
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

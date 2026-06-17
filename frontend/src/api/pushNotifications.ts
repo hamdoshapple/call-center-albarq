@@ -31,8 +31,17 @@ export const pushNotificationsApi = {
     method: 'POST',
     body: JSON.stringify(data),
   }),
+  campaignJobs: () => request('/push/campaign-jobs'),
   campaignJob: (id: string) => request(`/push/campaign-jobs/${encodeURIComponent(id)}`),
   cancelCampaignJob: (id: string) => request(`/push/campaign-jobs/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  }),
+  pauseCampaignJob: (id: string) => request(`/push/campaign-jobs/${encodeURIComponent(id)}/pause`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  }),
+  resumeCampaignJob: (id: string) => request(`/push/campaign-jobs/${encodeURIComponent(id)}/resume`, {
     method: 'POST',
     body: JSON.stringify({}),
   }),
