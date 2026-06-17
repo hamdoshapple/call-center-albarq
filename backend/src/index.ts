@@ -1,4 +1,5 @@
 import { refreshExternalSubscriberCache } from './services/subscriber-cache.service.js';
+import { prisma } from './config/prisma.js';
 import { createServer } from 'node:http';
 import { createApp } from './app.js';
 import { env } from './config/env.js';
@@ -43,18 +44,56 @@ main().catch((err) => {
 });
 
 
-// Auto refresh external subscribers cache
-const CACHE_REFRESH_EVERY_MIN = Number(process.env.SUBSCRIBERS_CACHE_REFRESH_MIN || 60);
-const CACHE_REFRESH_LIMIT = Number(process.env.SUBSCRIBERS_CACHE_REFRESH_LIMIT || 50000);
-let cacheRefreshRunning = false;
 
-async function runSubscribersCacheRefresh(reason: string) {
+// Auto refresh external subscribers cache using DB settings
+let cacheRefreshRunning = false;
+let lastCacheRefreshAt = 0;
+let lastDailyRefreshDate = '';
+
+async function getSubscribersCacheScheduleSettings() {
+  const rows = await prisma.setting.findMany({
+    where: {
+      key: {
+        in: [
+          'subscribersCacheIntervalMinutes',
+          'subscribersCacheFinalTime',
+          'subscribersCacheLimit',
+        ],
+      },
+    },
+  });
+
+  const map = new Map(rows.map((x) => [x.key, x.value]));
+
+  return {
+    intervalMinutes: Math.max(1, Number(map.get('subscribersCacheIntervalMinutes') || process.env.SUBSCRIBERS_CACHE_REFRESH_MIN || 15)),
+    finalTime: String(map.get('subscribersCacheFinalTime') || '22:00'),
+    limit: Math.max(1, Number(map.get('subscribersCacheLimit') || process.env.SUBSCRIBERS_CACHE_REFRESH_LIMIT || 7000)),
+  };
+}
+
+function hhmmNow() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function ymdNow() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+async function runSubscribersCacheRefresh(reason: string, limit?: number) {
   if (cacheRefreshRunning) return;
   cacheRefreshRunning = true;
+
   try {
-    console.log(`[subscribers-cache] auto refresh started: ${reason}`);
-    const result = await refreshExternalSubscriberCache(CACHE_REFRESH_LIMIT);
-    console.log(`[subscribers-cache] auto refresh done: count=${result.count}`);
+    const settings = await getSubscribersCacheScheduleSettings();
+    const refreshLimit = limit || settings.limit;
+
+    console.log(`[subscribers-cache] auto refresh started: ${reason}, limit=${refreshLimit}`);
+    const result = await refreshExternalSubscriberCache(refreshLimit);
+    lastCacheRefreshAt = Date.now();
+    console.log(`[subscribers-cache] auto refresh done: count=${result.count}, paymentsCached=${result.paymentsCached}`);
   } catch (err) {
     console.error('[subscribers-cache] auto refresh failed:', err);
   } finally {
@@ -63,13 +102,21 @@ async function runSubscribersCacheRefresh(reason: string) {
 }
 
 setInterval(() => {
-  void runSubscribersCacheRefresh('interval');
-}, Math.max(5, CACHE_REFRESH_EVERY_MIN) * 60 * 1000);
+  void (async () => {
+    const settings = await getSubscribersCacheScheduleSettings();
+    const now = Date.now();
 
-// daily refresh around company closing time: 23:30 server time
-setInterval(() => {
-  const d = new Date();
-  if (d.getHours() === 23 && d.getMinutes() === 30) {
-    void runSubscribersCacheRefresh('daily-close');
-  }
+    if (!lastCacheRefreshAt || now - lastCacheRefreshAt >= settings.intervalMinutes * 60 * 1000) {
+      await runSubscribersCacheRefresh('interval', settings.limit);
+    }
+
+    const today = ymdNow();
+    if (hhmmNow() === settings.finalTime && lastDailyRefreshDate !== today) {
+      lastDailyRefreshDate = today;
+      await runSubscribersCacheRefresh(`final-time-${settings.finalTime}`, settings.limit);
+    }
+  })();
 }, 60 * 1000);
+
+void runSubscribersCacheRefresh('startup');
+
