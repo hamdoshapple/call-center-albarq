@@ -1070,7 +1070,7 @@ export function SubscriberPortalPage() {
               <div className="text-sm font-bold text-slate-500">مرحباً بك</div>
               <button
                 onClick={() => setAccountPickerOpen(true)}
-                className="mt-1 flex max-w-[190px] items-center gap-1 text-start text-xl font-black text-slate-950"
+                className="-mt-0.5 flex max-w-[190px] items-center gap-1 text-start text-xl font-black text-slate-950"
               >
                 <span className="block min-w-0 truncate">
                   {active?.name || config.appName || 'مشترك البرق'}
@@ -1268,9 +1268,17 @@ export function SubscriberPortalPage() {
         )}
 
         {tab === 'accounts' && (
-          <main className="mt-2 space-y-3">
-            {loading ? <p>جاري التحميل...</p> : accounts.map((a) => {
+          <main className="mt-2 space-y-4">
+            {loading ? (
+              <div className="rounded-3xl bg-white p-5 text-slate-500 shadow-sm">جاري التحميل...</div>
+            ) : accounts.map((a) => {
               const selected = activeId === a.id;
+              const accLeft = daysLeft(a.expiration);
+              const accExpired = accLeft !== null && accLeft < 0;
+              const accWarning = accLeft !== null && accLeft >= 0 && accLeft <= 5;
+              const accStatus = accExpired ? 'منتهي' : accWarning ? 'قريب الانتهاء' : 'فعال';
+              const accColor = accExpired ? expiredColor : accWarning ? warningColor : primary;
+
               return (
                 <button
                   key={`${a.source}-${a.id}`}
@@ -1279,39 +1287,89 @@ export function SubscriberPortalPage() {
                     localStorage.setItem('subscriber_active_account', a.id);
                     setSelectedTicketId('');
                   }}
-                  className="w-full rounded-[24px] bg-white p-5 text-start shadow-sm transition"
-                  style={{ boxShadow: selected ? `0 0 0 2px ${primary}` : undefined }}
+                  className="w-full overflow-hidden rounded-[32px] bg-white text-start shadow-[0_16px_40px_rgba(15,23,42,0.08)] transition active:scale-[0.99]"
+                  style={{ boxShadow: selected ? `0 0 0 2px ${primary}, 0 16px 40px rgba(15,23,42,0.08)` : undefined }}
                 >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h3 className="text-xl font-black">{a.name}</h3>
-                      <p className="font-mono text-sm text-slate-400">{a.pppoeUsername || '—'}</p>
-                    </div>
-                    <Badge style={{ backgroundColor: selected ? primary : '#f1f5f9', color: selected ? 'white' : '#64748b' }}>
-                      {selected ? 'مختار' : a.source === 'live' ? 'مباشر' : a.source === 'cache' ? 'كاش' : 'محلي'}
-                    </Badge>
-                  </div>
+                  <div
+                    className="relative overflow-hidden p-5 text-white"
+                    style={{ background: `linear-gradient(135deg, ${accColor}, ${secondary})` }}
+                  >
+                    <div className="pointer-events-none absolute -left-10 -top-10 h-32 w-32 rounded-full bg-white/10" />
+                    <div className="pointer-events-none absolute -bottom-16 right-12 h-44 w-44 rounded-full bg-white/10" />
 
-                  <div className="mt-5 grid grid-cols-2 gap-2 text-center">
-                    <Mini label="الباقة" value={a.package || '—'} />
-                    <Mini label="السرعة" value={a.speed || '—'} />
-                    <Mini label="الدين" value={`${money(a.debt)} د.ع`} danger />
-                    <Mini label="الانتهاء" value={a.expiration ? new Date(a.expiration).toLocaleDateString('ar-IQ') : '—'} />
-                    <Mini label="الهاتف" value={a.phone || '—'} />
-                    <Mini label="العنوان" value={a.address || '—'} />
-                  </div>
+                    <div className="relative z-10 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="mb-3 flex items-center gap-2">
+                          <span className="rounded-full bg-white/20 px-3 py-1 text-xs font-black">
+                            {selected ? 'مختار' : 'اختيار'}
+                          </span>
+                          <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-black">
+                            {accStatus}
+                          </span>
+                        </div>
 
-                  <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm text-slate-500">
-                    <div className="font-bold text-slate-700">آخر الحركات</div>
-                    {selected && paymentsAccountId === a.id && payments?.rows?.length ? (
-                      <div className="mt-2 space-y-2">
-                        {payments.rows.slice(0, 5).map((x) => (
-                          <PaymentItem key={x.id} row={x} primary={primary} expiredColor={expiredColor} compact />
-                        ))}
+                        <h3 className="line-clamp-2 text-2xl font-black leading-tight">
+                          {a.name || 'مشترك'}
+                        </h3>
+                        <p className="mt-1 font-mono text-sm text-white/75">
+                          {a.pppoeUsername || '—'}
+                        </p>
                       </div>
-                    ) : (
-                      <div className="mt-1">لا توجد حركات لهذا الحساب.</div>
-                    )}
+
+                      <div className="shrink-0 rounded-3xl bg-white/15 px-4 py-3 text-center backdrop-blur">
+                        <div className="text-xs text-white/75">الباقة</div>
+                        <div className="mt-1 max-w-[90px] truncate text-lg font-black">{a.package || '—'}</div>
+                      </div>
+                    </div>
+
+                    <div className="relative z-10 mt-6 grid grid-cols-2 gap-3">
+                      <div className="rounded-3xl bg-white/15 p-4 backdrop-blur">
+                        <div className="text-xs text-white/70">الدين الحالي</div>
+                        <div className="mt-1 text-3xl font-black">
+                          {money(a.debt)} د.ع
+                        </div>
+                      </div>
+
+                      <div className="rounded-3xl bg-white/15 p-4 backdrop-blur">
+                        <div className="text-xs text-white/70">الانتهاء</div>
+                        <div className="mt-1 text-xl font-black">
+                          {a.expiration ? new Date(a.expiration).toLocaleDateString('ar-IQ') : '—'}
+                        </div>
+                        <div className="mt-1 text-xs text-white/70">
+                          {accLeft === null ? '—' : accExpired ? `منتهي منذ ${Math.abs(accLeft)} يوم` : `${accLeft} يوم متبقي`}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 p-5">
+                    <div className="grid grid-cols-2 gap-3">
+                      <Mini label="السرعة" value={a.speed || '—'} />
+                      <Mini label="الهاتف" value={a.phone || '—'} />
+                      <Mini label="العنوان" value={a.address || '—'} />
+                      <Mini label="المصدر" value={a.source === 'live' ? 'مباشر' : a.source === 'cache' ? 'كاش' : 'محلي'} />
+                    </div>
+
+                    <div className="rounded-[26px] bg-slate-50 p-4">
+                      <div className="mb-3 flex items-center justify-between">
+                        <div className="font-black text-slate-800">آخر الحركات</div>
+                        {selected && paymentsAccountId === a.id && payments?.rows?.length ? (
+                          <span className="text-xs font-bold" style={{ color: primary }}>
+                            {payments.rows.length} حركة
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {selected && paymentsAccountId === a.id && payments?.rows?.length ? (
+                        <div className="space-y-2">
+                          {payments.rows.slice(0, 3).map((x) => (
+                            <PaymentItem key={x.id} row={x} primary={primary} expiredColor={expiredColor} compact />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-slate-500">لا توجد حركات لهذا الحساب.</div>
+                      )}
+                    </div>
                   </div>
                 </button>
               );
