@@ -930,7 +930,7 @@ export function SubscriberPortalPage() {
   }
 
   return (
-    <div dir="rtl" className="min-h-screen bg-slate-100 pb-32 pt-[130px] text-slate-950">
+    <div dir="rtl" className="min-h-screen bg-slate-100 pb-32 pt-[148px] text-slate-950">
       {pushPromptOpen && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-5 backdrop-blur-sm">
           <div className="w-full max-w-sm overflow-hidden rounded-[32px] bg-white shadow-2xl">
@@ -1063,19 +1063,19 @@ export function SubscriberPortalPage() {
               <img
                 src={assetUrl(config.logoUrl)}
                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                className="h-12 w-12 rounded-2xl bg-white object-contain p-1 shadow-sm"
+                className="h-11 w-11 rounded-2xl bg-white object-contain p-1 shadow-sm"
               />
             )}
-            <div>
-              <h1 className="text-3xl font-black">مرحباً</h1>
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-slate-500">مرحباً بك</div>
               <button
                 onClick={() => setAccountPickerOpen(true)}
-                className="mt-1 flex max-w-[175px] items-center gap-1 text-start text-sm font-bold text-slate-500"
+                className="mt-1 flex max-w-[190px] items-center gap-1 text-start text-xl font-black text-slate-950"
               >
                 <span className="block min-w-0 truncate">
                   {active?.name || config.appName || 'مشترك البرق'}
                 </span>
-                <span className="shrink-0" style={{ color: primary }}>⌄</span>
+                <span className="shrink-0 text-base" style={{ color: primary }}>⌄</span>
               </button>
             </div>
           </div>
@@ -1083,7 +1083,7 @@ export function SubscriberPortalPage() {
             {config.enableNotifications !== false && (
               <button
                 onClick={() => setNotificationsOpen(true)}
-                className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm"
+                className="relative flex h-11 w-11 items-center justify-center rounded-2xl bg-white shadow-sm"
               >
                 <Bell className="h-5 w-5" />
                 {unreadNotifications > 0 && (
@@ -1093,7 +1093,7 @@ export function SubscriberPortalPage() {
                 )}
               </button>
             )}
-            <button onClick={logout} className="flex h-12 items-center gap-2 rounded-2xl bg-white px-4 text-sm font-bold shadow-sm">
+            <button onClick={logout} className="flex h-11 items-center gap-2 rounded-2xl bg-white px-3 text-sm font-bold shadow-sm">
               <LogOut className="h-4 w-4" />
               خروج
             </button>
@@ -1151,7 +1151,7 @@ export function SubscriberPortalPage() {
             </div>
 
             {banners.length > 0 && (
-              <section className="space-y-3">
+              <section className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-2xl font-black">العروض والإعلانات</h2>
 
@@ -1205,7 +1205,7 @@ export function SubscriberPortalPage() {
                           />
                         )}
 
-                        <div className="absolute inset-0 bg-gradient-to-l from-black/80 via-black/35 to-black/10" />
+                        <div className="absolute inset-0 bg-gradient-to-l from-black/90 via-black/55 to-black/20" />
                         <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/65 to-transparent" />
 
                         <div className="relative z-10 flex h-full flex-col justify-end p-5 text-white">
@@ -1218,7 +1218,7 @@ export function SubscriberPortalPage() {
                               {b.description}
                             </p>
                           )}
-                          <div className="mt-3 flex items-center gap-2 text-sm font-bold">
+                          <div className="mt-3 flex items-center gap-2 text-xs font-bold">
                             عرض التفاصيل
                             <span>←</span>
                           </div>
