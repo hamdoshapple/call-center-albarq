@@ -1634,14 +1634,11 @@ export function SubscriberPortalPage() {
 
       <nav className="fixed inset-x-0 bottom-3 z-50 mx-auto flex max-w-md justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+8px)]">
         <InteractiveMenu
-          activeKey={tab}
-          accentColor={primary}
-          onChange={(key) => setTab(key as 'home' | 'accounts' | 'support' | 'profile')}
           items={[
-            { key: 'home', label: 'الرئيسية', icon: Home },
-            { key: 'accounts', label: 'الحسابات', icon: CreditCard },
-            { key: 'support', label: 'الدعم', icon: MessageCircle },
-            { key: 'profile', label: 'حسابي', icon: User },
+            { label: 'الرئيسية', icon: Home, onClick: () => setTab('home') },
+            { label: 'الحسابات', icon: CreditCard, onClick: () => setTab('accounts') },
+            { label: 'الدعم', icon: MessageCircle, onClick: () => setTab('support') },
+            { label: 'حسابي', icon: User, onClick: () => setTab('profile') },
           ]}
         />
       </nav>
@@ -1817,3 +1814,37 @@ function Info({ icon: Icon, label, value }: any) {
   );
 }
 
+function NavItem({ active, icon: Icon, label, onClick, color = '#4f46e5' }: any) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group relative flex h-[56px] items-center justify-center overflow-hidden rounded-[24px] text-xs font-black transition-all duration-300 active:scale-95"
+      style={{ color: active ? '#0f172a' : '#94a3b8' }}
+    >
+      {active && (
+        <span
+          className="absolute inset-0 rounded-[24px] bg-white/80 shadow-[0_8px_22px_rgba(15,23,42,0.10),inset_0_1px_1px_rgba(255,255,255,0.90)] transition-all duration-300"
+          style={{
+            boxShadow: `0 10px 26px rgba(15,23,42,0.10), inset 0 0 0 1px ${color}22, inset 0 1px 1px rgba(255,255,255,0.95)`,
+          }}
+        />
+      )}
+
+      <span className="relative z-10 flex flex-col items-center justify-center gap-1">
+        <Icon
+          className={`transition-all duration-300 ${active ? 'h-6 w-6 scale-105' : 'h-6 w-6'}`}
+          style={{ color: active ? color : '#94a3b8' }}
+        />
+        <span
+          className={`leading-none transition-all duration-300 ${
+            active ? 'translate-y-0 opacity-100' : 'translate-y-0 opacity-75'
+          }`}
+          style={{ color: active ? color : '#94a3b8' }}
+        >
+          {label}
+        </span>
+      </span>
+    </button>
+  );
+}

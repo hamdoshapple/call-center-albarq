@@ -1634,15 +1634,16 @@ export function SubscriberPortalPage() {
 
       <nav className="fixed inset-x-0 bottom-3 z-50 mx-auto flex max-w-md justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+8px)]">
         <InteractiveMenu
-          activeKey={tab}
-          accentColor={primary}
-          onChange={(key) => setTab(key as 'home' | 'accounts' | 'support' | 'profile')}
           items={[
-            { key: 'home', label: 'الرئيسية', icon: Home },
-            { key: 'accounts', label: 'الحسابات', icon: CreditCard },
-            { key: 'support', label: 'الدعم', icon: MessageCircle },
-            { key: 'profile', label: 'حسابي', icon: User },
+            { label: 'الرئيسية', icon: Home },
+            { label: 'الحسابات', icon: CreditCard },
+            { label: 'الدعم', icon: MessageCircle },
+            { label: 'حسابي', icon: User },
           ]}
+          onItemClick={(index: number) => {
+            const tabs: Array<'home' | 'accounts' | 'support' | 'profile'> = ['home', 'accounts', 'support', 'profile'];
+            setTab(tabs[index] || 'home');
+          }}
         />
       </nav>
     </div>
