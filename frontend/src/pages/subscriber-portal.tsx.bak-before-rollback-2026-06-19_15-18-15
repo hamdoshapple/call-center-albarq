@@ -18,6 +18,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { InteractiveMenu } from '@/components/ui/modern-mobile-menu';
 
 const API = '/api/subscriber-portal';
 
@@ -1631,16 +1632,18 @@ export function SubscriberPortalPage() {
         </div>
       )}
 
-      <nav className="fixed inset-x-0 bottom-2 z-50 mx-auto max-w-md px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-3">
-        <div className="relative overflow-hidden rounded-[32px] border border-white/40 bg-white/45 p-1.5 shadow-[0_-10px_35px_rgba(15,23,42,0.10),inset_0_1px_1px_rgba(255,255,255,0.80)] backdrop-blur-3xl">
-          <div className="pointer-events-none absolute inset-x-2 top-1 h-1/2 rounded-t-[30px] bg-gradient-to-b from-white/80 to-transparent" />
-          <div className="relative grid grid-cols-4 gap-1">
-            <NavItem active={tab === 'home'} icon={Home} label="الرئيسية" color={primary} onClick={() => setTab('home')} />
-            <NavItem active={tab === 'accounts'} icon={CreditCard} label="الحسابات" color={primary} onClick={() => setTab('accounts')} />
-            <NavItem active={tab === 'support'} icon={MessageCircle} label="الدعم" color={primary} onClick={() => setTab('support')} />
-            <NavItem active={tab === 'profile'} icon={User} label="حسابي" color={primary} onClick={() => setTab('profile')} />
-          </div>
-        </div>
+      <nav className="fixed inset-x-0 bottom-3 z-50 mx-auto flex max-w-md justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+8px)]">
+        <InteractiveMenu
+          activeKey={tab}
+          accentColor={primary}
+          onChange={(key) => setTab(key as 'home' | 'accounts' | 'support' | 'profile')}
+          items={[
+            { key: 'home', label: 'الرئيسية', icon: Home },
+            { key: 'accounts', label: 'الحسابات', icon: CreditCard },
+            { key: 'support', label: 'الدعم', icon: MessageCircle },
+            { key: 'profile', label: 'حسابي', icon: User },
+          ]}
+        />
       </nav>
     </div>
   );
@@ -1814,37 +1817,3 @@ function Info({ icon: Icon, label, value }: any) {
   );
 }
 
-function NavItem({ active, icon: Icon, label, onClick, color = '#4f46e5' }: any) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group relative flex h-[56px] items-center justify-center overflow-hidden rounded-[24px] text-xs font-black transition-all duration-300 active:scale-95"
-      style={{ color: active ? '#0f172a' : '#94a3b8' }}
-    >
-      {active && (
-        <span
-          className="absolute inset-0 rounded-[24px] bg-white/80 shadow-[0_8px_22px_rgba(15,23,42,0.10),inset_0_1px_1px_rgba(255,255,255,0.90)] transition-all duration-300"
-          style={{
-            boxShadow: `0 10px 26px rgba(15,23,42,0.10), inset 0 0 0 1px ${color}22, inset 0 1px 1px rgba(255,255,255,0.95)`,
-          }}
-        />
-      )}
-
-      <span className="relative z-10 flex flex-col items-center justify-center gap-1">
-        <Icon
-          className={`transition-all duration-300 ${active ? 'h-6 w-6 scale-105' : 'h-6 w-6'}`}
-          style={{ color: active ? color : '#94a3b8' }}
-        />
-        <span
-          className={`leading-none transition-all duration-300 ${
-            active ? 'translate-y-0 opacity-100' : 'translate-y-0 opacity-75'
-          }`}
-          style={{ color: active ? color : '#94a3b8' }}
-        >
-          {label}
-        </span>
-      </span>
-    </button>
-  );
-}
