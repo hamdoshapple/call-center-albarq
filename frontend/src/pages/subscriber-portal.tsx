@@ -1268,8 +1268,7 @@ export function SubscriberPortalPage() {
         )}
 
         {tab === 'accounts' && (
-          <main className="mt-6 space-y-3">
-            <h2 className="text-2xl font-black">حساباتي</h2>
+          <main className="mt-2 space-y-3">
             {loading ? <p>جاري التحميل...</p> : accounts.map((a) => {
               const selected = activeId === a.id;
               return (
@@ -1321,10 +1320,8 @@ export function SubscriberPortalPage() {
         )}
 
         {tab === 'support' && (
-          <main className="mt-6 space-y-5">
-            <h2 className="text-3xl font-black">الدعم الفني</h2>
-
-            <section className="rounded-[28px] p-6 text-white" style={{ backgroundColor: primary }}>
+          <main className="mt-2 space-y-5">
+            <section className="rounded-[28px] p-6 text-white shadow-sm" style={{ backgroundColor: primary }}>
               <h3 className="text-3xl font-black">تحتاج مساعدة؟</h3>
               <p className="mt-2 text-white/80">افتح تذكرة وسيتم متابعتها من فريق الدعم</p>
             </section>
@@ -1404,8 +1401,7 @@ export function SubscriberPortalPage() {
         )}
 
         {tab === 'profile' && (
-          <main className="mt-6 space-y-4">
-            <h2 className="text-3xl font-black">الحساب</h2>
+          <main className="mt-2 space-y-4">
             <Info icon={User} label="الاسم" value={active?.name || '—'} />
             <Info icon={Phone} label="الهاتف" value={active?.phone || '—'} />
             <Info icon={Wallet} label="إجمالي الدين" value={`${money(totalDebt)} د.ع`} />
