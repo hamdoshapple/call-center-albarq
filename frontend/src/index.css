@@ -9,95 +9,102 @@
 
 @layer base {
   :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
-    --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
+    --background: 210 40% 96%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 94%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 94%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 214 95% 93%;
+    --accent-foreground: 221 83% 35%;
+    --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
     --success: 142 71% 45%;
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --component-inactive-color: var(--muted-foreground);
-    --component-bg: var(--card);
-    --component-shadow: var(--border);
-    --component-active-bg: var(--secondary);
-    --component-line-inactive-color: var(--border);
-    --component-active-color-default: var(--accent-foreground);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 221 83% 53%;
+    --radius: 0.875rem;
+
+    --sidebar: 222 47% 11%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 221 83% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217 33% 18%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 22%;
+    --sidebar-ring: 221 83% 60%;
+
+    --component-inactive-color: hsl(var(--muted-foreground));
+    --component-bg: hsl(var(--card));
+    --component-shadow: hsl(var(--border));
+    --component-active-bg: hsl(var(--secondary));
+    --component-line-inactive-color: hsl(var(--border));
+    --component-active-color-default: hsl(var(--primary));
+
+    --chart-1: 221 83% 53%;
+    --chart-2: 142 71% 45%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 262 83% 58%;
+    --chart-5: 0 84% 60%;
   }
 
   .dark {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
+    --background: 222 47% 7%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 10%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 10%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 221 83% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 70%;
+    --accent: 217 33% 20%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
     --success: 142 71% 45%;
     --success-foreground: 0 0% 100%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 100%;
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --component-inactive-color: var(--muted-foreground);
-    --component-bg: var(--card);
-    --component-shadow: var(--border);
-    --component-active-bg: var(--secondary);
-    --component-line-inactive-color: var(--muted-foreground);
-    --component-active-color-default: var(--accent-foreground);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --sidebar-primary: oklch(0.488 0.243 264.376);
-    --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-ring: oklch(0.556 0 0);
+    --border: 217 33% 18%;
+    --input: 217 33% 18%;
+    --ring: 221 83% 60%;
+
+    --sidebar: 222 47% 8%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 221 83% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217 33% 15%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 18%;
+    --sidebar-ring: 221 83% 60%;
+
+    --component-inactive-color: hsl(var(--muted-foreground));
+    --component-bg: hsl(var(--card));
+    --component-shadow: hsl(var(--border));
+    --component-active-bg: hsl(var(--secondary));
+    --component-line-inactive-color: hsl(var(--muted-foreground));
+    --component-active-color-default: hsl(var(--primary));
+
+    --chart-1: 221 83% 60%;
+    --chart-2: 142 71% 45%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 262 83% 65%;
+    --chart-5: 0 72% 51%;
   }
+
   .theme {
     --color-chart-2: var(--color-chart-2);
     --color-chart-3: var(--color-chart-3);
@@ -206,7 +213,7 @@
 }
 
 html, body, #root {
-  background: #f1f5f9;
+  background: hsl(var(--background));
 }
 
 body {
@@ -220,8 +227,10 @@ html, body, #root {
   overscroll-behavior: none;
 }
 
-input, textarea, select, button {
-  font-size: 16px !important;
+@media (max-width: 699px) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
 }
 
 * {
@@ -314,101 +323,5 @@ input, textarea, select, button {
   80% {
     transform: translateY(0);
     }
-  }
-}
-/* 21st Modern Mobile Menu Fix */
-.menu {
-  width: 100%;
-  max-width: 390px;
-  height: 86px;
-  padding: 14px 18px;
-  border-radius: 32px;
-  background: rgba(20, 20, 20, 0.92);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.22);
-  direction: rtl;
-}
-
-.menu__item {
-  height: 54px;
-  min-width: 54px;
-  max-width: 120px;
-  padding: 0 10px;
-  border: 0;
-  background: transparent;
-  color: rgba(255,255,255,0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border-radius: 18px;
-  position: relative;
-  overflow: hidden;
-  cursor: pointer;
-  transition: all .28s ease;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.menu__item.active {
-  color: var(--component-active-color, #5b4cff);
-  min-width: 120px;
-}
-
-.menu__icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.menu__icon .icon {
-  width: 28px;
-  height: 28px;
-  stroke-width: 2.5;
-}
-
-.menu__text {
-  width: 0;
-  opacity: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  font-size: 15px;
-  font-weight: 900;
-  line-height: 1;
-  transition: all .28s ease;
-}
-
-.menu__text.active {
-  width: auto;
-  opacity: 1;
-}
-
-.menu__item.active::after {
-  content: "";
-  position: absolute;
-  bottom: 5px;
-  height: 3px;
-  width: var(--lineWidth, 42px);
-  border-radius: 999px;
-  background: var(--component-active-color, #5b4cff);
-}
-
-@media (max-width: 380px) {
-  .menu {
-    max-width: 350px;
-    padding-inline: 12px;
-  }
-
-  .menu__item.active {
-    min-width: 105px;
-  }
-
-  .menu__text {
-    font-size: 13px;
   }
 }

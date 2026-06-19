@@ -1,55 +1,54 @@
-import { clsx, type ClassValue } from 'clsx';
+import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatDuration(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  if (h > 0) return `${pad(h)}:${pad(m)}:${pad(s)}`;
-  return `${pad(m)}:${pad(s)}`;
+function localeFromLang(lang?: string) {
+  if (!lang) return 'ar-IQ';
+  if (lang === 'ar') return 'ar-IQ';
+  if (lang === 'en') return 'en-US';
+  return lang;
 }
 
-export function formatDateTime(iso: string, locale = 'ar'): string {
-  try {
-    return new Date(iso).toLocaleString(locale === 'ar' ? 'ar-IQ' : 'en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return iso;
+export function formatDuration(seconds?: number | null) {
+  const total = Math.max(0, Math.floor(Number(seconds || 0)));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+
+  if (h > 0) {
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
+
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-export function formatDate(iso: string, locale = 'ar'): string {
-  try {
-    return new Date(iso).toLocaleDateString(locale === 'ar' ? 'ar-IQ' : 'en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  } catch {
-    return iso;
-  }
+export function formatDateTime(value?: string | Date | null, lang?: string) {
+  if (!value) return '—';
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+
+  return date.toLocaleString(localeFromLang(lang), {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
-export function formatCurrency(amount: number, locale = 'ar'): string {
-  return new Intl.NumberFormat(locale === 'ar' ? 'ar-IQ' : 'en-US', {
-    style: 'currency',
-    currency: 'IQD',
-    maximumFractionDigits: 0,
-  }).format(amount);
+export function formatDate(value?: string | Date | null, lang?: string) {
+  if (!value) return '—';
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+
+  return date.toLocaleDateString(localeFromLang(lang), {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
 }
-
-export function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-
