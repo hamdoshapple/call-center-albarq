@@ -124,6 +124,14 @@ function assetUrl(v?: string | null) {
   return v;
 }
 
+async function safeJson(res: Response) {
+  try {
+    return await res.json();
+  } catch {
+    return {};
+  }
+}
+
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -188,6 +196,7 @@ export function SubscriberPortalPage() {
   const [pushPromptOpen, setPushPromptOpen] = useState(false);
   const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>('default');
   const [pushChecking, setPushChecking] = useState(false);
+  const [installNoticeClosed, setInstallNoticeClosed] = useState(false);
 
   const [readNotifications, setReadNotifications] = useState<string[]>(() => {
     try {
@@ -427,25 +436,31 @@ export function SubscriberPortalPage() {
     setLoginError('');
     setOtpMessage('جاري إرسال رمز التحقق إلى واتساب...');
 
-    const res = await fetch(`${API}/request-code`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone }),
-    });
+    try {
+      const res = await fetch(`${API}/request-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      });
 
-    const data = await res.json().catch(() => ({}));
-    setLoading(false);
+      const data: any = await safeJson(res);
 
-    if (!res.ok) {
-      setLoginError(data.message || 'تعذر إرسال رمز التحقق حالياً، حاول لاحقاً.');
+      if (!res.ok) {
+        setLoginError(data.message || 'تعذر إرسال رمز التحقق حالياً، حاول لاحقاً.');
+        setOtpMessage('');
+        return;
+      }
+
+      setOtpMessage('تم إرسال رمز التحقق إلى واتساب، أدخل الرمز لإكمال تسجيل الدخول');
+      setOtpTimer(Number(data.retryAfter || 60));
+      setCode('');
+      setStep('code');
+    } catch {
+      setLoginError('تعذر الاتصال بالخادم، تحقق من الإنترنت وحاول مرة أخرى.');
       setOtpMessage('');
-      return;
+    } finally {
+      setLoading(false);
     }
-
-    setOtpMessage('تم إرسال رمز التحقق إلى واتساب، أدخل الرمز لإكمال تسجيل الدخول');
-    setOtpTimer(Number(data.retryAfter || 60));
-    setCode('');
-    setStep('code');
   }
 
   useEffect(() => {
@@ -456,48 +471,68 @@ export function SubscriberPortalPage() {
 
   async function login() {
     setLoading(true);
-    const res = await fetch(`${API}/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, code }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setLoading(false);
+    setLoginError('');
 
-    if (!res.ok) {
+    try {
+      const res = await fetch(`${API}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, code }),
+      });
+      const data: any = await safeJson(res);
+
+      if (!res.ok) {
+        setLoginError(data.message || 'رمز التحقق غير صحيح');
+        return;
+      }
+
+      if (data.token) {
+        localStorage.setItem('subscriber_token', data.token);
+        setToken(data.token);
+        setStep('home');
+        return;
+      }
+
       setLoginError(data.message || 'رمز التحقق غير صحيح');
-      return;
+    } catch {
+      setLoginError('تعذر الاتصال بالخادم، حاول مرة أخرى.');
+    } finally {
+      setLoading(false);
     }
-
-    if (data.token) {
-      localStorage.setItem('subscriber_token', data.token);
-      setToken(data.token);
-      setStep('home');
-      return;
-    }
-
-    setLoginError(data.message || 'رمز التحقق غير صحيح');
   }
 
   async function loadAccounts() {
     if (!token) return;
     setLoading(true);
-    const res = await fetch(`${API}/accounts`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const data = await res.json();
-    const rows = Array.isArray(data) ? data : [];
-    setAccounts(rows);
-    if (rows[0] && !activeId) {
-      const savedId = localStorage.getItem('subscriber_active_account') || '';
-      const chosen = rows.find((x: Account) => x.id === savedId) || rows[0];
 
-      setActiveId(chosen.id);
-      localStorage.setItem('subscriber_active_account', chosen.id);
-      loadPayments(chosen.id);
-      loadTickets(chosen.id);
+    try {
+      const res = await fetch(`${API}/accounts`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (res.status === 401 || res.status === 403) {
+        logout();
+        return;
+      }
+
+      const data = await safeJson(res);
+      const rows = Array.isArray(data) ? data : [];
+      setAccounts(rows);
+
+      if (rows[0] && !activeId) {
+        const savedId = localStorage.getItem('subscriber_active_account') || '';
+        const chosen = rows.find((x: Account) => x.id === savedId) || rows[0];
+
+        setActiveId(chosen.id);
+        localStorage.setItem('subscriber_active_account', chosen.id);
+        loadPayments(chosen.id);
+        loadTickets(chosen.id);
+      }
+    } catch {
+      setAccounts([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   useEffect(() => {
@@ -544,6 +579,12 @@ export function SubscriberPortalPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, token, activeId]);
+
+  useEffect(() => {
+    return () => {
+      if (ticketImagePreview) URL.revokeObjectURL(ticketImagePreview);
+    };
+  }, [ticketImagePreview]);
 
   async function loadPayments(accountId?: string) {
     const id = accountId || active?.id;
@@ -687,9 +728,16 @@ export function SubscriberPortalPage() {
   if (step !== 'home') {
     return (
       <div dir="rtl" className="min-h-screen overflow-hidden bg-white text-slate-950">
-        {!isPwaMode && (
+        {!isPwaMode && !installNoticeClosed && (
           <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/70 p-5 backdrop-blur-sm">
-            <div className="w-full max-w-sm rounded-[32px] bg-white p-6 text-center shadow-2xl">
+            <div className="relative w-full max-w-sm rounded-[32px] bg-white p-6 text-center shadow-2xl">
+              <button
+                type="button"
+                onClick={() => setInstallNoticeClosed(true)}
+                className="absolute left-4 top-4 rounded-full bg-slate-100 px-3 py-1 text-sm font-black text-slate-500"
+              >
+                لاحقاً
+              </button>
               <img
                 src="/icons/apple-touch-icon.png"
                 alt="App"
@@ -697,11 +745,11 @@ export function SubscriberPortalPage() {
               />
 
               <h2 className="text-2xl font-black text-slate-950">
-                افتح التطبيق من الشاشة الرئيسية
+                ثبّت التطبيق لتفعيل الإشعارات بشكل أفضل
               </h2>
 
               <p className="mt-3 leading-7 text-slate-500">
-                لضمان أفضل تجربة واستقبال الإشعارات بشكل صحيح، افتح التطبيق من الأيقونة المثبتة على جهازك.
+                تقدر تستخدم التطبيق من المتصفح، لكن الإشعارات تعمل بشكل أفضل عند فتحه من الأيقونة المثبتة على جهازك.
               </p>
 
               {deviceType === 'ios' && (
@@ -1098,7 +1146,7 @@ export function SubscriberPortalPage() {
               </button>
 
               {config.enablePayments && (
-                <ActionCard title="تجديد الاشتراك" icon={RefreshCw} color={primary} />
+                <ActionCard title="تجديد الاشتراك" icon={RefreshCw} color={primary} onClick={() => setTab('support')} />
               )}
             </div>
 
@@ -1547,6 +1595,7 @@ export function SubscriberPortalPage() {
                 className="hidden"
                 onChange={(e) => {
                   const f = e.target.files?.[0] || null;
+                  if (ticketImagePreview) URL.revokeObjectURL(ticketImagePreview);
                   setTicketImage(f);
                   setTicketImagePreview(f ? URL.createObjectURL(f) : '');
                 }}
@@ -1560,6 +1609,7 @@ export function SubscriberPortalPage() {
                   type="button"
                   onClick={() => {
                     setTicketImage(null);
+                    if (ticketImagePreview) URL.revokeObjectURL(ticketImagePreview);
                     setTicketImagePreview('');
                   }}
                   className="w-full bg-slate-200 py-2 text-sm font-bold text-slate-600"
@@ -1572,7 +1622,7 @@ export function SubscriberPortalPage() {
             <Button
               disabled={ticketsLoading || !ticketSubject.trim()}
               onClick={createTicket}
-              className="mt-3 h-13 w-full rounded-2xl text-white"
+              className="mt-3 h-14 w-full rounded-2xl text-white"
               style={{ backgroundColor: primary }}
             >
               {ticketsLoading ? 'جاري الإرسال...' : 'إرسال التذكرة'}
