@@ -930,7 +930,7 @@ export function SubscriberPortalPage() {
   }
 
   return (
-    <div dir="rtl" className="min-h-screen bg-slate-100 pb-32 pt-[92px] text-slate-950">
+    <div dir="rtl" className="min-h-screen bg-slate-100 pb-32 pt-[130px] text-slate-950">
       {pushPromptOpen && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-5 backdrop-blur-sm">
           <div className="w-full max-w-sm overflow-hidden rounded-[32px] bg-white shadow-2xl">
