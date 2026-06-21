@@ -1162,15 +1162,29 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
   const targetValue = String(req.body?.targetValue || '');
   const url = String(req.body?.url || '/my');
   const channel = String(req.body?.channel || 'push');
+  const twilioTemplateId = String(req.body?.twilioTemplateId || '').trim();
+  const twilioVariablesText = String(req.body?.twilioVariablesText || '').trim();
   const createdById = adminUserId(req);
 
-  if (!message) return res.status(400).json({ error: 'message required' });
+  if (!message && channel !== 'twilio_template') return res.status(400).json({ error: 'message required' });
+  if (channel === 'twilio_template' && !twilioTemplateId) return res.status(400).json({ error: 'twilio template required' });
+  if (channel === 'twilio_template' && targetType === 'all') return res.status(400).json({ error: 'Twilio Template all disabled for safety' });
+
+  function parseTwilioVarsText(text: string) {
+    const out: any = {};
+    String(text || '').split(/\n|,/).map((x) => x.trim()).filter(Boolean).forEach((line) => {
+      const i = line.indexOf('=');
+      if (i > 0) out[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+    });
+    return out;
+  }
 
   const usePush = channel === 'push' || channel === 'both' || channel === 'all';
   const useWhatsapp = channel === 'whatsapp' || channel === 'both' || channel === 'all';
+  const useTwilioTemplate = channel === 'twilio_template';
 
   const pushTargets = usePush ? await getTargets(targetType, targetValue) : [];
-  const whatsappPhones = useWhatsapp ? await getWhatsappPhones(targetType, targetValue) : [];
+  const whatsappPhones = (useWhatsapp || useTwilioTemplate) ? await getWhatsappPhones(targetType, targetValue) : [];
 
   const job = createCampaignJob({
     title,
@@ -1230,7 +1244,7 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
         }
       }
 
-      if (useWhatsapp) {
+      if (useWhatsapp || useTwilioTemplate) {
         for (const phone of whatsappPhones) {
           const cur = campaignJobsStore.get(job.id);
           if (cur?.status === 'cancelled') break;
@@ -1238,11 +1252,54 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
 
           updateCampaignJob(job.id, { currentPhone: String(phone) });
 
-          const renderedMessage = await renderCampaignMessage(message, phone, targetType || 'manual');
-          const r = await sendWhatsappToPhones([phone], `${title}\n\n${renderedMessage}`);
+          if (useTwilioTemplate) {
+            const setting = await getTwilioSettingForPush();
+            const client = Twilio(setting.accountSid!, setting.authToken!);
+            const sysVars = await getSubscriberVarsForTwilio(phone);
+            const rawVars = parseTwilioVarsText(twilioVariablesText);
+            const renderedVariables = Object.fromEntries(
+              Object.entries(rawVars || {}).map(([k, v]) => [k, renderSystemVars(v, sysVars)])
+            );
 
-          whatsappSent += Number(r.sent || 0);
-          whatsappFailed += Number(r.failed || 0);
+            try {
+              const msg = await client.messages.create({
+                from: asTwilioWhatsapp(setting.whatsappFrom),
+                to: asTwilioWhatsapp(phone),
+                contentSid: twilioTemplateId,
+                contentVariables: JSON.stringify(renderedVariables || {}),
+              } as any);
+
+              whatsappSent++;
+              await prisma.pushNotificationLog.create({
+                data: {
+                  phone,
+                  title: 'Twilio Template',
+                  message: `contentSid=${twilioTemplateId}`,
+                  targetType: `${targetType}:twilio_template`,
+                  status: msg.status || 'queued',
+                  error: null,
+                } as any,
+              }).catch(() => null);
+            } catch (e: any) {
+              whatsappFailed++;
+              await prisma.pushNotificationLog.create({
+                data: {
+                  phone,
+                  title: 'Twilio Template',
+                  message: `contentSid=${twilioTemplateId}`,
+                  targetType: `${targetType}:twilio_template`,
+                  status: 'failed',
+                  error: e?.message || String(e),
+                } as any,
+              }).catch(() => null);
+            }
+          } else {
+            const renderedMessage = await renderCampaignMessage(message, phone, targetType || 'manual');
+            const r = await sendWhatsappToPhones([phone], `${title}\n\n${renderedMessage}`);
+
+            whatsappSent += Number(r.sent || 0);
+            whatsappFailed += Number(r.failed || 0);
+          }
 
           updateCampaignJob(job.id, {
             processed: pushSent + pushFailed + whatsappSent + whatsappFailed,

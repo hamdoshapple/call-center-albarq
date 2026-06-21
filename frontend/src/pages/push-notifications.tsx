@@ -111,6 +111,7 @@ function daysUntil(v: any) {
 function channelLabel(v: any) {
   const x = String(v || 'push');
   if (x === 'whatsapp') return 'واتساب';
+  if (x === 'twilio_template') return 'قالب Twilio';
   if (x === 'both' || x === 'all') return 'تطبيق + واتساب';
   if (x === 'off') return 'متوقف';
   return 'تطبيق';
@@ -380,6 +381,19 @@ export default function PushNotificationsPage() {
   const applyTemplate = (key: string) => {
     setSelectedTemplateKey(key);
     if (!key || key === 'none') return;
+
+    if (key.startsWith('twilio:')) {
+      const id = key.replace('twilio:', '');
+      const tpl = twilioTemplates.find((x: any) => x.id === id || x.contentSid === id);
+      if (!tpl) return;
+
+      setSelectedTwilioTemplateId(tpl.id || tpl.contentSid);
+      setForm((f) => ({ ...f, channel: 'twilio_template', message: tpl.body || '' }));
+
+      // لا نغير المتغيرات هنا حتى تبقى القيم التي كتبها المستخدم هي المعتمدة
+      return;
+    }
+
     setForm((f) => ({ ...f, message: String(settings.templates?.[key] || '') }));
   };
 
@@ -517,6 +531,11 @@ export default function PushNotificationsPage() {
                           {Object.keys(settings.templates || {}).map((k) => (
                             <SelectItem key={k} value={k}>{k}</SelectItem>
                           ))}
+                          {twilioTemplates.map((tpl: any) => (
+                            <SelectItem key={`twilio-${tpl.id || tpl.contentSid}`} value={`twilio:${tpl.id || tpl.contentSid}`}>
+                              {`Twilio - ${tpl.name}`}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -590,7 +609,8 @@ export default function PushNotificationsPage() {
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="push">تطبيق فقط</SelectItem>
-                        <SelectItem value="whatsapp">واتساب فقط</SelectItem>
+                        <SelectItem value="whatsapp">واتساب نص عادي</SelectItem>
+                        <SelectItem value="twilio_template">قالب Twilio</SelectItem>
                         <SelectItem value="both">تطبيق + واتساب</SelectItem>
                       </SelectContent>
                     </Select>
@@ -1167,15 +1187,7 @@ export default function PushNotificationsPage() {
                 <Select value={selectedTwilioTemplateId} onValueChange={(id) => {
                   setSelectedTwilioTemplateId(id);
                   setForm((f) => ({ ...f, twilioTemplateId: id, channel: 'twilio_template' } as any));
-                  const tpl = twilioTemplates.find((x) => x.id === id);
-                  if (tpl?.variables?.length) {
-                    setTwilioVariablesText(
-                      tpl.variables.map((v: any) => {
-                        if (typeof v === 'string') return `${v}=`;
-                        return `${v.key}=${v.sample || v.hint || ''}`;
-                      }).join('\n')
-                    );
-                  }
+                  // لا نغير المتغيرات هنا حتى لا نستبدل إدخال المستخدم
                 }}>
                   <SelectTrigger className="rounded-xl">
                     <SelectValue placeholder="اختر قالب" />
