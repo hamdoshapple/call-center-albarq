@@ -18,8 +18,8 @@ export function LoginPage() {
   const { toggleLanguage } = useLanguage();
   const navigate = useNavigate();
 
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -31,7 +31,7 @@ export function LoginPage() {
     setLoading(true);
     try {
       await login(username, password);
-      navigate('/dashboard', { replace: true });
+      navigate('/whatsapp-inbox', { replace: true });
     } catch {
       setError(t('auth.login_error'));
     } finally {

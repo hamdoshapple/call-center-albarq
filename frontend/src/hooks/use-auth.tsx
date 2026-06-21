@@ -34,10 +34,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       return;
     }
-    Promise.all([authApi.me(token), permissionsApi.getPermissions()])
-      .then(([u, p]) => {
+    authApi.me(token)
+      .then(async (u) => {
         setUser(u);
-        setPermissions(p);
+        try {
+          const p = await permissionsApi.getPermissions();
+          setPermissions(p);
+        } catch {
+          setPermissions(null);
+        }
       })
       .catch(() => localStorage.removeItem(TOKEN_KEY))
       .finally(() => setLoading(false));
@@ -46,9 +51,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (username: string, password: string) => {
     const session = await authApi.login(username, password);
     localStorage.setItem(TOKEN_KEY, session.token);
-    const perms = await permissionsApi.getPermissions();
     setUser(session.user);
-    setPermissions(perms);
+
+    try {
+      const perms = await permissionsApi.getPermissions();
+      setPermissions(perms);
+    } catch {
+      setPermissions(null);
+    }
   };
 
   const logout = () => {
@@ -63,7 +73,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const hasPermission = (module: ModuleKey, action: PermissionAction = 'view') => {
-    if (!user || !permissions) return false;
+    if (!user) return false;
+    if (!permissions) {
+      if ((user.role as string) === 'super_admin') return true;
+      return module === 'dashboard' || module === 'whatsapp' || module === 'push_notifications' || module === 'subscribers' || module === 'live_calls';
+    }
     return can(permissions, user.role, module, action);
   };
 

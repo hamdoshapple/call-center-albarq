@@ -42,6 +42,8 @@ type Msg = {
   body?: string;
   mediaUrl?: string;
   mediaType?: string;
+  agentName?: string;
+  agentId?: string;
   status: string;
   createdAt: string;
 };
@@ -342,6 +344,11 @@ export default function WhatsappInboxPage() {
                     return (
                       <div key={m.id} className={`flex ${out ? 'justify-start' : 'justify-end'}`}>
                         <div className={`max-w-[82%] rounded-2xl px-4 py-3 text-xs shadow-sm ${out ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}`}>
+                          {out && m.agentName && (
+                            <div className="mb-1 text-[10px] font-black text-slate-300">
+                              رد بواسطة: {m.agentName}
+                            </div>
+                          )}
                           {m.mediaUrl && (
                             m.mediaType?.startsWith('image/') ? (
                               <a href={m.mediaUrl} target="_blank" rel="noreferrer">

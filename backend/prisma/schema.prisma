@@ -814,6 +814,8 @@ model TwilioWhatsappMessage {
   body       String?  @db.Text
   mediaUrl   String?  @db.Text
   mediaType  String?
+  agentName  String?
+  agentId    String?
   status     String   @default("received")
   twilioSid  String?  @unique
   fromNumber String

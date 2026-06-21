@@ -281,6 +281,10 @@ export async function reply(req: Request, res: Response) {
   const savedMedia = imageData ? saveBase64Media(imageData) : null;
   if (!body && !savedMedia) return res.status(400).json({ message: 'EMPTY_MESSAGE' });
 
+  const user: any = (req as any).user || {};
+  const agentName = String(user.fullName || user.name || user.username || 'موظف');
+  const agentId = user.id ? String(user.id) : null;
+
   const setting = await getSettingRow();
   if (!setting.enabled || !setting.accountSid || !setting.authToken || !setting.whatsappFrom) {
     return res.status(400).json({ message: 'TWILIO_NOT_CONFIGURED' });
@@ -307,6 +311,8 @@ export async function reply(req: Request, res: Response) {
       body,
       mediaUrl,
       mediaType: savedMedia?.mime || null,
+      agentName,
+      agentId,
       status: sent.status || 'sent',
       twilioSid: sent.sid,
       fromNumber: cleanWhatsappPhone(setting.whatsappFrom),
