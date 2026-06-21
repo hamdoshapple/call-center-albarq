@@ -263,6 +263,7 @@ router.put('/push/settings', h(push.saveSettings));
 router.post('/push/send', h(push.send));
 
 router.get('/push/twilio-templates', h(push.twilioTemplates));
+router.post('/push/twilio-templates/sync', h(push.syncTwilioTemplates));
 router.put('/push/twilio-templates', h(push.saveTwilioTemplates));
 router.post('/push/send-twilio-template', h(push.sendTwilioTemplate));
 

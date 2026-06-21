@@ -1666,6 +1666,61 @@ export const saveTwilioTemplates = asyncHandler(async (req: Request, res: Respon
   res.json({ ok: true, templates: clean });
 });
 
+
+async function getSubscriberVarsForTwilio(phone: string) {
+  const n = norm(phone);
+  const variants = Array.from(new Set([
+    n,
+    '0' + n,
+    '964' + n,
+    n.startsWith('964') ? n.slice(3) : n,
+  ].filter(Boolean)));
+
+  const placeholders = variants.map(() => '?').join(',');
+
+  const rows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT name, phone, pppoeUsername, package AS packageName, status, expiration, debt
+    FROM SubscriberCache
+    WHERE normalizedPhone IN (${placeholders}) OR phone IN (${placeholders})
+    UNION ALL
+    SELECT name, phone, pppoeUsername, packageName, status, expiration, debt
+    FROM ExternalSubscriberCache
+    WHERE phoneNorm IN (${placeholders}) OR phone IN (${placeholders})
+    LIMIT 1
+  `, ...variants, ...variants, ...variants, ...variants).catch(() => []);
+
+  const sub = rows[0] || {};
+  const exp = sub.expiration ? new Date(sub.expiration) : null;
+  const today = new Date();
+  const days = exp ? Math.ceil((exp.getTime() - today.getTime()) / 86400000) : null;
+
+  return {
+    name: sub.name || 'مشترك',
+    phone: sub.phone || phone,
+    pppoe: sub.pppoeUsername || '',
+    username: sub.pppoeUsername || '',
+    package: sub.packageName || '',
+    status: sub.status || '',
+    expiration: exp ? exp.toLocaleDateString('ar-IQ') : '',
+    debt: Number(sub.debt || 0).toLocaleString('en-US'),
+    amount: Number(sub.debt || 0).toLocaleString('en-US'),
+    balance: Number(sub.debt || 0).toLocaleString('en-US'),
+    due: Number(sub.debt || 0).toLocaleString('en-US'),
+    daysLeft: days === null ? '' : String(Math.max(days, 0)),
+    daysExpired: days === null ? '' : String(Math.max(-days, 0)),
+    today: today.toLocaleDateString('ar-IQ'),
+    company: 'شركة البرق الرقمي',
+    appUrl: 'user.albarq.app',
+    supportPhone: '07818155590',
+  };
+}
+
+function renderSystemVars(text: any, vars: Record<string, any>) {
+  return String(text ?? '').replace(/\{([a-zA-Z0-9_]+)\}/g, (_m, key) => {
+    return vars[key] ?? '';
+  });
+}
+
 export const sendTwilioTemplate = asyncHandler(async (req: Request, res: Response) => {
   const targetType = String(req.body?.targetType || 'phone');
   const targetValue = String(req.body?.targetValue || '');
@@ -1674,8 +1729,22 @@ export const sendTwilioTemplate = asyncHandler(async (req: Request, res: Respons
 
   if (!contentSid) return res.status(400).json({ error: 'CONTENT_SID_REQUIRED' });
 
+  if (targetType === 'all') {
+    return res.status(400).json({
+      error: 'BULK_ALL_DISABLED',
+      message: 'إرسال قوالب Twilio للكل متوقف للحماية. اختر رقم محدد أو فلتر واضح.',
+    });
+  }
+
   const phones = await getWhatsappPhones(targetType, targetValue);
   const cleanPhones = Array.from(new Set((phones || []).map(norm).filter(Boolean)));
+
+  if (cleanPhones.length > 200) {
+    return res.status(400).json({
+      error: 'TOO_MANY_TARGETS',
+      message: `عدد الأهداف ${cleanPhones.length}. الإرسال يحتاج فلتر أضيق.`,
+    });
+  }
 
   if (!cleanPhones.length) return res.json({ targets: 0, sent: 0, failed: 0 });
 
@@ -1687,11 +1756,16 @@ export const sendTwilioTemplate = asyncHandler(async (req: Request, res: Respons
 
   for (const phone of cleanPhones) {
     try {
+      const sysVars = await getSubscriberVarsForTwilio(phone);
+      const renderedVariables = Object.fromEntries(
+        Object.entries(variables || {}).map(([k, v]) => [k, renderSystemVars(v, sysVars)])
+      );
+
       const msg = await client.messages.create({
         from: asTwilioWhatsapp(setting.whatsappFrom),
         to: asTwilioWhatsapp(phone),
         contentSid,
-        contentVariables: JSON.stringify(variables || {}),
+        contentVariables: JSON.stringify(renderedVariables || {}),
       } as any);
 
       sent++;
@@ -1736,4 +1810,121 @@ export const sendTwilioTemplate = asyncHandler(async (req: Request, res: Respons
   }).catch(() => null);
 
   res.json({ targets: cleanPhones.length, sent, failed });
+});
+
+
+async function fetchTwilioApprovalStatus(auth: string, approvalFetchUrl: string) {
+  if (!approvalFetchUrl) return 'unknown';
+
+  try {
+    const r = await fetch(approvalFetchUrl, {
+      headers: { Authorization: `Basic ${auth}` },
+    });
+
+    const d: any = await r.json().catch(() => ({}));
+    if (!r.ok) return 'unknown';
+
+    const raw = JSON.stringify(d).toLowerCase();
+    if (raw.includes('"status":"approved"') || raw.includes('"status": "approved"')) return 'approved';
+    if (raw.includes('"status":"rejected"') || raw.includes('"status": "rejected"')) return 'rejected';
+    if (raw.includes('"status":"pending"') || raw.includes('"status": "pending"')) return 'pending';
+
+    return String(d?.status || d?.whatsapp?.status || d?.approval_requests?.whatsapp?.status || 'unknown').toLowerCase();
+  } catch {
+    return 'unknown';
+  }
+}
+
+function extractTemplateBody(x: any) {
+  return (
+    x.types?.['twilio/text']?.body ||
+    x.types?.['twilio/media']?.body ||
+    x.types?.['twilio/quick-reply']?.body ||
+    x.types?.['twilio/call-to-action']?.body ||
+    x.types?.['twilio/list-picker']?.body ||
+    x.types?.['whatsapp/authentication']?.body ||
+    ''
+  );
+}
+
+function guessVariableHint(key: string, sample: string, body: string, name: string) {
+  const k = String(key || '');
+  const v = String(sample || '').trim();
+  const all = `${body}\n${name}\n${v}`.toLowerCase();
+
+  if (/احمد|محمد|john|ali|name|first_name|مشترك|عميل|السيد|السيدة/.test(all) && (k === '1' || /name|مشترك|عميل/.test(all))) return 'اسم المشترك';
+  if (/رصيد|balance|current|الحالي/.test(all)) return 'الرصيد الحالي';
+  if (/استحقاق|debt|due|مستحق|دين/.test(all)) return 'مبلغ الاستحقاق / الدين';
+  if (/انتهاء|expiration|expire|date|تاريخ/.test(all)) return 'تاريخ الانتهاء';
+  if (/amount|مبلغ|دينار|iqd|payment|دفعة|تسديد/.test(all)) return 'المبلغ';
+  if (/pppoe|يوزر|user|username/.test(all)) return 'يوزر الاشتراك';
+  if (/code|otp|verification|كود|رمز/.test(all)) return 'رمز التحقق';
+  if (/phone|mobile|رقم/.test(all)) return 'رقم الهاتف';
+  if (/time|وقت|ساعة/.test(all)) return 'الوقت';
+  return `متغير رقم ${k}`;
+}
+
+function extractVariables(x: any, body: string) {
+  const varsObj = x.variables || {};
+  const fromObj = Object.keys(varsObj);
+  const fromBody = Array.from(String(body).matchAll(/\{\{([^}]+)\}\}/g)).map((m: any) => String(m[1]).trim());
+  const keys = Array.from(new Set([...fromObj, ...fromBody])).filter(Boolean);
+
+  return keys.map((key: any) => {
+    const sample = String(varsObj[key] || '');
+    return {
+      key: String(key),
+      sample,
+      hint: guessVariableHint(String(key), sample, body, x.friendly_name || ''),
+    };
+  });
+}
+
+async function fetchTwilioContentTemplatesFromApi() {
+  const setting = await getTwilioSettingForPush();
+  const auth = Buffer.from(`${setting.accountSid}:${setting.authToken}`).toString('base64');
+
+  const res = await fetch('https://content.twilio.com/v1/Content?PageSize=1000', {
+    headers: { Authorization: `Basic ${auth}` },
+  });
+
+  const data: any = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || `Twilio Content API ${res.status}`);
+
+  const items = data.contents || data.content || [];
+  const out: any[] = [];
+
+  for (const x of items) {
+    const status = await fetchTwilioApprovalStatus(auth, x.links?.approval_fetch || '');
+    const body = extractTemplateBody(x);
+    const variables = extractVariables(x, body);
+
+    out.push({
+      id: x.sid,
+      name: x.friendly_name || x.friendlyName || x.sid,
+      contentSid: x.sid,
+      language: x.language || '',
+      status,
+      approved: status === 'approved',
+      type: Object.keys(x.types || {})[0] || '',
+      variables,
+      body,
+    });
+  }
+
+  return out;
+}
+
+export const syncTwilioTemplates = asyncHandler(async (_req: Request, res: Response) => {
+  const all = await fetchTwilioContentTemplatesFromApi();
+  const approved = all.filter((x: any) => x.approved);
+  const templates = approved;
+
+  await prisma.setting.upsert({
+    where: { key: 'push_twilio_templates' },
+    create: { key: 'push_twilio_templates', value: { templates, syncedAt: new Date().toISOString() } as any },
+    update: { value: { templates, syncedAt: new Date().toISOString() } as any },
+  });
+
+  res.json({ ok: true, total: all.length, approved: approved.length, templates, all });
 });

@@ -50,6 +50,7 @@ export const pushNotificationsApi = {
     body: JSON.stringify({}),
   }),
   twilioTemplates: () => request('/push/twilio-templates'),
+  syncTwilioTemplates: () => request('/push/twilio-templates/sync', { method: 'POST', body: JSON.stringify({}) }),
   saveTwilioTemplates: (templates: any[]) => request('/push/twilio-templates', {
     method: 'PUT',
     body: JSON.stringify({ templates }),

@@ -258,6 +258,27 @@ export default function PushNotificationsPage() {
   const setChannel = (k: string, v: string) => setSettings((s: any) => ({ ...s, channels: { ...(s.channels || {}), [k]: v } }));
   const setTemplate = (k: string, v: string) => setSettings((s: any) => ({ ...s, templates: { ...s.templates, [k]: v } }));
 
+  const systemVarCatalog = [
+    ['{name}', 'اسم المشترك'],
+    ['{phone}', 'رقم الهاتف'],
+    ['{pppoe}', 'يوزر الاشتراك'],
+    ['{username}', 'يوزر الاشتراك'],
+    ['{package}', 'الباقة'],
+    ['{status}', 'حالة الاشتراك'],
+    ['{expiration}', 'تاريخ انتهاء الاشتراك'],
+    ['{debt}', 'الدين / المبلغ المستحق'],
+    ['{amount}', 'المبلغ'],
+    ['{balance}', 'الرصيد'],
+    ['{due}', 'الاستحقاق'],
+    ['{daysLeft}', 'الأيام المتبقية'],
+    ['{daysExpired}', 'أيام الانتهاء'],
+    ['{today}', 'تاريخ اليوم'],
+    ['{company}', 'اسم الشركة'],
+    ['{appUrl}', 'رابط تطبيق المشترك'],
+    ['{supportPhone}', 'رقم الدعم'],
+  ];
+
+
   function parseVarsText(text: string) {
     const out: any = {};
     String(text || '').split(/\n|,/).map((x) => x.trim()).filter(Boolean).forEach((line) => {
@@ -271,6 +292,16 @@ export default function PushNotificationsPage() {
     const d = await pushNotificationsApi.saveTwilioTemplates(next);
     setTwilioTemplates(d.templates || next);
     toast({ title: 'تم الحفظ', description: 'تم حفظ قوالب Twilio' });
+  }
+
+
+  async function syncTwilioTemplateList() {
+    const d = await pushNotificationsApi.syncTwilioTemplates();
+    setTwilioTemplates(d.templates || []);
+    toast({
+      title: 'تم جلب القوالب',
+      description: `تم جلب المعتمدة فقط: ${d.approved} من أصل ${d.total}`,
+    });
   }
 
   async function addTwilioTemplate() {
@@ -1093,9 +1124,14 @@ export default function PushNotificationsPage() {
                 </div>
               </div>
 
-              <Button onClick={addTwilioTemplate} className="rounded-xl">
-                إضافة القالب
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={syncTwilioTemplateList} className="rounded-xl bg-slate-900">
+                  جلب القوالب المعتمدة من Twilio
+                </Button>
+                <Button onClick={addTwilioTemplate} variant="outline" className="rounded-xl">
+                  إضافة يدوي
+                </Button>
+              </div>
 
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {twilioTemplates.map((tpl) => (
@@ -1110,10 +1146,35 @@ export default function PushNotificationsPage() {
                           حذف
                         </Button>
                       </div>
-                      <div className="flex flex-wrap gap-1">
-                        {(tpl.variables || []).map((v: string) => (
-                          <Badge key={v} variant="secondary">{v}</Badge>
-                        ))}
+                      <div className="space-y-2">
+                        {tpl.body && (
+                          <div className="rounded-xl bg-slate-50 p-3 text-xs leading-6 text-slate-700 whitespace-pre-wrap">
+                            {tpl.body}
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap gap-1">
+                          {(tpl.variables || []).map((v: any) => (
+                            <Badge key={typeof v === 'string' ? v : v.key} variant="secondary">
+                              {typeof v === 'string' ? v : `${v.key}: ${v.hint || 'متغير'}`}
+                            </Badge>
+                          ))}
+                        </div>
+
+                        {(tpl.variables || []).length > 0 && (
+                          <div className="rounded-xl border bg-white p-3 text-xs">
+                            <div className="mb-2 font-black">دليل المتغيرات</div>
+                            <div className="space-y-1">
+                              {(tpl.variables || []).map((v: any) => (
+                                <div key={typeof v === 'string' ? v : v.key} className="flex justify-between gap-3 border-b border-dashed pb-1 last:border-0">
+                                  <span className="font-mono">{typeof v === 'string' ? v : v.key}</span>
+                                  <span className="font-bold">{typeof v === 'string' ? 'متغير' : v.hint}</span>
+                                  {typeof v !== 'string' && v.sample ? <span className="text-muted-foreground">مثال: {v.sample}</span> : null}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -1129,7 +1190,18 @@ export default function PushNotificationsPage() {
             <CardContent className="grid gap-4 lg:grid-cols-2">
               <div className="space-y-2">
                 <Label>القالب</Label>
-                <Select value={selectedTwilioTemplateId} onValueChange={setSelectedTwilioTemplateId}>
+                <Select value={selectedTwilioTemplateId} onValueChange={(id) => {
+                  setSelectedTwilioTemplateId(id);
+                  const tpl = twilioTemplates.find((x) => x.id === id);
+                  if (tpl?.variables?.length) {
+                    setTwilioVariablesText(
+                      tpl.variables.map((v: any) => {
+                        if (typeof v === 'string') return `${v}=`;
+                        return `${v.key}=${v.sample || v.hint || ''}`;
+                      }).join('\n')
+                    );
+                  }
+                }}>
                   <SelectTrigger className="rounded-xl">
                     <SelectValue placeholder="اختر قالب" />
                   </SelectTrigger>
@@ -1149,6 +1221,29 @@ export default function PushNotificationsPage() {
                   {form.targetValue ? <span> / {form.targetValue}</span> : null}
                 </div>
               </div>
+
+
+              <Card className="lg:col-span-2 border-dashed bg-slate-50/70">
+                <CardContent className="p-4">
+                  <div className="mb-3 font-black">دليل رموز النظام</div>
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {systemVarCatalog.map(([code, label]) => (
+                      <button
+                        key={code}
+                        type="button"
+                        onClick={() => setTwilioVariablesText((v) => `${v}${v.endsWith('\n') || !v ? '' : '\n'}=${code}`)}
+                        className="flex items-center justify-between rounded-xl border bg-white px-3 py-2 text-xs hover:bg-slate-100"
+                      >
+                        <span className="font-bold">{label}</span>
+                        <code className="rounded bg-slate-100 px-2 py-1 text-left" dir="ltr">{code}</code>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    {`مثال: إذا قالب Twilio يحتوي متغير رقم 1 للاسم ومتغير رقم 2 للدين، اكتب بالمتغيرات: 1={name} و 2={debt}.`}
+                  </p>
+                </CardContent>
+              </Card>
 
               <div className="space-y-2 lg:col-span-2">
                 <Label>Content Variables</Label>
