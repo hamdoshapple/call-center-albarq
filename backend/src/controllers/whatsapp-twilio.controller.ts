@@ -48,32 +48,32 @@ async function downloadTwilioMedia(req: Request, url: string, mime: string) {
 }
 
 function saveBase64Media(dataUrl: string) {
-  const m = String(dataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  const m = String(dataUrl || '').match(/^([a-zA-Z0-9/+.-]+\/[a-zA-Z0-9.+-]+);base64,(.+)$/)
+    || String(dataUrl || '').match(/^data:([a-zA-Z0-9/+.-]+\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
   if (!m) return null;
 
+  const inputMime = m[1];
   const buf = Buffer.from(m[2], 'base64');
 
-  let mime = m[1];
-  let ext = 'jpg';
+  let mime = inputMime;
+  let ext = 'bin';
 
-  // Detect real file signature, not browser-provided mime
-  if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
-    mime = 'image/jpeg';
-    ext = 'jpg';
-  } else if (buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
-    mime = 'image/png';
-    ext = 'png';
-  } else if (buf.length > 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') {
-    mime = 'image/webp';
-    ext = 'webp';
-  } else if (buf.length > 6 && buf.toString('ascii', 0, 3) === 'GIF') {
-    mime = 'image/gif';
-    ext = 'gif';
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    mime = 'image/jpeg'; ext = 'jpg';
+  } else if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    mime = 'image/png'; ext = 'png';
+  } else if (buf.toString('ascii', 0, 3) === 'GIF') {
+    mime = 'image/gif'; ext = 'gif';
+  } else if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') {
+    mime = 'image/webp'; ext = 'webp';
+  } else if (buf.toString('ascii', 0, 4) === '%PDF') {
+    mime = 'application/pdf'; ext = 'pdf';
+  } else if (inputMime.includes('pdf')) {
+    mime = 'application/pdf'; ext = 'pdf';
   }
 
   const name = `${Date.now()}-${randomUUID()}.${ext}`;
-  const dir = ensureMediaDir();
-  fs.writeFileSync(path.join(dir, name), buf);
+  fs.writeFileSync(path.join(ensureMediaDir(), name), buf);
   return { name, mime };
 }
 
@@ -277,7 +277,7 @@ export async function markRead(req: Request, res: Response) {
 export async function reply(req: Request, res: Response) {
   const contactId = String(req.params.id);
   const body = String(req.body?.body || '').trim();
-  const imageData = String(req.body?.imageData || '');
+  const imageData = String(req.body?.imageData || req.body?.fileData || '');
   const savedMedia = imageData ? saveBase64Media(imageData) : null;
   if (!body && !savedMedia) return res.status(400).json({ message: 'EMPTY_MESSAGE' });
 
@@ -297,6 +297,7 @@ export async function reply(req: Request, res: Response) {
     to: asWhatsapp(contact.phone),
     body: body || undefined,
     mediaUrl: mediaUrl ? [mediaUrl] : undefined,
+    statusCallback: `${publicBase(req)}/api/whatsapp-twilio/status-callback`,
   });
 
   const msg = await prisma.twilioWhatsappMessage.create({
@@ -387,4 +388,24 @@ export async function mediaFile(req: Request, res: Response) {
   res.setHeader('Cache-Control', 'public, max-age=86400');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.sendFile(full);
+}
+
+
+export async function statusCallback(req: Request, res: Response) {
+  const sid = String(req.body?.MessageSid || req.body?.SmsSid || '');
+  const status = String(req.body?.MessageStatus || req.body?.SmsStatus || '');
+  const errorCode = req.body?.ErrorCode ? String(req.body.ErrorCode) : null;
+  const errorMessage = req.body?.ErrorMessage ? String(req.body.ErrorMessage) : null;
+
+  if (sid && status) {
+    await prisma.twilioWhatsappMessage.updateMany({
+      where: { twilioSid: sid },
+      data: {
+        status,
+        ...(errorCode || errorMessage ? { body: undefined } : {}),
+      },
+    }).catch(() => null);
+  }
+
+  res.type('text/xml').send('<Response></Response>');
 }

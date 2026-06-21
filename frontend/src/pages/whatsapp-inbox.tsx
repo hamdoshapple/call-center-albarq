@@ -1,5 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Send, Settings, Save, MessageCircle, CheckCircle2, Search, User, ExternalLink } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  RefreshCw,
+  Send,
+  Settings,
+  Save,
+  MessageCircle,
+  CheckCircle2,
+  Search,
+  User,
+  ExternalLink,
+  Paperclip,
+  X,
+} from 'lucide-react';
 import { whatsappTwilioApi } from '@/api/whatsappTwilio';
 
 type SubscriberLite = {
@@ -10,6 +22,7 @@ type SubscriberLite = {
   package?: string;
   status?: string;
   source?: string;
+  debt?: number;
 };
 
 type Conv = {
@@ -39,8 +52,9 @@ export default function WhatsappInboxPage() {
   const [active, setActive] = useState<Conv | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [reply, setReply] = useState('');
-  const [imageData, setImageData] = useState('');
-  const [imageName, setImageName] = useState('');
+  const [fileData, setFileData] = useState('');
+  const [fileName, setFileName] = useState('');
+  const [fileInputKey, setFileInputKey] = useState(0);
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -48,6 +62,21 @@ export default function WhatsappInboxPage() {
   const [settings, setSettings] = useState<any>({});
   const [saveMsg, setSaveMsg] = useState('');
   const [accountsOpen, setAccountsOpen] = useState(false);
+  const lastUnreadRef = useRef(0);
+  const messagesRef = useRef<HTMLDivElement | null>(null);
+  const activeIdRef = useRef<string | null>(null);
+
+  const linkedAccounts = useMemo(() => {
+    if (!active) return [];
+    return active.subscribers?.length ? active.subscribers : active.subscriber ? [active.subscriber] : [];
+  }, [active]);
+
+  const totalDebt = linkedAccounts.reduce((sum, x: any) => sum + Number(x.debt || 0), 0);
+  const activeCount = linkedAccounts.filter((x) =>
+    String(x.status || '').toLowerCase().includes('active') || String(x.status || '').includes('فعال')
+  ).length;
+  const expiredCount = linkedAccounts.length ? linkedAccounts.length - activeCount : 0;
+  const webhookUrl = useMemo(() => settings?.webhookUrl || '', [settings]);
 
   async function loadConvs(search = q) {
     setErr('');
@@ -61,12 +90,34 @@ export default function WhatsappInboxPage() {
         headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}` },
       });
       if (!res.ok) throw new Error('LOAD_FAILED');
+
       const data = await res.json();
+      const unreadTotal = data.reduce((n: number, x: Conv) => n + Number(x.unreadCount || 0), 0);
+
+      if (lastUnreadRef.current && unreadTotal > lastUnreadRef.current) {
+        try {
+          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.frequency.value = 880;
+          gain.gain.value = 0.05;
+          osc.start();
+          setTimeout(() => { osc.stop(); ctx.close(); }, 160);
+        } catch {}
+      }
+
+      lastUnreadRef.current = unreadTotal;
       setConvs(data);
-      if (!active && data[0]) setActive(data[0]);
-      if (active) {
-        const updated = data.find((x: Conv) => x.id === active.id);
+
+      const currentId = activeIdRef.current;
+      if (currentId) {
+        const updated = data.find((x: Conv) => x.id === currentId);
         if (updated) setActive(updated);
+      } else if (!active && data[0]) {
+        activeIdRef.current = data[0].id;
+        setActive(data[0]);
       }
     } catch {
       setErr('فشل تحميل المحادثات');
@@ -76,12 +127,12 @@ export default function WhatsappInboxPage() {
   }
 
   async function loadMessages(id: string) {
-    setErr('');
     try {
       const data = await whatsappTwilioApi.messages(id);
       setMessages(data);
       await whatsappTwilioApi.read(id).catch(() => null);
-      setConvs((old: Conv[]) => old.map((x) => x.id === id ? { ...x, unreadCount: 0 } : x));
+      setConvs((old) => old.map((x) => (x.id === id ? { ...x, unreadCount: 0 } : x)));
+      setTimeout(() => messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight }), 80);
     } catch {
       setErr('فشل تحميل الرسائل');
     }
@@ -89,16 +140,20 @@ export default function WhatsappInboxPage() {
 
   async function sendReply() {
     const text = reply.trim();
-    if (!active || !text) return;
+    if (!active || (!text && !fileData)) return;
+
     setSending(true);
     setErr('');
     try {
-      const msg = await whatsappTwilioApi.reply(active.id, text, imageData);
-      setImageData('');
-      setImageName('');
-      setMessages((old: Msg[]) => [...old, msg]);
+      console.log('WA_SEND_DEBUG', { hasFile: !!fileData, fileLen: fileData.length, text });
+      const msg = await whatsappTwilioApi.reply(active.id, text, fileData || undefined);
+      setMessages((old) => [...old, msg]);
       setReply('');
+      setFileData('');
+      setFileName('');
+      setFileInputKey((x) => x + 1);
       await loadConvs();
+      setTimeout(() => messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight }), 80);
     } catch {
       setErr('فشل الإرسال. تأكد من إعدادات Twilio ونافذة واتساب.');
     } finally {
@@ -123,58 +178,60 @@ export default function WhatsappInboxPage() {
     }
   }
 
-  useEffect(() => { loadConvs(); loadSettings().catch(() => null); }, []);
-  useEffect(() => { if (active?.id) loadMessages(active.id); }, [active?.id]);
+  useEffect(() => {
+    loadConvs();
+    loadSettings().catch(() => null);
+  }, []);
 
-  const webhookUrl = useMemo(() => settings?.webhookUrl || '', [settings]);
+  useEffect(() => {
+    if (active?.id) loadMessages(active.id);
+  }, [active?.id]);
 
-  const linkedAccounts = useMemo(() => {
-    if (!active) return [];
-    return active.subscribers?.length ? active.subscribers : active.subscriber ? [active.subscriber] : [];
-  }, [active]);
-
-  const totalDebt = linkedAccounts.reduce((sum: number, x: any) => sum + Number(x.debt || 0), 0);
-  const activeCount = linkedAccounts.filter((x: any) => String(x.status || '').toLowerCase().includes('active') || String(x.status || '').includes('فعال')).length;
-  const expiredCount = linkedAccounts.length ? linkedAccounts.length - activeCount : 0;
-
+  useEffect(() => {
+    const t = setInterval(() => {
+      loadConvs();
+      if (active?.id) loadMessages(active.id);
+    }, 7000);
+    return () => clearInterval(t);
+  }, [active?.id, q]);
 
   return (
-    <div className="space-y-5" dir="rtl">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="h-[calc(100vh-105px)] overflow-hidden space-y-3" dir="rtl">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-black text-slate-900">صندوق واتساب Twilio</h1>
-          <p className="text-sm text-slate-500">محادثات واتساب مربوطة بمشتركي البرق Live/Cache</p>
+          <h1 className="text-xl font-black text-slate-900">صندوق واتساب Twilio</h1>
+          <p className="text-xs text-slate-500">محادثات واتساب مربوطة بمشتركي البرق Live/Cache</p>
         </div>
-        <div className="flex gap-2 rounded-2xl bg-white p-1 shadow-sm">
-          <button onClick={() => setTab('inbox')} className={`rounded-xl px-4 py-2 text-sm font-bold ${tab === 'inbox' ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>المحادثات</button>
-          <button onClick={() => setTab('settings')} className={`rounded-xl px-4 py-2 text-sm font-bold ${tab === 'settings' ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>الإعدادات</button>
+        <div className="flex gap-1 rounded-2xl bg-white p-1 shadow-sm">
+          <button onClick={() => setTab('inbox')} className={`rounded-xl px-4 py-2 text-xs font-bold ${tab === 'inbox' ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>المحادثات</button>
+          <button onClick={() => setTab('settings')} className={`rounded-xl px-4 py-2 text-xs font-bold ${tab === 'settings' ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>الإعدادات</button>
         </div>
       </div>
 
-      {err && <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{err}</div>}
+      {err && <div className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">{err}</div>}
 
       {tab === 'settings' ? (
-        <div className="rounded-3xl bg-white p-5 shadow-sm">
+        <div className="h-[calc(100vh-175px)] overflow-y-auto rounded-2xl bg-white p-5 shadow-sm">
           <div className="mb-5 flex items-center gap-2">
             <Settings className="h-5 w-5" />
-            <h2 className="text-base font-black">إعدادات Twilio WhatsApp</h2>
+            <h2 className="text-lg font-black">إعدادات Twilio WhatsApp</h2>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
             <label className="space-y-2">
-              <span className="text-sm font-bold text-slate-600">Account SID</span>
-              <input className="w-full rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300" value={settings.accountSid || ''} onChange={(e) => setSettings({ ...settings, accountSid: e.target.value })} placeholder="ACxxxxxxxxxxxxxxxx" />
+              <span className="text-xs font-bold text-slate-600">Account SID</span>
+              <input className="w-full rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300" value={settings.accountSid || ''} onChange={(e) => setSettings({ ...settings, accountSid: e.target.value })} />
             </label>
 
             <label className="space-y-2">
-              <span className="text-sm font-bold text-slate-600">Auth Token</span>
+              <span className="text-xs font-bold text-slate-600">Auth Token</span>
               <input className="w-full rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300" value={settings.authToken || ''} onChange={(e) => setSettings({ ...settings, authToken: e.target.value })} placeholder={settings.authTokenMasked || 'ضع التوكن هنا'} />
               <p className="text-xs text-slate-400">اتركه فارغ إذا ما تريد تغييره.</p>
             </label>
 
             <label className="space-y-2">
-              <span className="text-sm font-bold text-slate-600">WhatsApp From</span>
-              <input className="w-full rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300" value={settings.whatsappFrom || ''} onChange={(e) => setSettings({ ...settings, whatsappFrom: e.target.value })} placeholder="+14155238886" />
+              <span className="text-xs font-bold text-slate-600">WhatsApp From</span>
+              <input className="w-full rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300" value={settings.whatsappFrom || ''} onChange={(e) => setSettings({ ...settings, whatsappFrom: e.target.value })} />
             </label>
 
             <label className="flex items-center gap-3 rounded-2xl border p-4">
@@ -184,131 +241,119 @@ export default function WhatsappInboxPage() {
           </div>
 
           <div className="mt-5 rounded-2xl bg-slate-50 p-4">
-            <div className="text-sm font-bold text-slate-600">Webhook URL داخل Twilio</div>
+            <div className="text-xs font-bold text-slate-600">Webhook URL داخل Twilio</div>
             <code className="mt-2 block break-all rounded-xl bg-white p-3 text-left text-xs">{webhookUrl}</code>
           </div>
 
           <div className="mt-5 flex items-center gap-3">
-            <button onClick={saveSettings} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-black text-white">
+            <button onClick={saveSettings} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-xs font-black text-white">
               <Save className="h-4 w-4" /> حفظ
             </button>
-            {saveMsg && <span className="inline-flex items-center gap-1 text-sm font-bold text-green-700"><CheckCircle2 className="h-4 w-4" /> {saveMsg}</span>}
+            {saveMsg && <span className="inline-flex items-center gap-1 text-xs font-bold text-green-700"><CheckCircle2 className="h-4 w-4" /> {saveMsg}</span>}
           </div>
         </div>
       ) : (
-        <div className="grid min-h-[650px] gap-4 lg:grid-cols-[390px_1fr]">
-          <div className="rounded-3xl bg-white shadow-sm">
-            <div className="border-b p-4">
-              <div className="mb-3 flex items-center justify-between">
+        <div className="grid h-[calc(100vh-170px)] min-h-[520px] gap-3 lg:grid-cols-[330px_1fr]">
+          <aside className="flex min-h-0 flex-col overflow-hidden rounded-2xl bg-white shadow-sm">
+            <div className="shrink-0 border-b p-3">
+              <div className="mb-2 flex items-center justify-between">
                 <div className="font-black">المحادثات</div>
                 <button onClick={() => loadConvs()} className="rounded-xl p-2 hover:bg-slate-100">
                   <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                 </button>
               </div>
               <div className="relative">
-                <Search className="absolute right-3 top-3 h-4 w-4 text-slate-400" />
+                <Search className="absolute right-3 top-2.5 h-4 w-4 text-slate-400" />
                 <input
                   value={q}
                   onChange={(e) => { setQ(e.target.value); loadConvs(e.target.value); }}
-                  placeholder="بحث: اسم، رقم، يوزر، باقة..."
-                  className="w-full rounded-2xl border py-2.5 pr-10 pl-3 text-sm outline-none focus:ring-2 focus:ring-slate-300"
+                  placeholder="بحث: اسم، رقم، يوزر..."
+                  className="w-full rounded-2xl border py-2.5 pr-10 pl-3 text-xs outline-none focus:ring-2 focus:ring-slate-300"
                 />
               </div>
             </div>
 
-            <div className="max-h-[590px] overflow-auto p-2">
-              {convs.length === 0 && <div className="p-8 text-center text-sm text-slate-400">ماكو نتائج</div>}
+            <div className="min-h-0 flex-1 overflow-y-auto p-2">
+              {convs.length === 0 && <div className="p-8 text-center text-xs text-slate-400">ماكو نتائج</div>}
               {convs.map((c) => {
                 const title = c.subscriber?.name || c.name || c.phone;
                 return (
-                  <button key={c.id} onClick={() => setActive(c)} className={`mb-2 w-full rounded-2xl p-3 text-right transition ${active?.id === c.id ? 'bg-slate-900 text-white' : 'hover:bg-slate-50'}`}>
+                  <button key={c.id} onClick={() => { activeIdRef.current = c.id; setActive(c); }} className={`mb-2 w-full rounded-2xl p-3 text-right transition ${active?.id === c.id ? 'bg-slate-900 text-white' : 'hover:bg-slate-50'}`}>
                     <div className="flex items-center justify-between gap-2">
-                      <div className="line-clamp-1 font-black">{title}</div>
+                      <div className="line-clamp-1 text-sm font-black">{title}</div>
                       {c.unreadCount > 0 && <span className="rounded-full bg-green-500 px-2 py-0.5 text-xs font-black text-white">{c.unreadCount}</span>}
                     </div>
                     <div className={`mt-1 text-xs ${active?.id === c.id ? 'text-slate-200' : 'text-slate-500'}`}>
-                      {c.phone}
-                      {c.subscriber?.pppoeUsername ? ` • ${c.subscriber.pppoeUsername}` : ''}
+                      {c.phone}{c.subscriber?.pppoeUsername ? ` • ${c.subscriber.pppoeUsername}` : ''}
                     </div>
                     <div className={`mt-1 line-clamp-1 text-xs ${active?.id === c.id ? 'text-slate-300' : 'text-slate-500'}`}>{c.lastMessage || '—'}</div>
                   </button>
                 );
               })}
             </div>
-          </div>
+          </aside>
 
-          <div className="flex rounded-3xl bg-white shadow-sm">
+          <main className="flex min-h-0 flex-col overflow-hidden rounded-2xl bg-white shadow-sm">
             {!active ? (
               <div className="m-auto text-center text-slate-400">
                 <MessageCircle className="mx-auto mb-3 h-12 w-12" />
                 اختر محادثة
               </div>
             ) : (
-              <div className="flex w-full flex-col">
-                <div className="border-b p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
+              <>
+                <header className="shrink-0 border-b bg-white p-3">
+                  <div className="mb-2 flex items-center justify-between gap-3">
                     <div>
                       <div className="text-base font-black">{active.subscriber?.name || active.name || active.phone}</div>
                       <div className="text-xs text-slate-400">{active.phone}</div>
                     </div>
-                    {linkedAccounts.length ? (
-                      <div className="min-w-[220px] rounded-2xl bg-gradient-to-br from-green-50 to-emerald-50 p-3 text-sm shadow-sm">
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2 font-black text-green-900">
-                            <User className="h-4 w-4" />
-                            {linkedAccounts[0]?.name || 'مشترك'}
-                          </div>
-                          <span className="rounded-full bg-white px-2 py-1 text-xs font-black text-green-700">
-                            {linkedAccounts[0]?.source || 'auto'}
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-1 text-center">
-                          <button onClick={() => setAccountsOpen(true)} className="rounded-xl bg-white p-1.5 hover:bg-green-100">
-                            <div className="text-base font-black text-slate-900">{linkedAccounts.length}</div>
-                            <div className="text-[10px] font-bold text-slate-500">حسابات</div>
-                          </button>
-                          <div className="rounded-xl bg-white p-1.5">
-                            <div className="text-base font-black text-green-700">{activeCount}</div>
-                            <div className="text-[10px] font-bold text-slate-500">فعال</div>
-                          </div>
-                          <div className="rounded-xl bg-white p-1.5">
-                            <div className="text-base font-black text-red-600">{expiredCount}</div>
-                            <div className="text-[10px] font-bold text-slate-500">منتهي</div>
-                          </div>
-                        </div>
-
-                        <div className="mt-1.5 flex items-center justify-between rounded-xl bg-white px-2 py-1.5">
-                          <span className="text-xs font-bold text-slate-500">مجموع الديون</span>
-                          <span className={`text-sm font-black ${totalDebt > 0 ? 'text-red-600' : 'text-green-700'}`}>
-                            {totalDebt.toLocaleString('en-US')} د.ع
-                          </span>
-                        </div>
-
-                        <button onClick={() => setAccountsOpen(true)} className="mt-1.5 w-full rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-black text-white hover:bg-slate-800">
-                          عرض الحسابات المرتبطة
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-700">
-                        غير مرتبط بمشترك
-                      </div>
+                    {linkedAccounts.length === 0 && (
+                      <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">غير مرتبط بمشترك</div>
                     )}
                   </div>
-                </div>
 
-                <div className="flex-1 space-y-3 overflow-auto bg-slate-50 p-4">
+                  {linkedAccounts.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-gradient-to-l from-green-50 to-emerald-50 px-3 py-2 text-xs">
+                      <div className="flex min-w-[180px] items-center gap-2 font-black text-green-900">
+                        <User className="h-4 w-4" />
+                        <span className="line-clamp-1">{linkedAccounts[0]?.name || 'مشترك'}</span>
+                      </div>
+
+                      <button onClick={() => setAccountsOpen(true)} className="rounded-xl bg-white px-3 py-1.5 font-black text-slate-900 hover:bg-green-100">
+                        {linkedAccounts.length} حساب
+                      </button>
+
+                      <span className="rounded-xl bg-white px-3 py-1.5 font-black text-green-700">{activeCount} فعال</span>
+                      <span className="rounded-xl bg-white px-3 py-1.5 font-black text-red-600">{expiredCount} منتهي</span>
+                      <span className={`rounded-xl bg-white px-3 py-1.5 font-black ${totalDebt > 0 ? 'text-red-600' : 'text-green-700'}`}>
+                        ديون: {totalDebt.toLocaleString('en-US')} د.ع
+                      </span>
+
+                      <button onClick={() => setAccountsOpen(true)} className="mr-auto rounded-xl bg-slate-900 px-4 py-1.5 font-black text-white">
+                        عرض الحسابات
+                      </button>
+                    </div>
+                  )}
+                </header>
+
+                <div ref={messagesRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50 p-4">
                   {messages.map((m) => {
                     const out = m.direction === 'outbound';
                     return (
                       <div key={m.id} className={`flex ${out ? 'justify-start' : 'justify-end'}`}>
-                        <div className={`max-w-[75%] rounded-3xl px-4 py-3 text-sm shadow-sm ${out ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}`}>
+                        <div className={`max-w-[82%] rounded-2xl px-4 py-3 text-xs shadow-sm ${out ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}`}>
                           {m.mediaUrl && (
-                            <a href={m.mediaUrl} target="_blank" rel="noreferrer">
-                              <img src={m.mediaUrl} className="mb-2 max-h-64 rounded-2xl object-contain" />
-                            </a>
+                            m.mediaType?.startsWith('image/') ? (
+                              <a href={m.mediaUrl} target="_blank" rel="noreferrer">
+                                <img src={m.mediaUrl} className="mb-2 max-h-72 max-w-full rounded-2xl object-contain" />
+                              </a>
+                            ) : (
+                              <a href={m.mediaUrl} target="_blank" rel="noreferrer" className="mb-2 inline-flex rounded-xl bg-white/20 px-3 py-2 font-black underline">
+                                فتح الملف المرفق
+                              </a>
+                            )
                           )}
-                          {m.body && <div className="whitespace-pre-wrap">{m.body}</div>}
+                          {m.body && !(m.mediaUrl && m.body === '.') && <div className="whitespace-pre-wrap">{m.body}</div>}
                           <div className={`mt-2 text-[10px] ${out ? 'text-slate-300' : 'text-slate-400'}`}>
                             {new Date(m.createdAt).toLocaleString('ar-IQ')} • {m.status}
                           </div>
@@ -318,59 +363,73 @@ export default function WhatsappInboxPage() {
                   })}
                 </div>
 
-                <div className="border-t p-4">
-                  <div className="mb-2 flex items-center gap-2">
-                    <label className="cursor-pointer rounded-2xl bg-slate-100 px-4 py-2 text-xs font-black hover:bg-slate-200">
-                      إرفاق صورة
+                <footer className="shrink-0 border-t bg-white p-3">
+                  {fileName && (
+                    <div className="mb-2 inline-flex items-center gap-2 rounded-2xl bg-green-50 px-3 py-2 text-xs font-black text-green-700">
+                      {fileName}
+                      <button onClick={() => { setFileData(''); setFileName(''); setFileInputKey((x) => x + 1); }}><X className="h-4 w-4" /></button>
+                    </div>
+                  )}
+
+                  <div className="flex items-end gap-2">
+                    <label className="cursor-pointer rounded-2xl bg-slate-100 p-3 hover:bg-slate-200">
+                      <Paperclip className="h-4 w-4" />
                       <input
+                        key={fileInputKey}
                         type="file"
-                        accept="image/*"
+                        accept="image/*,application/pdf"
                         className="hidden"
                         onChange={(e) => {
                           const f = e.target.files?.[0];
                           if (!f) return;
                           if (f.size > 4 * 1024 * 1024) {
-                            setErr('حجم الصورة كبير، اختار أقل من 4MB');
+                            setErr('حجم الملف كبير، اختار أقل من 4MB');
                             return;
                           }
                           const r = new FileReader();
                           r.onload = () => {
-                            setImageData(String(r.result || ''));
-                            setImageName(f.name);
+                            setFileData(String(r.result || ''));
+                            setFileName(f.name);
+                            e.currentTarget.value = '';
                           };
                           r.readAsDataURL(f);
                         }}
                       />
                     </label>
-                    {imageName && (
-                      <button onClick={() => { setImageData(''); setImageName(''); }} className="rounded-2xl bg-green-50 px-3 py-2 text-xs font-black text-green-700">
-                        {imageName} ×
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <textarea value={reply} onChange={(e) => setReply(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); } }} className="min-h-[54px] flex-1 rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300" placeholder="اكتب الرد هنا..." />
-                    <button disabled={sending || (!reply.trim() && !imageData)} onClick={sendReply} className="inline-flex items-center gap-2 rounded-2xl bg-green-600 px-5 py-3 font-black text-white disabled:opacity-50">
+
+                    <textarea
+                      value={reply}
+                      onChange={(e) => setReply(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          sendReply();
+                        }
+                      }}
+                      className="max-h-28 min-h-[46px] flex-1 resize-none rounded-2xl border p-3 text-sm outline-none focus:ring-2 focus:ring-slate-300"
+                      placeholder="اكتب الرد هنا..."
+                    />
+
+                    <button disabled={sending || (!reply.trim() && !fileData)} onClick={sendReply} className="inline-flex h-[46px] items-center gap-2 rounded-2xl bg-green-600 px-5 text-sm font-black text-white disabled:opacity-50">
                       <Send className="h-4 w-4" /> إرسال
                     </button>
                   </div>
-                </div>
-              </div>
+                </footer>
+              </>
             )}
-          </div>
+          </main>
         </div>
       )}
 
-      {/* ACCOUNTS_DRAWER */}
       {accountsOpen && (
         <div className="fixed inset-0 z-[999] bg-black/30 backdrop-blur-sm" onClick={() => setAccountsOpen(false)}>
           <div className="absolute left-0 top-0 h-full w-full max-w-md overflow-auto bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()} dir="rtl">
             <div className="mb-5 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-black text-slate-900">الحسابات المرتبطة</h2>
-                <p className="text-sm text-slate-500">{active?.phone}</p>
+                <p className="text-xs text-slate-500">{active?.phone}</p>
               </div>
-              <button onClick={() => setAccountsOpen(false)} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-black">إغلاق</button>
+              <button onClick={() => setAccountsOpen(false)} className="rounded-2xl bg-slate-100 px-4 py-2 text-xs font-black">إغلاق</button>
             </div>
 
             <div className="mb-4 grid grid-cols-3 gap-2">
@@ -393,7 +452,7 @@ export default function WhatsappInboxPage() {
                 const isActive = String(sub.status || '').toLowerCase().includes('active') || String(sub.status || '').includes('فعال');
                 const debt = Number(sub.debt || 0);
                 return (
-                  <div key={sub.id} className="rounded-3xl border bg-white p-4 shadow-sm">
+                  <div key={sub.id} className="rounded-2xl border bg-white p-4 shadow-sm">
                     <div className="mb-2 flex items-start justify-between gap-2">
                       <div>
                         <div className="font-black text-slate-900">{sub.name || '—'}</div>
@@ -404,7 +463,7 @@ export default function WhatsappInboxPage() {
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="rounded-2xl bg-slate-50 p-3">
                         <div className="text-xs text-slate-400">اليوزر</div>
                         <div className="font-black">{sub.pppoeUsername || '—'}</div>
@@ -423,7 +482,7 @@ export default function WhatsappInboxPage() {
                       </div>
                     </div>
 
-                    <a href={`/subscribers/${sub.id}`} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white">
+                    <a href={`/subscribers/${sub.id}`} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-xs font-black text-white">
                       فتح الحساب <ExternalLink className="h-4 w-4" />
                     </a>
                   </div>
@@ -433,7 +492,6 @@ export default function WhatsappInboxPage() {
           </div>
         </div>
       )}
-
     </div>
   );
 }
