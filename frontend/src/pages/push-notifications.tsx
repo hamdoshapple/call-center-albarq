@@ -191,6 +191,15 @@ export default function PushNotificationsPage() {
   const [subscriberFilter, setSubscriberFilter] = useState('all');
   const [selectedTemplateKey, setSelectedTemplateKey] = useState('');
   const [jobId, setJobId] = useState('');
+  const [twilioTemplates, setTwilioTemplates] = useState<any[]>([]);
+  const [twilioTemplateForm, setTwilioTemplateForm] = useState<any>({
+    name: '',
+    contentSid: '',
+    variables: '1:name',
+  });
+  const [selectedTwilioTemplateId, setSelectedTwilioTemplateId] = useState('');
+  const [twilioVariablesText, setTwilioVariablesText] = useState('1=مشترك');
+
 
   const stats = useQuery({ queryKey: ['pushStats'], queryFn: pushNotificationsApi.stats, refetchInterval: 15000 });
   const pushLogs = useQuery({
@@ -221,6 +230,12 @@ export default function PushNotificationsPage() {
   });
 
   useEffect(() => {
+    pushNotificationsApi.twilioTemplates()
+      .then((d: any) => setTwilioTemplates(d.templates || []))
+      .catch(() => null);
+  }, []);
+
+  useEffect(() => {
     if (settingsQuery.data) {
       setSettings({
         ...defaultSettings,
@@ -242,6 +257,70 @@ export default function PushNotificationsPage() {
   const setAuto = (k: string, v: boolean) => setSettings((s: any) => ({ ...s, auto: { ...s.auto, [k]: v } }));
   const setChannel = (k: string, v: string) => setSettings((s: any) => ({ ...s, channels: { ...(s.channels || {}), [k]: v } }));
   const setTemplate = (k: string, v: string) => setSettings((s: any) => ({ ...s, templates: { ...s.templates, [k]: v } }));
+
+  function parseVarsText(text: string) {
+    const out: any = {};
+    String(text || '').split(/\n|,/).map((x) => x.trim()).filter(Boolean).forEach((line) => {
+      const i = line.indexOf('=');
+      if (i > 0) out[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+    });
+    return out;
+  }
+
+  async function saveTwilioTemplateList(next: any[]) {
+    const d = await pushNotificationsApi.saveTwilioTemplates(next);
+    setTwilioTemplates(d.templates || next);
+    toast({ title: 'تم الحفظ', description: 'تم حفظ قوالب Twilio' });
+  }
+
+  async function addTwilioTemplate() {
+    const name = String(twilioTemplateForm.name || '').trim();
+    const contentSid = String(twilioTemplateForm.contentSid || '').trim();
+    const variables = String(twilioTemplateForm.variables || '')
+      .split(/[,\n]/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+
+    if (!name || !contentSid) {
+      toast({ title: 'تنبيه', description: 'اكتب اسم القالب و Content SID' });
+      return;
+    }
+
+    const next = [
+      ...twilioTemplates,
+      { id: crypto.randomUUID(), name, contentSid, variables },
+    ];
+    await saveTwilioTemplateList(next);
+    setTwilioTemplateForm({ name: '', contentSid: '', variables: '1:name' });
+  }
+
+  async function removeTwilioTemplate(id: string) {
+    await saveTwilioTemplateList(twilioTemplates.filter((x) => x.id !== id));
+  }
+
+  async function sendSelectedTwilioTemplate() {
+    const tpl = twilioTemplates.find((x) => x.id === selectedTwilioTemplateId);
+    if (!tpl) {
+      toast({ title: 'تنبيه', description: 'اختر قالب Twilio أولاً' });
+      return;
+    }
+
+    const d = await pushNotificationsApi.sendTwilioTemplate({
+      targetType: form.targetType,
+      targetValue: form.targetValue,
+      contentSid: tpl.contentSid,
+      variables: parseVarsText(twilioVariablesText),
+    });
+
+    toast({
+      title: 'تم تنفيذ الإرسال',
+      description: `الأهداف: ${d.targets} / نجح: ${d.sent} / فشل: ${d.failed}`,
+    });
+
+    qc.invalidateQueries({ queryKey: ['pushLogs'] });
+    qc.invalidateQueries({ queryKey: ['pushStats'] });
+  }
+
 
   const filteredSubscribers = useMemo(() => {
     const list = pushSubscribers.data || [];
@@ -397,6 +476,7 @@ export default function PushNotificationsPage() {
           <TabsTrigger value="expiry" className="rounded-xl">الانتهاء</TabsTrigger>
           <TabsTrigger value="debt" className="rounded-xl">الديون</TabsTrigger>
           <TabsTrigger value="campaignManager" className="rounded-xl">إدارة الحملات</TabsTrigger>
+          <TabsTrigger value="twilio">قوالب Twilio</TabsTrigger>
           <TabsTrigger value="logs" className="rounded-xl">السجل</TabsTrigger>
         </TabsList>
 
@@ -974,7 +1054,126 @@ export default function PushNotificationsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="logs">
+        
+        <TabsContent value="twilio" className="space-y-4">
+          <Card className="shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MessageCircle className="h-5 w-5" />
+                قوالب Twilio WhatsApp
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>اسم القالب</Label>
+                  <Input
+                    value={twilioTemplateForm.name}
+                    onChange={(e) => setTwilioTemplateForm((x: any) => ({ ...x, name: e.target.value }))}
+                    placeholder="مثلاً: تنبيه انتهاء"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Content SID</Label>
+                  <Input
+                    value={twilioTemplateForm.contentSid}
+                    onChange={(e) => setTwilioTemplateForm((x: any) => ({ ...x, contentSid: e.target.value }))}
+                    placeholder="HXxxxxxxxxxxxxxxxx"
+                    dir="ltr"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>المتغيرات الافتراضية</Label>
+                  <Input
+                    value={twilioTemplateForm.variables}
+                    onChange={(e) => setTwilioTemplateForm((x: any) => ({ ...x, variables: e.target.value }))}
+                    placeholder="1:name,2:amount"
+                    dir="ltr"
+                  />
+                </div>
+              </div>
+
+              <Button onClick={addTwilioTemplate} className="rounded-xl">
+                إضافة القالب
+              </Button>
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {twilioTemplates.map((tpl) => (
+                  <Card key={tpl.id} className="border-slate-200">
+                    <CardContent className="space-y-3 p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="font-black">{tpl.name}</div>
+                          <div className="mt-1 font-mono text-xs text-muted-foreground">{tpl.contentSid}</div>
+                        </div>
+                        <Button variant="ghost" size="sm" onClick={() => removeTwilioTemplate(tpl.id)}>
+                          حذف
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {(tpl.variables || []).map((v: string) => (
+                          <Badge key={v} variant="secondary">{v}</Badge>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-sm">
+            <CardHeader>
+              <CardTitle>إرسال قالب Twilio</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 lg:grid-cols-2">
+              <div className="space-y-2">
+                <Label>القالب</Label>
+                <Select value={selectedTwilioTemplateId} onValueChange={setSelectedTwilioTemplateId}>
+                  <SelectTrigger className="rounded-xl">
+                    <SelectValue placeholder="اختر قالب" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {twilioTemplates.map((tpl) => (
+                      <SelectItem key={tpl.id} value={tpl.id}>{tpl.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>الاستهداف</Label>
+                <div className="text-sm text-muted-foreground">
+                  يستخدم نفس الاستهداف الحالي من أعلى الصفحة:
+                  <b className="mx-1">{form.targetType}</b>
+                  {form.targetValue ? <span> / {form.targetValue}</span> : null}
+                </div>
+              </div>
+
+              <div className="space-y-2 lg:col-span-2">
+                <Label>Content Variables</Label>
+                <Textarea
+                  value={twilioVariablesText}
+                  onChange={(e) => setTwilioVariablesText(e.target.value)}
+                  className="min-h-[110px] font-mono"
+                  dir="ltr"
+                  placeholder={'1=أحمد\n2=15000\n3=2026-06-30'}
+                />
+                <p className="text-xs text-muted-foreground">
+                  اكتب كل متغير بسطر: 1=القيمة، 2=القيمة. لازم يطابق متغيرات القالب المعتمد داخل Twilio.
+                </p>
+              </div>
+
+              <div className="lg:col-span-2">
+                <Button onClick={sendSelectedTwilioTemplate} className="rounded-xl bg-emerald-600 hover:bg-emerald-700">
+                  إرسال قالب Twilio
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+<TabsContent value="logs">
           <div className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               <StatCard title="إجمالي السجل" value={money(summary.total)} icon={History} />

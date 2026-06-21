@@ -261,6 +261,11 @@ router.get('/push/logs', h(push.logs));
 router.get('/push/settings', h(push.getSettings));
 router.put('/push/settings', h(push.saveSettings));
 router.post('/push/send', h(push.send));
+
+router.get('/push/twilio-templates', h(push.twilioTemplates));
+router.put('/push/twilio-templates', h(push.saveTwilioTemplates));
+router.post('/push/send-twilio-template', h(push.sendTwilioTemplate));
+
 router.get('/push/campaign-jobs', h(push.campaignJobs));
 router.get('/push/campaign-jobs/:id', h(push.campaignJob));
 router.post('/push/campaign-jobs/:id/cancel', h(push.cancelCampaignJob));

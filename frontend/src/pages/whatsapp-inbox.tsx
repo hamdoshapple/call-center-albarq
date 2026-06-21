@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   RefreshCw,
-  Send,
   Settings,
   Save,
-  MessageCircle,
   CheckCircle2,
   Search,
-  User,
   ExternalLink,
+  Clock3,
   Paperclip,
   X,
 } from 'lucide-react';
@@ -34,6 +32,9 @@ type Conv = {
   unreadCount: number;
   subscriber?: SubscriberLite | null;
   subscribers?: SubscriberLite[];
+  conversationOpen?: boolean;
+  windowExpiresAt?: string | null;
+  conversationWindowHours?: number;
 };
 
 type Msg = {
@@ -79,6 +80,16 @@ export default function WhatsappInboxPage() {
   ).length;
   const expiredCount = linkedAccounts.length ? linkedAccounts.length - activeCount : 0;
   const webhookUrl = useMemo(() => settings?.webhookUrl || '', [settings]);
+
+  const windowRemainingText = useMemo(() => {
+    if (!active?.windowExpiresAt) return 'بانتظار أول رسالة';
+    const diff = new Date(active.windowExpiresAt).getTime() - Date.now();
+    if (diff <= 0) return 'مغلقة';
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    return `${h}س ${m}د متبقية`;
+  }, [active?.windowExpiresAt]);
+
 
   async function loadConvs(search = q) {
     setErr('');
@@ -157,7 +168,7 @@ export default function WhatsappInboxPage() {
       await loadConvs();
       setTimeout(() => messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight }), 80);
     } catch {
-      setErr('فشل الإرسال. تأكد من إعدادات Twilio ونافذة واتساب.');
+      setErr('فشل الإرسال. إذا كانت نافذة المحادثة مغلقة، يجب أن يرسل المشترك رسالة جديدة أولاً.');
     } finally {
       setSending(false);
     }
@@ -236,6 +247,19 @@ export default function WhatsappInboxPage() {
               <input className="w-full rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300" value={settings.whatsappFrom || ''} onChange={(e) => setSettings({ ...settings, whatsappFrom: e.target.value })} />
             </label>
 
+            <label className="space-y-2">
+              <span className="text-xs font-bold text-slate-600">مدة نافذة المحادثة / ساعة</span>
+              <input
+                type="number"
+                min={1}
+                max={720}
+                className="w-full rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300"
+                value={settings.conversationWindowHours || 24}
+                onChange={(e) => setSettings({ ...settings, conversationWindowHours: Number(e.target.value || 24) })}
+              />
+              <p className="text-xs text-slate-400">الافتراضي 24 ساعة من آخر رسالة يرسلها المشترك.</p>
+            </label>
+
             <label className="flex items-center gap-3 rounded-2xl border p-4">
               <input type="checkbox" checked={!!settings.enabled} onChange={(e) => setSettings({ ...settings, enabled: e.target.checked })} />
               <span className="font-bold">تفعيل الإرسال عبر Twilio</span>
@@ -298,7 +322,7 @@ export default function WhatsappInboxPage() {
           <main className="flex min-h-0 flex-col overflow-hidden rounded-2xl bg-white shadow-sm">
             {!active ? (
               <div className="m-auto text-center text-slate-400">
-                <MessageCircle className="mx-auto mb-3 h-12 w-12" />
+                <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-3xl bg-slate-100 text-2xl font-black">WA</div>
                 اختر محادثة
               </div>
             ) : (
@@ -309,6 +333,11 @@ export default function WhatsappInboxPage() {
                       <div className="text-base font-black">{active.subscriber?.name || active.name || active.phone}</div>
                       <div className="text-xs text-slate-400">{active.phone}</div>
                     </div>
+
+                    <div className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-black ${active.conversationOpen ? 'bg-slate-100 text-slate-700' : 'bg-red-50 text-red-700'}`}>
+                      <Clock3 className="h-3.5 w-3.5" />
+                      {active.conversationOpen ? `نافذة مفتوحة • ${windowRemainingText}` : 'انتهت نافذة المراسلة'}
+                    </div>
                     {linkedAccounts.length === 0 && (
                       <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">غير مرتبط بمشترك</div>
                     )}
@@ -317,7 +346,7 @@ export default function WhatsappInboxPage() {
                   {linkedAccounts.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-gradient-to-l from-green-50 to-emerald-50 px-3 py-2 text-xs">
                       <div className="flex min-w-[180px] items-center gap-2 font-black text-green-900">
-                        <User className="h-4 w-4" />
+                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-green-600 text-[10px] font-black text-white">م</span>
                         <span className="line-clamp-1">{linkedAccounts[0]?.name || 'مشترك'}</span>
                       </div>
 
@@ -379,8 +408,8 @@ export default function WhatsappInboxPage() {
                   )}
 
                   <div className="flex items-end gap-2">
-                    <label className="cursor-pointer rounded-2xl bg-slate-100 p-3 hover:bg-slate-200">
-                      <Paperclip className="h-4 w-4" />
+                    <label className="inline-flex h-[46px] min-w-[46px] cursor-pointer items-center justify-center rounded-2xl bg-slate-100 hover:bg-slate-200">
+                      <Paperclip className="h-4 w-4 text-slate-600" />
                       <input
                         key={fileInputKey}
                         type="file"
@@ -414,11 +443,11 @@ export default function WhatsappInboxPage() {
                         }
                       }}
                       className="max-h-28 min-h-[46px] flex-1 resize-none rounded-2xl border p-3 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-                      placeholder="اكتب الرد هنا..."
+                      placeholder={active.conversationOpen ? "اكتب الرد هنا..." : "انتهت نافذة المحادثة، يجب أن يرسل المشترك رسالة جديدة أولاً"}
                     />
 
-                    <button disabled={sending || (!reply.trim() && !fileData)} onClick={sendReply} className="inline-flex h-[46px] items-center gap-2 rounded-2xl bg-green-600 px-5 text-sm font-black text-white disabled:opacity-50">
-                      <Send className="h-4 w-4" /> إرسال
+                    <button disabled={sending || !active.conversationOpen || (!reply.trim() && !fileData)} onClick={sendReply} className="inline-flex h-[46px] items-center rounded-2xl bg-green-600 px-6 text-sm font-black text-white disabled:opacity-50">
+                      إرسال
                     </button>
                   </div>
                 </footer>

@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import webpush from 'web-push';
+import Twilio from 'twilio';
 import { prisma } from '../config/prisma.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { searchExternalSubscribers, listExternalSubscribersForCache, listTodayExternalFinanceEvents } from '../services/external-subscriber.service.js';
@@ -1616,4 +1617,123 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
   });
 
   res.json(rows);
+});
+
+
+function asTwilioWhatsapp(v: any) {
+  let n = String(v || '').replace(/^whatsapp:/, '').replace(/\D/g, '');
+  if (n.startsWith('00')) n = n.slice(2);
+  if (n.startsWith('0')) n = '964' + n.slice(1);
+  if (!n.startsWith('964') && n.length <= 10) n = '964' + n;
+  return `whatsapp:+${n}`;
+}
+
+async function getTwilioSettingForPush() {
+  const row = await prisma.twilioWhatsappSetting.findFirst({ orderBy: { updatedAt: 'desc' } }).catch(() => null);
+  if (!row?.enabled || !row.accountSid || !row.authToken || !row.whatsappFrom) {
+    throw new Error('TWILIO_NOT_CONFIGURED');
+  }
+  return row;
+}
+
+async function getStoredTwilioTemplates() {
+  const row = await prisma.setting.findUnique({ where: { key: 'push_twilio_templates' } }).catch(() => null);
+  const list = Array.isArray((row?.value as any)?.templates) ? (row?.value as any).templates : [];
+  return list;
+}
+
+export const twilioTemplates = asyncHandler(async (_req: Request, res: Response) => {
+  const templates = await getStoredTwilioTemplates();
+  res.json({ templates });
+});
+
+export const saveTwilioTemplates = asyncHandler(async (req: Request, res: Response) => {
+  const templates = Array.isArray(req.body?.templates) ? req.body.templates : [];
+
+  const clean = templates.map((x: any) => ({
+    id: String(x.id || crypto.randomUUID()),
+    name: String(x.name || '').trim(),
+    contentSid: String(x.contentSid || '').trim(),
+    variables: Array.isArray(x.variables) ? x.variables.map((v: any) => String(v || '').trim()).filter(Boolean) : [],
+  })).filter((x: any) => x.name && x.contentSid);
+
+  await prisma.setting.upsert({
+    where: { key: 'push_twilio_templates' },
+    create: { key: 'push_twilio_templates', value: { templates: clean } as any },
+    update: { value: { templates: clean } as any },
+  });
+
+  res.json({ ok: true, templates: clean });
+});
+
+export const sendTwilioTemplate = asyncHandler(async (req: Request, res: Response) => {
+  const targetType = String(req.body?.targetType || 'phone');
+  const targetValue = String(req.body?.targetValue || '');
+  const contentSid = String(req.body?.contentSid || '').trim();
+  const variables = req.body?.variables && typeof req.body.variables === 'object' ? req.body.variables : {};
+
+  if (!contentSid) return res.status(400).json({ error: 'CONTENT_SID_REQUIRED' });
+
+  const phones = await getWhatsappPhones(targetType, targetValue);
+  const cleanPhones = Array.from(new Set((phones || []).map(norm).filter(Boolean)));
+
+  if (!cleanPhones.length) return res.json({ targets: 0, sent: 0, failed: 0 });
+
+  const setting = await getTwilioSettingForPush();
+  const client = Twilio(setting.accountSid!, setting.authToken!);
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const phone of cleanPhones) {
+    try {
+      const msg = await client.messages.create({
+        from: asTwilioWhatsapp(setting.whatsappFrom),
+        to: asTwilioWhatsapp(phone),
+        contentSid,
+        contentVariables: JSON.stringify(variables || {}),
+      } as any);
+
+      sent++;
+
+      await prisma.pushNotificationLog.create({
+        data: {
+          phone,
+          title: 'Twilio Template',
+          message: `contentSid=${contentSid}`,
+          targetType: `twilio_template:${targetType}`,
+          status: msg.status || 'queued',
+          error: null,
+        } as any,
+      }).catch(() => null);
+    } catch (e: any) {
+      failed++;
+
+      await prisma.pushNotificationLog.create({
+        data: {
+          phone,
+          title: 'Twilio Template',
+          message: `contentSid=${contentSid}`,
+          targetType: `twilio_template:${targetType}`,
+          status: 'failed',
+          error: e?.message || String(e),
+        } as any,
+      }).catch(() => null);
+    }
+  }
+
+  await prisma.pushCampaign.create({
+    data: {
+      id: cuid(),
+      title: 'Twilio Template',
+      message: contentSid,
+      targetType: `twilio_template:${targetType}`,
+      targetValue,
+      sentCount: sent,
+      failedCount: failed,
+      createdById: adminUserId(req),
+    } as any,
+  }).catch(() => null);
+
+  res.json({ targets: cleanPhones.length, sent, failed });
 });

@@ -789,6 +789,7 @@ model TwilioWhatsappSetting {
   authToken      String?  @db.Text
   whatsappFrom   String?
   enabled        Boolean  @default(false)
+  conversationWindowHours Int @default(24)
   lastError      String?  @db.Text
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -800,6 +801,7 @@ model TwilioWhatsappContact {
   name        String?
   lastMessage String?  @db.Text
   lastAt      DateTime?
+  lastInboundAt DateTime?
   unreadCount Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

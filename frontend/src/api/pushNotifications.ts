@@ -49,4 +49,13 @@ export const pushNotificationsApi = {
     method: 'POST',
     body: JSON.stringify({}),
   }),
+  twilioTemplates: () => request('/push/twilio-templates'),
+  saveTwilioTemplates: (templates: any[]) => request('/push/twilio-templates', {
+    method: 'PUT',
+    body: JSON.stringify({ templates }),
+  }),
+  sendTwilioTemplate: (data: any) => request('/push/send-twilio-template', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
 };

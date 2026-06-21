@@ -171,11 +171,13 @@ async function upsertContact(phone: string, lastMessage?: string, unreadInc = 0)
       phone,
       lastMessage: lastMessage || '',
       lastAt: new Date(),
+      lastInboundAt: unreadInc > 0 ? new Date() : undefined,
       unreadCount: unreadInc,
     },
     update: {
       lastMessage: lastMessage || undefined,
       lastAt: new Date(),
+      lastInboundAt: unreadInc > 0 ? new Date() : undefined,
       unreadCount: { increment: unreadInc },
     },
   });
@@ -188,6 +190,7 @@ export async function getSettings(req: Request, res: Response) {
     accountSid: row.accountSid || '',
     authTokenMasked: maskToken(row.authToken),
     whatsappFrom: row.whatsappFrom || '',
+    conversationWindowHours: row.conversationWindowHours || 24,
     webhookUrl: `${req.protocol}://${req.get('host')}/api/whatsapp-twilio/webhook`,
     lastError: row.lastError || '',
   });
@@ -195,7 +198,7 @@ export async function getSettings(req: Request, res: Response) {
 
 export async function saveSettings(req: Request, res: Response) {
   const current = await getSettingRow();
-  const { accountSid, authToken, whatsappFrom, enabled } = req.body || {};
+  const { accountSid, authToken, whatsappFrom, enabled, conversationWindowHours } = req.body || {};
 
   const row = await prisma.twilioWhatsappSetting.update({
     where: { id: current.id },
@@ -204,6 +207,7 @@ export async function saveSettings(req: Request, res: Response) {
       authToken: typeof authToken === 'string' && authToken.trim() ? authToken.trim() : current.authToken,
       whatsappFrom: typeof whatsappFrom === 'string' ? cleanWhatsappPhone(whatsappFrom) : current.whatsappFrom,
       enabled: Boolean(enabled),
+      conversationWindowHours: Math.max(1, Math.min(720, Number(conversationWindowHours || current.conversationWindowHours || 24))),
       lastError: null,
     },
   });
@@ -213,6 +217,7 @@ export async function saveSettings(req: Request, res: Response) {
     accountSid: row.accountSid || '',
     authTokenMasked: maskToken(row.authToken),
     whatsappFrom: row.whatsappFrom || '',
+    conversationWindowHours: row.conversationWindowHours || 24,
   });
 }
 
@@ -233,7 +238,11 @@ export async function conversations(req: Request, res: Response) {
         data: { name: subscriber.name },
       }).catch(() => null);
     }
-    return { ...row, subscriber, subscribers };
+    const hours = Number((await getSettingRow()).conversationWindowHours || 24);
+    const lastInboundAt = row.lastInboundAt ? new Date(row.lastInboundAt).getTime() : 0;
+    const windowExpiresAt = lastInboundAt ? new Date(lastInboundAt + hours * 60 * 60 * 1000) : null;
+    const conversationOpen = !!windowExpiresAt && windowExpiresAt.getTime() > Date.now();
+    return { ...row, subscriber, subscribers, conversationOpen, windowExpiresAt, conversationWindowHours: hours };
   }));
 
   const filtered = q
@@ -292,6 +301,20 @@ export async function reply(req: Request, res: Response) {
 
   const contact = await prisma.twilioWhatsappContact.findUnique({ where: { id: contactId } });
   if (!contact) return res.status(404).json({ message: 'CONTACT_NOT_FOUND' });
+
+  const windowHours = Number(setting.conversationWindowHours || 24);
+  const lastInboundAt = contact.lastInboundAt ? new Date(contact.lastInboundAt).getTime() : 0;
+  const windowExpiresAt = lastInboundAt + windowHours * 60 * 60 * 1000;
+  if (!lastInboundAt || windowExpiresAt <= Date.now()) {
+    return res.status(403).json({
+      message: 'CONVERSATION_WINDOW_CLOSED',
+      lastInboundAt: contact.lastInboundAt,
+      windowHours,
+    });
+  }
+
+  // contact already loaded
+
 
   const client = Twilio(setting.accountSid, setting.authToken);
   const mediaUrl = savedMedia ? `${publicBase(req)}/api/whatsapp-twilio/media/${savedMedia.name}` : null;
