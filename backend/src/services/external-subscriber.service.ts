@@ -180,15 +180,34 @@ export async function getExternalSubscriberById(id: string): Promise<ExternalSub
           c.cost_note,
           c.cost_dateFrom,
           c.cost_dateTo,
+          lastSand.Sand_cardtype,
+          lastSand.Sand_datefrom AS last_activation,
+          lastSand.Sand_dateto AS last_expiration,
           ISNULL(SUM(ISNULL(s.Sand_money,0) - ISNULL(s.Sand_moneyin,0)),0) AS debt
         FROM dbo.costumer c
+
+        OUTER APPLY (
+          SELECT TOP 1
+            Sand_cardtype,
+            Sand_datefrom,
+            Sand_dateto
+          FROM dbo.Sand
+          WHERE Sand_cosFk = c.cost_id
+            AND ISNULL(Sand_isdel,0)=0
+            AND Sand_dateto IS NOT NULL
+          ORDER BY Sand_dateto DESC, Sand_id DESC
+        ) lastSand
+
         LEFT JOIN dbo.Sand s
           ON s.Sand_cosFk = c.cost_id
          AND ISNULL(s.Sand_isdel,0)=0
         WHERE c.cost_id = @id
         GROUP BY
           c.cost_id,c.cost_name,c.cost_phone,c.cost_user,c.cost_state,
-          c.cost_address,c.cost_note,c.cost_dateFrom,c.cost_dateTo
+          c.cost_address,c.cost_note,c.cost_dateFrom,c.cost_dateTo,
+          lastSand.Sand_cardtype,
+          lastSand.Sand_datefrom,
+          lastSand.Sand_dateto
       `);
 
     return result.recordset[0] ? mapRow(result.recordset[0]) : null;
@@ -216,15 +235,34 @@ export async function listExternalSubscribersForCache(limit = 50000): Promise<Ex
           c.cost_note,
           c.cost_dateFrom,
           c.cost_dateTo,
+          lastSand.Sand_cardtype,
+          lastSand.Sand_datefrom AS last_activation,
+          lastSand.Sand_dateto AS last_expiration,
           ISNULL(SUM(ISNULL(s.Sand_money,0) - ISNULL(s.Sand_moneyin,0)),0) AS debt
         FROM dbo.costumer c
+
+        OUTER APPLY (
+            SELECT TOP 1
+                Sand_cardtype,
+                Sand_datefrom,
+                Sand_dateto
+            FROM dbo.Sand
+            WHERE Sand_cosFk = c.cost_id
+              AND ISNULL(Sand_isdel,0)=0
+              AND Sand_dateto IS NOT NULL
+            ORDER BY Sand_dateto DESC, Sand_id DESC
+        ) lastSand
+
         LEFT JOIN dbo.Sand s
           ON s.Sand_cosFk = c.cost_id
          AND ISNULL(s.Sand_isdel,0)=0
         WHERE ISNULL(c.cost_isdel,0)=0
         GROUP BY
           c.cost_id,c.cost_name,c.cost_phone,c.cost_user,c.cost_state,
-          c.cost_address,c.cost_note,c.cost_dateFrom,c.cost_dateTo
+          c.cost_address,c.cost_note,c.cost_dateFrom,c.cost_dateTo,
+          lastSand.Sand_cardtype,
+          lastSand.Sand_datefrom,
+          lastSand.Sand_dateto
         ORDER BY c.cost_id DESC
       `);
 
@@ -340,7 +378,7 @@ export type ExternalPaymentRow = {
   moneyOut: number;
 };
 
-export async function getExternalSubscriberPayments(id: string, limit = 30): Promise<ExternalPaymentRow[]> {
+export async function getExternalSubscriberPayments(id: string, limit = 200): Promise<ExternalPaymentRow[]> {
   if (!enabled || !id.startsWith('ext-')) return [];
 
   const costId = Number(id.replace('ext-', ''));
@@ -369,7 +407,7 @@ export async function getExternalSubscriberPayments(id: string, limit = 30): Pro
         FROM dbo.Sand
         WHERE Sand_cosFk = @id
           AND ISNULL(Sand_isdel,0)=0
-        ORDER BY Sand_date DESC, Sand_id DESC
+        ORDER BY Sand_id DESC
       `);
 
     return result.recordset.map((r: any) => {

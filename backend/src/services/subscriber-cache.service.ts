@@ -69,7 +69,7 @@ export async function refreshExternalSubscriberCache(limit = 50000) {
   let paymentsCached = 0;
   for (const s of rows) {
     try {
-      paymentsCached += await cacheSubscriberPayments(s.id, 50);
+      paymentsCached += await cacheSubscriberPayments(s.id, 200);
     } catch {}
   }
 
@@ -130,7 +130,7 @@ export async function updateCacheSetting(_data: any) {
 }
 
 
-export async function cacheSubscriberPayments(externalId: string, limit = 50) {
+export async function cacheSubscriberPayments(externalId: string, limit = 200) {
   const rows = await getExternalSubscriberPayments(externalId, limit);
 
   for (const r of rows) {
@@ -175,7 +175,7 @@ export async function cacheSubscriberPayments(externalId: string, limit = 50) {
   return rows.length;
 }
 
-export async function getCachedSubscriberPayments(externalId: string, limit = 50) {
+export async function getCachedSubscriberPayments(externalId: string, limit = 200) {
   const rows = await prisma.externalSubscriberPaymentCache.findMany({
     where: { externalId },
     orderBy: [{ date: 'desc' }, { sandId: 'desc' }],
