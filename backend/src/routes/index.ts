@@ -54,6 +54,7 @@ router.get('/subscriber-app/public-banners', h(subscriberApp.listBanners));
 
 // ---------- Twilio WhatsApp Webhook Public ----------
 router.post('/whatsapp-twilio/webhook', express.urlencoded({ extended: false }), h(whatsappTwilio.webhook));
+router.get('/whatsapp-twilio/media/:file', h(whatsappTwilio.mediaFile));
 
 // All routes below require authentication.
 router.use(authenticate);

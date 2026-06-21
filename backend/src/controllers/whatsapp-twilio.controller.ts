@@ -1,8 +1,81 @@
 import type { Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
+import { randomUUID } from 'crypto';
 import Twilio from 'twilio';
 import { prisma } from '../config/prisma.js';
 import { searchExternalSubscribers } from '../services/external-subscriber.service.js';
 import { searchSubscriberCache, upsertExternalSubscriberCache } from '../services/subscriber-cache.service.js';
+
+
+function publicBase(req: Request) {
+  const host = req.get('host');
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0];
+  return `${proto === 'http' ? 'https' : proto}://${host}`;
+}
+
+function ensureMediaDir() {
+  const dir = '/app/uploads/whatsapp-twilio';
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+
+async function downloadTwilioMedia(req: Request, url: string, mime: string) {
+  if (!url) return null;
+  const setting = await getSettingRow();
+  if (!setting.accountSid || !setting.authToken) return url;
+
+  const ext =
+    mime.includes('png') ? 'png' :
+    mime.includes('webp') ? 'webp' :
+    mime.includes('gif') ? 'gif' :
+    mime.includes('jpeg') || mime.includes('jpg') ? 'jpg' : 'bin';
+
+  const name = `${Date.now()}-${randomUUID()}.${ext}`;
+  const full = path.join(ensureMediaDir(), name);
+  const auth = Buffer.from(`${setting.accountSid}:${setting.authToken}`).toString('base64');
+
+  const r = await fetch(url, {
+    headers: { Authorization: `Basic ${auth}` },
+  });
+
+  if (!r.ok) return url;
+
+  const ab = await r.arrayBuffer();
+  fs.writeFileSync(full, Buffer.from(ab));
+  return `${publicBase(req)}/api/whatsapp-twilio/media/${name}`;
+}
+
+function saveBase64Media(dataUrl: string) {
+  const m = String(dataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!m) return null;
+
+  const buf = Buffer.from(m[2], 'base64');
+
+  let mime = m[1];
+  let ext = 'jpg';
+
+  // Detect real file signature, not browser-provided mime
+  if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    mime = 'image/jpeg';
+    ext = 'jpg';
+  } else if (buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    mime = 'image/png';
+    ext = 'png';
+  } else if (buf.length > 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') {
+    mime = 'image/webp';
+    ext = 'webp';
+  } else if (buf.length > 6 && buf.toString('ascii', 0, 3) === 'GIF') {
+    mime = 'image/gif';
+    ext = 'gif';
+  }
+
+  const name = `${Date.now()}-${randomUUID()}.${ext}`;
+  const dir = ensureMediaDir();
+  fs.writeFileSync(path.join(dir, name), buf);
+  return { name, mime };
+}
 
 function cleanWhatsappPhone(v: any) {
   return String(v || '').replace(/^whatsapp:/, '').trim();
@@ -16,7 +89,7 @@ function normPhone(v: any) {
   return s;
 }
 
-async function findSubscriberForPhone(phone: string) {
+async function findSubscribersForPhone(phone: string) {
   const n = normPhone(phone);
   const variants = Array.from(new Set([
     n,
@@ -24,57 +97,53 @@ async function findSubscriberForPhone(phone: string) {
     n.startsWith('964') ? '+' + n : n,
   ].filter(Boolean)));
 
-  for (const q of variants) {
-    if (process.env.EXTERNAL_MSSQL_ENABLED === 'true') {
-      const live = await searchExternalSubscribers(q).catch(() => []);
-      if (live.length) {
-        await upsertExternalSubscriberCache(live).catch(() => null);
-        const x: any = live[0];
-        return {
-          id: String(x.id),
-          name: x.name || x.fullName || '',
-          phone: x.phone || '',
-          pppoeUsername: x.pppoeUsername || '',
-          package: x.package || x.packageName || '',
-          status: x.status || '',
-          source: 'live',
-        };
-      }
-    }
+  const map = new Map<string, any>();
 
-    const cached = await searchSubscriberCache(q).catch(() => []);
-    if (cached.length) {
-      const x: any = cached[0];
-      return {
-        id: String(x.id),
+  function addRows(rows: any[], source: string) {
+    for (const x of rows || []) {
+      const id = String(x.id || '');
+      if (!id || map.has(id)) continue;
+      map.set(id, {
+        id,
         name: x.name || x.fullName || '',
         phone: x.phone || '',
         pppoeUsername: x.pppoeUsername || '',
         package: x.package || x.packageName || '',
         status: x.status || '',
-        source: x.cache?.source || 'cache',
-      };
-    }
-
-    const local = await prisma.subscriber.findFirst({
-      where: { OR: [{ phone: { contains: q } }, { pppoeUsername: { contains: q } }, { name: { contains: q } }] },
-      orderBy: { createdAt: 'desc' },
-    }).catch(() => null);
-
-    if (local) {
-      return {
-        id: String(local.id),
-        name: local.name,
-        phone: local.phone,
-        pppoeUsername: local.pppoeUsername || '',
-        package: local.package || '',
-        status: local.status || '',
-        source: 'local',
-      };
+        debt: Number(x.debt || 0),
+        expiration: x.expiration || null,
+        source,
+      });
     }
   }
 
-  return null;
+  if (process.env.EXTERNAL_MSSQL_ENABLED === 'true') {
+    for (const q of variants) {
+      const live = await searchExternalSubscribers(q).catch(() => []);
+      if (live.length) {
+        await upsertExternalSubscriberCache(live).catch(() => null);
+        addRows(live, 'live');
+      }
+    }
+    if (map.size) return Array.from(map.values());
+  }
+
+  for (const q of variants) {
+    const cached = await searchSubscriberCache(q).catch(() => []);
+    addRows(cached, 'cache');
+  }
+  if (map.size) return Array.from(map.values());
+
+  for (const q of variants) {
+    const local = await prisma.subscriber.findMany({
+      where: { OR: [{ phone: { contains: q } }, { pppoeUsername: { contains: q } }, { name: { contains: q } }] },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    }).catch(() => []);
+    addRows(local, 'local');
+  }
+
+  return Array.from(map.values());
 }
 
 function asWhatsapp(v: string) {
@@ -156,14 +225,15 @@ export async function conversations(req: Request, res: Response) {
   });
 
   const enriched = await Promise.all(rows.map(async (row) => {
-    const subscriber = await findSubscriberForPhone(row.phone);
+    const subscribers = await findSubscribersForPhone(row.phone);
+    const subscriber = subscribers[0] || null;
     if (subscriber?.name && row.name !== subscriber.name) {
       await prisma.twilioWhatsappContact.update({
         where: { id: row.id },
         data: { name: subscriber.name },
       }).catch(() => null);
     }
-    return { ...row, subscriber };
+    return { ...row, subscriber, subscribers };
   }));
 
   const filtered = q
@@ -207,7 +277,9 @@ export async function markRead(req: Request, res: Response) {
 export async function reply(req: Request, res: Response) {
   const contactId = String(req.params.id);
   const body = String(req.body?.body || '').trim();
-  if (!body) return res.status(400).json({ message: 'EMPTY_MESSAGE' });
+  const imageData = String(req.body?.imageData || '');
+  const savedMedia = imageData ? saveBase64Media(imageData) : null;
+  if (!body && !savedMedia) return res.status(400).json({ message: 'EMPTY_MESSAGE' });
 
   const setting = await getSettingRow();
   if (!setting.enabled || !setting.accountSid || !setting.authToken || !setting.whatsappFrom) {
@@ -218,10 +290,13 @@ export async function reply(req: Request, res: Response) {
   if (!contact) return res.status(404).json({ message: 'CONTACT_NOT_FOUND' });
 
   const client = Twilio(setting.accountSid, setting.authToken);
+  const mediaUrl = savedMedia ? `${publicBase(req)}/api/whatsapp-twilio/media/${savedMedia.name}` : null;
+
   const sent = await client.messages.create({
     from: asWhatsapp(setting.whatsappFrom),
     to: asWhatsapp(contact.phone),
-    body,
+    body: body || undefined,
+    mediaUrl: mediaUrl ? [mediaUrl] : undefined,
   });
 
   const msg = await prisma.twilioWhatsappMessage.create({
@@ -229,6 +304,8 @@ export async function reply(req: Request, res: Response) {
       contactId,
       direction: 'outbound',
       body,
+      mediaUrl,
+      mediaType: savedMedia?.mime || null,
       status: sent.status || 'sent',
       twilioSid: sent.sid,
       fromNumber: cleanWhatsappPhone(setting.whatsappFrom),
@@ -249,6 +326,9 @@ export async function webhook(req: Request, res: Response) {
   const to = cleanWhatsappPhone(req.body?.To);
   const body = String(req.body?.Body || '');
   const sid = String(req.body?.MessageSid || req.body?.SmsMessageSid || '');
+  const rawMediaUrl = String(req.body?.MediaUrl0 || '');
+  const mediaType = String(req.body?.MediaContentType0 || '');
+  const mediaUrl = rawMediaUrl ? await downloadTwilioMedia(req, rawMediaUrl, mediaType) : '';
 
   if (!from) return res.status(200).send('OK');
 
@@ -262,6 +342,8 @@ export async function webhook(req: Request, res: Response) {
           contactId: contact.id,
           direction: 'inbound',
           body,
+          mediaUrl: mediaUrl || null,
+          mediaType: mediaType || null,
           status: 'received',
           twilioSid: sid,
           fromNumber: from,
@@ -275,6 +357,8 @@ export async function webhook(req: Request, res: Response) {
         contactId: contact.id,
         direction: 'inbound',
         body,
+        mediaUrl: mediaUrl || null,
+        mediaType: mediaType || null,
         status: 'received',
         fromNumber: from,
         toNumber: to,
@@ -283,4 +367,24 @@ export async function webhook(req: Request, res: Response) {
   }
 
   res.type('text/xml').send('<Response></Response>');
+}
+
+
+export async function mediaFile(req: Request, res: Response) {
+  const file = path.basename(String(req.params.file || ''));
+  const full = path.join('/app/uploads/whatsapp-twilio', file);
+  if (!fs.existsSync(full)) return res.status(404).send('Not found');
+
+  const head = fs.readFileSync(full).subarray(0, 16);
+  const type =
+    head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff ? 'image/jpeg' :
+    head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47 ? 'image/png' :
+    head.toString('ascii', 0, 3) === 'GIF' ? 'image/gif' :
+    head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WEBP' ? 'image/webp' :
+    'application/octet-stream';
+
+  res.setHeader('Content-Type', type);
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.sendFile(full);
 }

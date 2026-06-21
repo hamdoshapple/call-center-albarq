@@ -20,12 +20,15 @@ type Conv = {
   lastAt?: string;
   unreadCount: number;
   subscriber?: SubscriberLite | null;
+  subscribers?: SubscriberLite[];
 };
 
 type Msg = {
   id: string;
   direction: 'inbound' | 'outbound';
   body?: string;
+  mediaUrl?: string;
+  mediaType?: string;
   status: string;
   createdAt: string;
 };
@@ -36,12 +39,15 @@ export default function WhatsappInboxPage() {
   const [active, setActive] = useState<Conv | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [reply, setReply] = useState('');
+  const [imageData, setImageData] = useState('');
+  const [imageName, setImageName] = useState('');
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState('');
   const [settings, setSettings] = useState<any>({});
   const [saveMsg, setSaveMsg] = useState('');
+  const [accountsOpen, setAccountsOpen] = useState(false);
 
   async function loadConvs(search = q) {
     setErr('');
@@ -87,7 +93,9 @@ export default function WhatsappInboxPage() {
     setSending(true);
     setErr('');
     try {
-      const msg = await whatsappTwilioApi.reply(active.id, text);
+      const msg = await whatsappTwilioApi.reply(active.id, text, imageData);
+      setImageData('');
+      setImageName('');
       setMessages((old: Msg[]) => [...old, msg]);
       setReply('');
       await loadConvs();
@@ -120,6 +128,16 @@ export default function WhatsappInboxPage() {
 
   const webhookUrl = useMemo(() => settings?.webhookUrl || '', [settings]);
 
+  const linkedAccounts = useMemo(() => {
+    if (!active) return [];
+    return active.subscribers?.length ? active.subscribers : active.subscriber ? [active.subscriber] : [];
+  }, [active]);
+
+  const totalDebt = linkedAccounts.reduce((sum: number, x: any) => sum + Number(x.debt || 0), 0);
+  const activeCount = linkedAccounts.filter((x: any) => String(x.status || '').toLowerCase().includes('active') || String(x.status || '').includes('فعال')).length;
+  const expiredCount = linkedAccounts.length ? linkedAccounts.length - activeCount : 0;
+
+
   return (
     <div className="space-y-5" dir="rtl">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -139,7 +157,7 @@ export default function WhatsappInboxPage() {
         <div className="rounded-3xl bg-white p-5 shadow-sm">
           <div className="mb-5 flex items-center gap-2">
             <Settings className="h-5 w-5" />
-            <h2 className="text-lg font-black">إعدادات Twilio WhatsApp</h2>
+            <h2 className="text-base font-black">إعدادات Twilio WhatsApp</h2>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -230,18 +248,46 @@ export default function WhatsappInboxPage() {
                 <div className="border-b p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <div className="text-lg font-black">{active.subscriber?.name || active.name || active.phone}</div>
+                      <div className="text-base font-black">{active.subscriber?.name || active.name || active.phone}</div>
                       <div className="text-xs text-slate-400">{active.phone}</div>
                     </div>
-                    {active.subscriber ? (
-                      <div className="rounded-2xl bg-green-50 p-3 text-sm">
-                        <div className="flex items-center gap-2 font-black text-green-800"><User className="h-4 w-4" /> مرتبط بمشترك</div>
-                        <div className="mt-1 text-green-700">
-                          {active.subscriber.pppoeUsername || 'بدون يوزر'} • {active.subscriber.package || '—'} • {active.subscriber.source}
+                    {linkedAccounts.length ? (
+                      <div className="min-w-[220px] rounded-2xl bg-gradient-to-br from-green-50 to-emerald-50 p-3 text-sm shadow-sm">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 font-black text-green-900">
+                            <User className="h-4 w-4" />
+                            {linkedAccounts[0]?.name || 'مشترك'}
+                          </div>
+                          <span className="rounded-full bg-white px-2 py-1 text-xs font-black text-green-700">
+                            {linkedAccounts[0]?.source || 'auto'}
+                          </span>
                         </div>
-                        <a href={`/subscribers/${active.subscriber.id}`} className="mt-2 inline-flex items-center gap-1 text-xs font-black text-green-900">
-                          فتح ملف المشترك <ExternalLink className="h-3 w-3" />
-                        </a>
+
+                        <div className="grid grid-cols-3 gap-1 text-center">
+                          <button onClick={() => setAccountsOpen(true)} className="rounded-xl bg-white p-1.5 hover:bg-green-100">
+                            <div className="text-base font-black text-slate-900">{linkedAccounts.length}</div>
+                            <div className="text-[10px] font-bold text-slate-500">حسابات</div>
+                          </button>
+                          <div className="rounded-xl bg-white p-1.5">
+                            <div className="text-base font-black text-green-700">{activeCount}</div>
+                            <div className="text-[10px] font-bold text-slate-500">فعال</div>
+                          </div>
+                          <div className="rounded-xl bg-white p-1.5">
+                            <div className="text-base font-black text-red-600">{expiredCount}</div>
+                            <div className="text-[10px] font-bold text-slate-500">منتهي</div>
+                          </div>
+                        </div>
+
+                        <div className="mt-1.5 flex items-center justify-between rounded-xl bg-white px-2 py-1.5">
+                          <span className="text-xs font-bold text-slate-500">مجموع الديون</span>
+                          <span className={`text-sm font-black ${totalDebt > 0 ? 'text-red-600' : 'text-green-700'}`}>
+                            {totalDebt.toLocaleString('en-US')} د.ع
+                          </span>
+                        </div>
+
+                        <button onClick={() => setAccountsOpen(true)} className="mt-1.5 w-full rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-black text-white hover:bg-slate-800">
+                          عرض الحسابات المرتبطة
+                        </button>
                       </div>
                     ) : (
                       <div className="rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-700">
@@ -257,7 +303,12 @@ export default function WhatsappInboxPage() {
                     return (
                       <div key={m.id} className={`flex ${out ? 'justify-start' : 'justify-end'}`}>
                         <div className={`max-w-[75%] rounded-3xl px-4 py-3 text-sm shadow-sm ${out ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}`}>
-                          <div className="whitespace-pre-wrap">{m.body}</div>
+                          {m.mediaUrl && (
+                            <a href={m.mediaUrl} target="_blank" rel="noreferrer">
+                              <img src={m.mediaUrl} className="mb-2 max-h-64 rounded-2xl object-contain" />
+                            </a>
+                          )}
+                          {m.body && <div className="whitespace-pre-wrap">{m.body}</div>}
                           <div className={`mt-2 text-[10px] ${out ? 'text-slate-300' : 'text-slate-400'}`}>
                             {new Date(m.createdAt).toLocaleString('ar-IQ')} • {m.status}
                           </div>
@@ -268,9 +319,38 @@ export default function WhatsappInboxPage() {
                 </div>
 
                 <div className="border-t p-4">
+                  <div className="mb-2 flex items-center gap-2">
+                    <label className="cursor-pointer rounded-2xl bg-slate-100 px-4 py-2 text-xs font-black hover:bg-slate-200">
+                      إرفاق صورة
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (!f) return;
+                          if (f.size > 4 * 1024 * 1024) {
+                            setErr('حجم الصورة كبير، اختار أقل من 4MB');
+                            return;
+                          }
+                          const r = new FileReader();
+                          r.onload = () => {
+                            setImageData(String(r.result || ''));
+                            setImageName(f.name);
+                          };
+                          r.readAsDataURL(f);
+                        }}
+                      />
+                    </label>
+                    {imageName && (
+                      <button onClick={() => { setImageData(''); setImageName(''); }} className="rounded-2xl bg-green-50 px-3 py-2 text-xs font-black text-green-700">
+                        {imageName} ×
+                      </button>
+                    )}
+                  </div>
                   <div className="flex gap-2">
                     <textarea value={reply} onChange={(e) => setReply(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); } }} className="min-h-[54px] flex-1 rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300" placeholder="اكتب الرد هنا..." />
-                    <button disabled={sending || !reply.trim()} onClick={sendReply} className="inline-flex items-center gap-2 rounded-2xl bg-green-600 px-5 py-3 font-black text-white disabled:opacity-50">
+                    <button disabled={sending || (!reply.trim() && !imageData)} onClick={sendReply} className="inline-flex items-center gap-2 rounded-2xl bg-green-600 px-5 py-3 font-black text-white disabled:opacity-50">
                       <Send className="h-4 w-4" /> إرسال
                     </button>
                   </div>
@@ -280,6 +360,80 @@ export default function WhatsappInboxPage() {
           </div>
         </div>
       )}
+
+      {/* ACCOUNTS_DRAWER */}
+      {accountsOpen && (
+        <div className="fixed inset-0 z-[999] bg-black/30 backdrop-blur-sm" onClick={() => setAccountsOpen(false)}>
+          <div className="absolute left-0 top-0 h-full w-full max-w-md overflow-auto bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()} dir="rtl">
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-black text-slate-900">الحسابات المرتبطة</h2>
+                <p className="text-sm text-slate-500">{active?.phone}</p>
+              </div>
+              <button onClick={() => setAccountsOpen(false)} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-black">إغلاق</button>
+            </div>
+
+            <div className="mb-4 grid grid-cols-3 gap-2">
+              <div className="rounded-2xl bg-slate-100 p-3 text-center">
+                <div className="text-2xl font-black">{linkedAccounts.length}</div>
+                <div className="text-xs text-slate-500">حسابات</div>
+              </div>
+              <div className="rounded-2xl bg-green-50 p-3 text-center">
+                <div className="text-2xl font-black text-green-700">{activeCount}</div>
+                <div className="text-xs text-green-700">فعال</div>
+              </div>
+              <div className="rounded-2xl bg-red-50 p-3 text-center">
+                <div className="text-2xl font-black text-red-600">{expiredCount}</div>
+                <div className="text-xs text-red-600">منتهي</div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {linkedAccounts.map((sub: any) => {
+                const isActive = String(sub.status || '').toLowerCase().includes('active') || String(sub.status || '').includes('فعال');
+                const debt = Number(sub.debt || 0);
+                return (
+                  <div key={sub.id} className="rounded-3xl border bg-white p-4 shadow-sm">
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div>
+                        <div className="font-black text-slate-900">{sub.name || '—'}</div>
+                        <div className="text-xs text-slate-500">{sub.phone || active?.phone}</div>
+                      </div>
+                      <span className={`rounded-full px-3 py-1 text-xs font-black ${isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                        {sub.status || (isActive ? 'فعال' : 'غير فعال')}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className="rounded-2xl bg-slate-50 p-3">
+                        <div className="text-xs text-slate-400">اليوزر</div>
+                        <div className="font-black">{sub.pppoeUsername || '—'}</div>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 p-3">
+                        <div className="text-xs text-slate-400">الباقة</div>
+                        <div className="font-black">{sub.package || '—'}</div>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 p-3">
+                        <div className="text-xs text-slate-400">الدين</div>
+                        <div className={`font-black ${debt > 0 ? 'text-red-600' : 'text-green-700'}`}>{debt.toLocaleString('en-US')} د.ع</div>
+                      </div>
+                      <div className="rounded-2xl bg-slate-50 p-3">
+                        <div className="text-xs text-slate-400">المصدر</div>
+                        <div className="font-black">{sub.source || 'auto'}</div>
+                      </div>
+                    </div>
+
+                    <a href={`/subscribers/${sub.id}`} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white">
+                      فتح الحساب <ExternalLink className="h-4 w-4" />
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
