@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
-import { RefreshCw, Send, Settings, Save, MessageCircle, CheckCircle2 } from 'lucide-react';
+import { RefreshCw, Send, Settings, Save, MessageCircle, CheckCircle2, Search, User, ExternalLink } from 'lucide-react';
 import { whatsappTwilioApi } from '@/api/whatsappTwilio';
+
+type SubscriberLite = {
+  id: string;
+  name?: string;
+  phone?: string;
+  pppoeUsername?: string;
+  package?: string;
+  status?: string;
+  source?: string;
+};
 
 type Conv = {
   id: string;
@@ -9,6 +19,7 @@ type Conv = {
   lastMessage?: string;
   lastAt?: string;
   unreadCount: number;
+  subscriber?: SubscriberLite | null;
 };
 
 type Msg = {
@@ -25,20 +36,33 @@ export default function WhatsappInboxPage() {
   const [active, setActive] = useState<Conv | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [reply, setReply] = useState('');
+  const [q, setQ] = useState('');
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState('');
   const [settings, setSettings] = useState<any>({});
   const [saveMsg, setSaveMsg] = useState('');
 
-  async function loadConvs() {
+  async function loadConvs(search = q) {
     setErr('');
     setLoading(true);
     try {
-      const data = await whatsappTwilioApi.conversations();
+      const path = search.trim()
+        ? `/whatsapp-twilio/conversations?q=${encodeURIComponent(search.trim())}`
+        : '/whatsapp-twilio/conversations';
+
+      const res = await fetch(`/api${path}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}` },
+      });
+      if (!res.ok) throw new Error('LOAD_FAILED');
+      const data = await res.json();
       setConvs(data);
       if (!active && data[0]) setActive(data[0]);
-    } catch (e: any) {
+      if (active) {
+        const updated = data.find((x: Conv) => x.id === active.id);
+        if (updated) setActive(updated);
+      }
+    } catch {
       setErr('فشل تحميل المحادثات');
     } finally {
       setLoading(false);
@@ -51,7 +75,7 @@ export default function WhatsappInboxPage() {
       const data = await whatsappTwilioApi.messages(id);
       setMessages(data);
       await whatsappTwilioApi.read(id).catch(() => null);
-      setConvs((old) => old.map((x) => x.id === id ? { ...x, unreadCount: 0 } : x));
+      setConvs((old: Conv[]) => old.map((x) => x.id === id ? { ...x, unreadCount: 0 } : x));
     } catch {
       setErr('فشل تحميل الرسائل');
     }
@@ -64,7 +88,7 @@ export default function WhatsappInboxPage() {
     setErr('');
     try {
       const msg = await whatsappTwilioApi.reply(active.id, text);
-      setMessages((old) => [...old, msg]);
+      setMessages((old: Msg[]) => [...old, msg]);
       setReply('');
       await loadConvs();
     } catch {
@@ -101,7 +125,7 @@ export default function WhatsappInboxPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-black text-slate-900">صندوق واتساب Twilio</h1>
-          <p className="text-sm text-slate-500">عرض الرسائل الواردة والرد عليها من داخل نظام البرق</p>
+          <p className="text-sm text-slate-500">محادثات واتساب مربوطة بمشتركي البرق Live/Cache</p>
         </div>
         <div className="flex gap-2 rounded-2xl bg-white p-1 shadow-sm">
           <button onClick={() => setTab('inbox')} className={`rounded-xl px-4 py-2 text-sm font-bold ${tab === 'inbox' ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>المحادثات</button>
@@ -154,26 +178,44 @@ export default function WhatsappInboxPage() {
           </div>
         </div>
       ) : (
-        <div className="grid min-h-[650px] gap-4 lg:grid-cols-[360px_1fr]">
+        <div className="grid min-h-[650px] gap-4 lg:grid-cols-[390px_1fr]">
           <div className="rounded-3xl bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b p-4">
-              <div className="font-black">المحادثات</div>
-              <button onClick={loadConvs} className="rounded-xl p-2 hover:bg-slate-100">
-                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              </button>
+            <div className="border-b p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="font-black">المحادثات</div>
+                <button onClick={() => loadConvs()} className="rounded-xl p-2 hover:bg-slate-100">
+                  <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+              <div className="relative">
+                <Search className="absolute right-3 top-3 h-4 w-4 text-slate-400" />
+                <input
+                  value={q}
+                  onChange={(e) => { setQ(e.target.value); loadConvs(e.target.value); }}
+                  placeholder="بحث: اسم، رقم، يوزر، باقة..."
+                  className="w-full rounded-2xl border py-2.5 pr-10 pl-3 text-sm outline-none focus:ring-2 focus:ring-slate-300"
+                />
+              </div>
             </div>
 
             <div className="max-h-[590px] overflow-auto p-2">
-              {convs.length === 0 && <div className="p-8 text-center text-sm text-slate-400">بعد ماكو رسائل واردة</div>}
-              {convs.map((c) => (
-                <button key={c.id} onClick={() => setActive(c)} className={`mb-2 w-full rounded-2xl p-3 text-right transition ${active?.id === c.id ? 'bg-slate-900 text-white' : 'hover:bg-slate-50'}`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-black">{c.name || c.phone}</div>
-                    {c.unreadCount > 0 && <span className="rounded-full bg-green-500 px-2 py-0.5 text-xs font-black text-white">{c.unreadCount}</span>}
-                  </div>
-                  <div className={`mt-1 line-clamp-1 text-xs ${active?.id === c.id ? 'text-slate-200' : 'text-slate-500'}`}>{c.lastMessage || '—'}</div>
-                </button>
-              ))}
+              {convs.length === 0 && <div className="p-8 text-center text-sm text-slate-400">ماكو نتائج</div>}
+              {convs.map((c) => {
+                const title = c.subscriber?.name || c.name || c.phone;
+                return (
+                  <button key={c.id} onClick={() => setActive(c)} className={`mb-2 w-full rounded-2xl p-3 text-right transition ${active?.id === c.id ? 'bg-slate-900 text-white' : 'hover:bg-slate-50'}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="line-clamp-1 font-black">{title}</div>
+                      {c.unreadCount > 0 && <span className="rounded-full bg-green-500 px-2 py-0.5 text-xs font-black text-white">{c.unreadCount}</span>}
+                    </div>
+                    <div className={`mt-1 text-xs ${active?.id === c.id ? 'text-slate-200' : 'text-slate-500'}`}>
+                      {c.phone}
+                      {c.subscriber?.pppoeUsername ? ` • ${c.subscriber.pppoeUsername}` : ''}
+                    </div>
+                    <div className={`mt-1 line-clamp-1 text-xs ${active?.id === c.id ? 'text-slate-300' : 'text-slate-500'}`}>{c.lastMessage || '—'}</div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -186,8 +228,27 @@ export default function WhatsappInboxPage() {
             ) : (
               <div className="flex w-full flex-col">
                 <div className="border-b p-4">
-                  <div className="text-lg font-black">{active.name || active.phone}</div>
-                  <div className="text-xs text-slate-400">{active.phone}</div>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-lg font-black">{active.subscriber?.name || active.name || active.phone}</div>
+                      <div className="text-xs text-slate-400">{active.phone}</div>
+                    </div>
+                    {active.subscriber ? (
+                      <div className="rounded-2xl bg-green-50 p-3 text-sm">
+                        <div className="flex items-center gap-2 font-black text-green-800"><User className="h-4 w-4" /> مرتبط بمشترك</div>
+                        <div className="mt-1 text-green-700">
+                          {active.subscriber.pppoeUsername || 'بدون يوزر'} • {active.subscriber.package || '—'} • {active.subscriber.source}
+                        </div>
+                        <a href={`/subscribers/${active.subscriber.id}`} className="mt-2 inline-flex items-center gap-1 text-xs font-black text-green-900">
+                          فتح ملف المشترك <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-700">
+                        غير مرتبط بمشترك
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex-1 space-y-3 overflow-auto bg-slate-50 p-4">
@@ -198,7 +259,7 @@ export default function WhatsappInboxPage() {
                         <div className={`max-w-[75%] rounded-3xl px-4 py-3 text-sm shadow-sm ${out ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}`}>
                           <div className="whitespace-pre-wrap">{m.body}</div>
                           <div className={`mt-2 text-[10px] ${out ? 'text-slate-300' : 'text-slate-400'}`}>
-                            {new Date(m.createdAt).toLocaleString('ar-IQ')}
+                            {new Date(m.createdAt).toLocaleString('ar-IQ')} • {m.status}
                           </div>
                         </div>
                       </div>

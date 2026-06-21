@@ -1,9 +1,80 @@
 import type { Request, Response } from 'express';
 import Twilio from 'twilio';
 import { prisma } from '../config/prisma.js';
+import { searchExternalSubscribers } from '../services/external-subscriber.service.js';
+import { searchSubscriberCache, upsertExternalSubscriberCache } from '../services/subscriber-cache.service.js';
 
 function cleanWhatsappPhone(v: any) {
   return String(v || '').replace(/^whatsapp:/, '').trim();
+}
+
+
+function normPhone(v: any) {
+  let s = String(v || '').replace(/^whatsapp:/, '').replace(/\D/g, '');
+  if (s.startsWith('00')) s = s.slice(2);
+  if (s.startsWith('0')) s = '964' + s.slice(1);
+  return s;
+}
+
+async function findSubscriberForPhone(phone: string) {
+  const n = normPhone(phone);
+  const variants = Array.from(new Set([
+    n,
+    n.startsWith('964') ? '0' + n.slice(3) : n,
+    n.startsWith('964') ? '+' + n : n,
+  ].filter(Boolean)));
+
+  for (const q of variants) {
+    if (process.env.EXTERNAL_MSSQL_ENABLED === 'true') {
+      const live = await searchExternalSubscribers(q).catch(() => []);
+      if (live.length) {
+        await upsertExternalSubscriberCache(live).catch(() => null);
+        const x: any = live[0];
+        return {
+          id: String(x.id),
+          name: x.name || x.fullName || '',
+          phone: x.phone || '',
+          pppoeUsername: x.pppoeUsername || '',
+          package: x.package || x.packageName || '',
+          status: x.status || '',
+          source: 'live',
+        };
+      }
+    }
+
+    const cached = await searchSubscriberCache(q).catch(() => []);
+    if (cached.length) {
+      const x: any = cached[0];
+      return {
+        id: String(x.id),
+        name: x.name || x.fullName || '',
+        phone: x.phone || '',
+        pppoeUsername: x.pppoeUsername || '',
+        package: x.package || x.packageName || '',
+        status: x.status || '',
+        source: x.cache?.source || 'cache',
+      };
+    }
+
+    const local = await prisma.subscriber.findFirst({
+      where: { OR: [{ phone: { contains: q } }, { pppoeUsername: { contains: q } }, { name: { contains: q } }] },
+      orderBy: { createdAt: 'desc' },
+    }).catch(() => null);
+
+    if (local) {
+      return {
+        id: String(local.id),
+        name: local.name,
+        phone: local.phone,
+        pppoeUsername: local.pppoeUsername || '',
+        package: local.package || '',
+        status: local.status || '',
+        source: 'local',
+      };
+    }
+  }
+
+  return null;
 }
 
 function asWhatsapp(v: string) {
@@ -76,12 +147,42 @@ export async function saveSettings(req: Request, res: Response) {
   });
 }
 
-export async function conversations(_req: Request, res: Response) {
+export async function conversations(req: Request, res: Response) {
+  const q = String(req.query.q || '').trim().toLowerCase();
+
   const rows = await prisma.twilioWhatsappContact.findMany({
     orderBy: [{ lastAt: 'desc' }, { createdAt: 'desc' }],
     take: 200,
   });
-  res.json(rows);
+
+  const enriched = await Promise.all(rows.map(async (row) => {
+    const subscriber = await findSubscriberForPhone(row.phone);
+    if (subscriber?.name && row.name !== subscriber.name) {
+      await prisma.twilioWhatsappContact.update({
+        where: { id: row.id },
+        data: { name: subscriber.name },
+      }).catch(() => null);
+    }
+    return { ...row, subscriber };
+  }));
+
+  const filtered = q
+    ? enriched.filter((x: any) => {
+        const blob = [
+          x.phone,
+          x.name,
+          x.lastMessage,
+          x.subscriber?.name,
+          x.subscriber?.phone,
+          x.subscriber?.pppoeUsername,
+          x.subscriber?.package,
+          x.subscriber?.status,
+        ].join(' ').toLowerCase();
+        return blob.includes(q);
+      })
+    : enriched;
+
+  res.json(filtered);
 }
 
 export async function messages(req: Request, res: Response) {
