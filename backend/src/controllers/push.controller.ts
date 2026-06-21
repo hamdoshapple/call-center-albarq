@@ -1274,7 +1274,7 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
                 data: {
                   phone,
                   title: 'Twilio Template',
-                  message: `contentSid=${twilioTemplateId}`,
+                  message: `contentSid=${twilioTemplateId}; sid=${msg.sid}`,
                   targetType: `${targetType}:twilio_template`,
                   status: msg.status || 'queued',
                   error: null,
