@@ -24,6 +24,7 @@ import { VpnPage } from '@/pages/vpn';
 import AdminTicketsPage from '@/pages/admin-tickets';
 import PushNotificationsPage from '@/pages/push-notifications';
 import WhatsappPage from '@/pages/whatsapp';
+import WhatsappInboxPage from '@/pages/whatsapp-inbox';
 
 function RootRedirect() {
   const host = window.location.hostname;
@@ -53,6 +54,7 @@ export function App() {
         <Route path="/admin-tickets" element={<ProtectedRoute><AdminTicketsPage /></ProtectedRoute>} />
         <Route path="/push-notifications" element={<ProtectedRoute><PushNotificationsPage /></ProtectedRoute>} />
         <Route path="/whatsapp" element={<ProtectedRoute><WhatsappPage /></ProtectedRoute>} />
+        <Route path="/whatsapp-inbox" element={<ProtectedRoute><WhatsappInboxPage /></ProtectedRoute>} />
         <Route path="/agents" element={<ProtectedRoute module="agents"><AgentsPage /></ProtectedRoute>} />
         <Route path="/departments" element={<ProtectedRoute module="departments"><DepartmentsPage /></ProtectedRoute>} />
         <Route path="/queues" element={<ProtectedRoute module="queues"><QueuesPage /></ProtectedRoute>} />

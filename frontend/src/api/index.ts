@@ -21,3 +21,5 @@ export * as reportsApi from './reports';
 
 export * as vpnApi from './vpn';
 export * as subscriberAppApi from './subscriberApp';
+
+export { whatsappTwilioApi } from './whatsappTwilio';

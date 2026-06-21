@@ -782,3 +782,45 @@ model TelegramMessageLog {
   @@index([status])
   @@index([createdAt])
 }
+
+model TwilioWhatsappSetting {
+  id             String   @id @default(cuid())
+  accountSid     String?
+  authToken      String?  @db.Text
+  whatsappFrom   String?
+  enabled        Boolean  @default(false)
+  lastError      String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model TwilioWhatsappContact {
+  id          String   @id @default(cuid())
+  phone       String   @unique
+  name        String?
+  lastMessage String?  @db.Text
+  lastAt      DateTime?
+  unreadCount Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  messages TwilioWhatsappMessage[]
+}
+
+model TwilioWhatsappMessage {
+  id         String   @id @default(cuid())
+  contactId String
+  direction String
+  body       String?  @db.Text
+  status     String   @default("received")
+  twilioSid  String?  @unique
+  fromNumber String
+  toNumber   String
+  createdAt  DateTime @default(now())
+
+  contact TwilioWhatsappContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([createdAt])
+  @@index([direction])
+}

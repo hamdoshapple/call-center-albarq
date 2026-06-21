@@ -1,0 +1,185 @@
+import type { Request, Response } from 'express';
+import Twilio from 'twilio';
+import { prisma } from '../config/prisma.js';
+
+function cleanWhatsappPhone(v: any) {
+  return String(v || '').replace(/^whatsapp:/, '').trim();
+}
+
+function asWhatsapp(v: string) {
+  const phone = cleanWhatsappPhone(v).replace(/[^\d+]/g, '');
+  return phone.startsWith('whatsapp:') ? phone : `whatsapp:${phone}`;
+}
+
+function maskToken(v?: string | null) {
+  if (!v) return '';
+  return `••••••••${v.slice(-4)}`;
+}
+
+async function getSettingRow() {
+  let row = await prisma.twilioWhatsappSetting.findFirst({ orderBy: { createdAt: 'asc' } });
+  if (!row) {
+    row = await prisma.twilioWhatsappSetting.create({ data: {} });
+  }
+  return row;
+}
+
+async function upsertContact(phone: string, lastMessage?: string, unreadInc = 0) {
+  return prisma.twilioWhatsappContact.upsert({
+    where: { phone },
+    create: {
+      phone,
+      lastMessage: lastMessage || '',
+      lastAt: new Date(),
+      unreadCount: unreadInc,
+    },
+    update: {
+      lastMessage: lastMessage || undefined,
+      lastAt: new Date(),
+      unreadCount: { increment: unreadInc },
+    },
+  });
+}
+
+export async function getSettings(req: Request, res: Response) {
+  const row = await getSettingRow();
+  res.json({
+    enabled: row.enabled,
+    accountSid: row.accountSid || '',
+    authTokenMasked: maskToken(row.authToken),
+    whatsappFrom: row.whatsappFrom || '',
+    webhookUrl: `${req.protocol}://${req.get('host')}/api/whatsapp-twilio/webhook`,
+    lastError: row.lastError || '',
+  });
+}
+
+export async function saveSettings(req: Request, res: Response) {
+  const current = await getSettingRow();
+  const { accountSid, authToken, whatsappFrom, enabled } = req.body || {};
+
+  const row = await prisma.twilioWhatsappSetting.update({
+    where: { id: current.id },
+    data: {
+      accountSid: typeof accountSid === 'string' ? accountSid.trim() : current.accountSid,
+      authToken: typeof authToken === 'string' && authToken.trim() ? authToken.trim() : current.authToken,
+      whatsappFrom: typeof whatsappFrom === 'string' ? cleanWhatsappPhone(whatsappFrom) : current.whatsappFrom,
+      enabled: Boolean(enabled),
+      lastError: null,
+    },
+  });
+
+  res.json({
+    enabled: row.enabled,
+    accountSid: row.accountSid || '',
+    authTokenMasked: maskToken(row.authToken),
+    whatsappFrom: row.whatsappFrom || '',
+  });
+}
+
+export async function conversations(_req: Request, res: Response) {
+  const rows = await prisma.twilioWhatsappContact.findMany({
+    orderBy: [{ lastAt: 'desc' }, { createdAt: 'desc' }],
+    take: 200,
+  });
+  res.json(rows);
+}
+
+export async function messages(req: Request, res: Response) {
+  const contactId = String(req.params.id);
+  const rows = await prisma.twilioWhatsappMessage.findMany({
+    where: { contactId },
+    orderBy: { createdAt: 'asc' },
+    take: 500,
+  });
+  res.json(rows);
+}
+
+export async function markRead(req: Request, res: Response) {
+  const contactId = String(req.params.id);
+  await prisma.twilioWhatsappContact.update({
+    where: { id: contactId },
+    data: { unreadCount: 0 },
+  });
+  res.json({ ok: true });
+}
+
+export async function reply(req: Request, res: Response) {
+  const contactId = String(req.params.id);
+  const body = String(req.body?.body || '').trim();
+  if (!body) return res.status(400).json({ message: 'EMPTY_MESSAGE' });
+
+  const setting = await getSettingRow();
+  if (!setting.enabled || !setting.accountSid || !setting.authToken || !setting.whatsappFrom) {
+    return res.status(400).json({ message: 'TWILIO_NOT_CONFIGURED' });
+  }
+
+  const contact = await prisma.twilioWhatsappContact.findUnique({ where: { id: contactId } });
+  if (!contact) return res.status(404).json({ message: 'CONTACT_NOT_FOUND' });
+
+  const client = Twilio(setting.accountSid, setting.authToken);
+  const sent = await client.messages.create({
+    from: asWhatsapp(setting.whatsappFrom),
+    to: asWhatsapp(contact.phone),
+    body,
+  });
+
+  const msg = await prisma.twilioWhatsappMessage.create({
+    data: {
+      contactId,
+      direction: 'outbound',
+      body,
+      status: sent.status || 'sent',
+      twilioSid: sent.sid,
+      fromNumber: cleanWhatsappPhone(setting.whatsappFrom),
+      toNumber: contact.phone,
+    },
+  });
+
+  await prisma.twilioWhatsappContact.update({
+    where: { id: contactId },
+    data: { lastMessage: body, lastAt: new Date() },
+  });
+
+  res.json(msg);
+}
+
+export async function webhook(req: Request, res: Response) {
+  const from = cleanWhatsappPhone(req.body?.From);
+  const to = cleanWhatsappPhone(req.body?.To);
+  const body = String(req.body?.Body || '');
+  const sid = String(req.body?.MessageSid || req.body?.SmsMessageSid || '');
+
+  if (!from) return res.status(200).send('OK');
+
+  const contact = await upsertContact(from, body, 1);
+
+  if (sid) {
+    const exists = await prisma.twilioWhatsappMessage.findUnique({ where: { twilioSid: sid } }).catch(() => null);
+    if (!exists) {
+      await prisma.twilioWhatsappMessage.create({
+        data: {
+          contactId: contact.id,
+          direction: 'inbound',
+          body,
+          status: 'received',
+          twilioSid: sid,
+          fromNumber: from,
+          toNumber: to,
+        },
+      });
+    }
+  } else {
+    await prisma.twilioWhatsappMessage.create({
+      data: {
+        contactId: contact.id,
+        direction: 'inbound',
+        body,
+        status: 'received',
+        fromNumber: from,
+        toNumber: to,
+      },
+    });
+  }
+
+  res.type('text/xml').send('<Response></Response>');
+}

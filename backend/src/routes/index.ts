@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { listAdminTickets, getAdminTicket, createAdminTicket, replyAdminTicket, updateAdminTicket, listTicketDepartments, searchTicketSubscribers } from '../controllers/admin-tickets.controller.js';
 import { authenticate } from '../middleware/auth.js';
 import { requirePermission as perm } from '../middleware/rbac.js';
@@ -24,6 +24,7 @@ import * as dataSource from '../controllers/data-source.controller.js';
 import * as subscriberApp from '../controllers/subscriber-app.controller.js';
 import * as push from '../controllers/push.controller.js';
 import * as whatsapp from '../controllers/whatsapp.controller.js';
+import * as whatsappTwilio from '../controllers/whatsapp-twilio.controller.js';
 import * as telegram from '../controllers/telegram.controller.js';
 
 export const router = Router();
@@ -50,6 +51,9 @@ router.get('/auth/me', authenticate, h(auth.me));
 // ---------- Subscriber App Public ----------
 router.get('/subscriber-app/public-config', h(subscriberApp.getConfig));
 router.get('/subscriber-app/public-banners', h(subscriberApp.listBanners));
+
+// ---------- Twilio WhatsApp Webhook Public ----------
+router.post('/whatsapp-twilio/webhook', express.urlencoded({ extended: false }), h(whatsappTwilio.webhook));
 
 // All routes below require authentication.
 router.use(authenticate);
@@ -238,6 +242,15 @@ router.put('/whatsapp/sessions/settings', h(whatsapp.updateSettings));
 router.post('/whatsapp/sessions/settings', h(whatsapp.updateSettings));
 router.post('/whatsapp/send', h(whatsapp.send));
 router.get('/whatsapp/logs', h(whatsapp.logs));
+
+
+// ---------- Twilio WhatsApp Inbox ----------
+router.get('/whatsapp-twilio/settings', h(whatsappTwilio.getSettings));
+router.put('/whatsapp-twilio/settings', h(whatsappTwilio.saveSettings));
+router.get('/whatsapp-twilio/conversations', h(whatsappTwilio.conversations));
+router.get('/whatsapp-twilio/conversations/:id/messages', h(whatsappTwilio.messages));
+router.post('/whatsapp-twilio/conversations/:id/reply', h(whatsappTwilio.reply));
+router.post('/whatsapp-twilio/conversations/:id/read', h(whatsappTwilio.markRead));
 
 // ---------- Push Notifications ----------
 router.get('/push/stats', h(push.stats));
