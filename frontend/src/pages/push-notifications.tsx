@@ -347,7 +347,11 @@ export default function PushNotificationsPage() {
   }, [pushSubscribers.data, subscriberFilter]);
 
   const sendMutation = useMutation({
-    mutationFn: () => pushNotificationsApi.send(form.targetType === 'phone' ? { ...form, targetValue: selectedPhones.join(',') } : form),
+    mutationFn: () => pushNotificationsApi.send({
+      ...(form.targetType === 'phone' ? { ...form, targetValue: selectedPhones.join(',') } : form),
+      twilioTemplateId: selectedTwilioTemplateId,
+      twilioVariablesText,
+    }),
     onSuccess: (data) => {
       if (data.jobId) setJobId(data.jobId);
       toast({ title: 'بدأ الإرسال بالخلفية', description: 'تابع العداد بالأسفل.' });
@@ -720,7 +724,7 @@ export default function PushNotificationsPage() {
 
                 <Button
                   className="h-12 w-full text-base font-black"
-                  disabled={sendMutation.isPending || !form.title.trim() || !form.message.trim() || (form.targetType === 'phone' && selectedPhones.length === 0)}
+                  disabled={sendMutation.isPending || !form.title.trim() || (form.channel !== 'twilio_template' && !form.message.trim()) || (form.channel === 'twilio_template' && !selectedTwilioTemplateId) || (form.targetType === 'phone' && selectedPhones.length === 0)}
                   onClick={() => sendMutation.mutate()}
                 >
                   <PlayCircle className="ml-2 h-5 w-5" />

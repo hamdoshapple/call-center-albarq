@@ -223,7 +223,7 @@ export async function saveSettings(req: Request, res: Response) {
 
 export async function conversations(req: Request, res: Response) {
   const q = String(req.query.q || '').trim();
-  const take = Math.max(10, Math.min(80, Number(req.query.take || 30)));
+  const take = Math.max(10, Math.min(80, Number(req.query.take || 20)));
   const cursor = String(req.query.cursor || '').trim();
 
   const where: any = q
@@ -250,31 +250,42 @@ export async function conversations(req: Request, res: Response) {
   const hasMore = rows.length > take;
   const nextCursor = hasMore ? pageRows[pageRows.length - 1]?.id || null : null;
 
+  res.json({
+    rows: pageRows.map((row: any) => ({
+      ...row,
+      subscriber: null,
+      subscribers: [],
+      conversationOpen: false,
+      windowExpiresAt: null,
+    })),
+    nextCursor,
+    hasMore,
+  });
+}
+
+export async function conversationProfile(req: Request, res: Response) {
+  const row = await prisma.twilioWhatsappContact.findUnique({
+    where: { id: String(req.params.id || '') },
+  });
+
+  if (!row) return res.status(404).json({ message: 'CONTACT_NOT_FOUND' });
+
   const setting = await getSettingRow();
   const hours = Number(setting.conversationWindowHours || 24);
 
-  const mapped = await Promise.all(pageRows.map(async (row: any) => {
-    const subscribers = await findSubscribersForPhone(row.phone).catch(() => []);
-    const subscriber = subscribers[0] || null;
+  const subscribers = await findSubscribersForPhone(row.phone).catch(() => []);
+  const subscriber = subscribers[0] || null;
 
-    const lastInboundAt = row.lastInboundAt ? new Date(row.lastInboundAt).getTime() : 0;
-    const windowExpiresAt = lastInboundAt ? new Date(lastInboundAt + hours * 60 * 60 * 1000) : null;
-    const conversationOpen = !!windowExpiresAt && windowExpiresAt.getTime() > Date.now();
-
-    return {
-      ...row,
-      subscriber,
-      subscribers,
-      conversationOpen,
-      windowExpiresAt,
-      conversationWindowHours: hours,
-    };
-  }));
+  const lastInboundAt = row.lastInboundAt ? new Date(row.lastInboundAt).getTime() : 0;
+  const windowExpiresAt = lastInboundAt ? new Date(lastInboundAt + hours * 60 * 60 * 1000) : null;
+  const conversationOpen = !!windowExpiresAt && windowExpiresAt.getTime() > Date.now();
 
   res.json({
-    rows: mapped,
-    nextCursor,
-    hasMore,
+    subscriber,
+    subscribers,
+    conversationOpen,
+    windowExpiresAt,
+    conversationWindowHours: hours,
   });
 }
 

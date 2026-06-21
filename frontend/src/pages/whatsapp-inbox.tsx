@@ -153,7 +153,9 @@ export default function WhatsappInboxPage() {
       const currentId = activeIdRef.current;
       if (currentId) {
         const updated = list.find((x: Conv) => x.id === currentId);
-        if (updated) setActive(updated);
+        if (updated) {
+          setActive((old) => old && old.id === updated.id ? { ...updated, subscriber: old.subscriber, subscribers: old.subscribers, conversationOpen: old.conversationOpen, windowExpiresAt: old.windowExpiresAt } : updated);
+        }
       } else if (!append && list[0]) {
         activeIdRef.current = list[0].id;
         setActive(list[0]);
@@ -165,6 +167,19 @@ export default function WhatsappInboxPage() {
       loadingMoreConvsRef.current = false;
       setLoading(false);
     }
+  }
+
+  async function loadConversationProfile(id: string) {
+    try {
+      const res = await fetch(`/api/whatsapp-twilio/conversations/${encodeURIComponent(id)}/profile`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}` },
+      });
+      if (!res.ok) return;
+      const profile = await res.json();
+
+      setActive((old) => old && old.id === id ? { ...old, ...profile } : old);
+      setConvs((old) => old.map((x) => x.id === id ? { ...x, ...profile } : x));
+    } catch {}
   }
 
   async function loadMessages(id: string) {
@@ -229,7 +244,10 @@ export default function WhatsappInboxPage() {
   useEffect(() => {
     setSending(false);
     setErr('');
-    if (active?.id) loadMessages(active.id);
+    if (active?.id) {
+      loadMessages(active.id);
+      loadConversationProfile(active.id);
+    }
   }, [active?.id]);
 
   useEffect(() => {

@@ -250,6 +250,7 @@ router.get('/whatsapp/logs', h(whatsapp.logs));
 router.get('/whatsapp-twilio/settings', h(whatsappTwilio.getSettings));
 router.put('/whatsapp-twilio/settings', h(whatsappTwilio.saveSettings));
 router.get('/whatsapp-twilio/conversations', h(whatsappTwilio.conversations));
+router.get('/whatsapp-twilio/conversations/:id/profile', h(whatsappTwilio.conversationProfile));
 router.get('/whatsapp-twilio/conversations/:id/messages', h(whatsappTwilio.messages));
 router.post('/whatsapp-twilio/conversations/:id/reply', h(whatsappTwilio.reply));
 router.post('/whatsapp-twilio/conversations/:id/read', h(whatsappTwilio.markRead));
