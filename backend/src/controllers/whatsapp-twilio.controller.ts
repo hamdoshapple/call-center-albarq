@@ -222,47 +222,62 @@ export async function saveSettings(req: Request, res: Response) {
 }
 
 export async function conversations(req: Request, res: Response) {
-  const q = String(req.query.q || '').trim().toLowerCase();
+  const q = String(req.query.q || '').trim();
+  const take = Math.max(10, Math.min(80, Number(req.query.take || 30)));
+  const cursor = String(req.query.cursor || '').trim();
+
+  const where: any = q
+    ? {
+        OR: [
+          { phone: { contains: q } },
+          { name: { contains: q } },
+          { lastMessage: { contains: q } },
+        ],
+      }
+    : {};
 
   const rows = await prisma.twilioWhatsappContact.findMany({
-    orderBy: [{ lastAt: 'desc' }, { createdAt: 'desc' }],
-    take: 200,
+    where,
+    orderBy: [
+      { lastAt: 'desc' },
+      { createdAt: 'desc' },
+    ],
+    take: take + 1,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
   });
 
-  const enriched = await Promise.all(rows.map(async (row) => {
-    const subscribers = await findSubscribersForPhone(row.phone);
+  const pageRows = rows.slice(0, take);
+  const hasMore = rows.length > take;
+  const nextCursor = hasMore ? pageRows[pageRows.length - 1]?.id || null : null;
+
+  const setting = await getSettingRow();
+  const hours = Number(setting.conversationWindowHours || 24);
+
+  const mapped = await Promise.all(pageRows.map(async (row: any) => {
+    const subscribers = await findSubscribersForPhone(row.phone).catch(() => []);
     const subscriber = subscribers[0] || null;
-    if (subscriber?.name && row.name !== subscriber.name) {
-      await prisma.twilioWhatsappContact.update({
-        where: { id: row.id },
-        data: { name: subscriber.name },
-      }).catch(() => null);
-    }
-    const hours = Number((await getSettingRow()).conversationWindowHours || 24);
+
     const lastInboundAt = row.lastInboundAt ? new Date(row.lastInboundAt).getTime() : 0;
     const windowExpiresAt = lastInboundAt ? new Date(lastInboundAt + hours * 60 * 60 * 1000) : null;
     const conversationOpen = !!windowExpiresAt && windowExpiresAt.getTime() > Date.now();
-    return { ...row, subscriber, subscribers, conversationOpen, windowExpiresAt, conversationWindowHours: hours };
+
+    return {
+      ...row,
+      subscriber,
+      subscribers,
+      conversationOpen,
+      windowExpiresAt,
+      conversationWindowHours: hours,
+    };
   }));
 
-  const filtered = q
-    ? enriched.filter((x: any) => {
-        const blob = [
-          x.phone,
-          x.name,
-          x.lastMessage,
-          x.subscriber?.name,
-          x.subscriber?.phone,
-          x.subscriber?.pppoeUsername,
-          x.subscriber?.package,
-          x.subscriber?.status,
-        ].join(' ').toLowerCase();
-        return blob.includes(q);
-      })
-    : enriched;
-
-  res.json(filtered);
+  res.json({
+    rows: mapped,
+    nextCursor,
+    hasMore,
+  });
 }
+
 
 export async function messages(req: Request, res: Response) {
   const contactId = String(req.params.id);

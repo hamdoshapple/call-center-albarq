@@ -163,7 +163,8 @@ function ChannelSelect({ value, onChange }: any) {
       <SelectTrigger className="h-10 rounded-xl"><SelectValue /></SelectTrigger>
       <SelectContent>
         <SelectItem value="push">تطبيق فقط</SelectItem>
-        <SelectItem value="whatsapp">واتساب فقط</SelectItem>
+        <SelectItem value="whatsapp">واتساب نص عادي</SelectItem>
+        <SelectItem value="twilio_template">قالب Twilio</SelectItem>
         <SelectItem value="both">تطبيق + واتساب</SelectItem>
         <SelectItem value="off">متوقف</SelectItem>
       </SelectContent>
@@ -279,14 +280,6 @@ export default function PushNotificationsPage() {
   ];
 
 
-  function parseVarsText(text: string) {
-    const out: any = {};
-    String(text || '').split(/\n|,/).map((x) => x.trim()).filter(Boolean).forEach((line) => {
-      const i = line.indexOf('=');
-      if (i > 0) out[line.slice(0, i).trim()] = line.slice(i + 1).trim();
-    });
-    return out;
-  }
 
   async function saveTwilioTemplateList(next: any[]) {
     const d = await pushNotificationsApi.saveTwilioTemplates(next);
@@ -327,29 +320,6 @@ export default function PushNotificationsPage() {
 
   async function removeTwilioTemplate(id: string) {
     await saveTwilioTemplateList(twilioTemplates.filter((x) => x.id !== id));
-  }
-
-  async function sendSelectedTwilioTemplate() {
-    const tpl = twilioTemplates.find((x) => x.id === selectedTwilioTemplateId);
-    if (!tpl) {
-      toast({ title: 'تنبيه', description: 'اختر قالب Twilio أولاً' });
-      return;
-    }
-
-    const d = await pushNotificationsApi.sendTwilioTemplate({
-      targetType: form.targetType,
-      targetValue: form.targetValue,
-      contentSid: tpl.contentSid,
-      variables: parseVarsText(twilioVariablesText),
-    });
-
-    toast({
-      title: 'تم تنفيذ الإرسال',
-      description: `الأهداف: ${d.targets} / نجح: ${d.sent} / فشل: ${d.failed}`,
-    });
-
-    qc.invalidateQueries({ queryKey: ['pushLogs'] });
-    qc.invalidateQueries({ queryKey: ['pushStats'] });
   }
 
 
@@ -1185,13 +1155,14 @@ export default function PushNotificationsPage() {
 
           <Card className="shadow-sm">
             <CardHeader>
-              <CardTitle>إرسال قالب Twilio</CardTitle>
+              <CardTitle>اختيار قالب Twilio للحملة</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-4 lg:grid-cols-2">
               <div className="space-y-2">
                 <Label>القالب</Label>
                 <Select value={selectedTwilioTemplateId} onValueChange={(id) => {
                   setSelectedTwilioTemplateId(id);
+                  setForm((f) => ({ ...f, twilioTemplateId: id, channel: 'twilio_template' } as any));
                   const tpl = twilioTemplates.find((x) => x.id === id);
                   if (tpl?.variables?.length) {
                     setTwilioVariablesText(
@@ -1249,7 +1220,10 @@ export default function PushNotificationsPage() {
                 <Label>Content Variables</Label>
                 <Textarea
                   value={twilioVariablesText}
-                  onChange={(e) => setTwilioVariablesText(e.target.value)}
+                  onChange={(e) => {
+                    setTwilioVariablesText(e.target.value);
+                    setForm((f) => ({ ...f, twilioVariablesText: e.target.value } as any));
+                  }}
                   className="min-h-[110px] font-mono"
                   dir="ltr"
                   placeholder={'1=أحمد\n2=15000\n3=2026-06-30'}
@@ -1260,9 +1234,9 @@ export default function PushNotificationsPage() {
               </div>
 
               <div className="lg:col-span-2">
-                <Button onClick={sendSelectedTwilioTemplate} className="rounded-xl bg-emerald-600 hover:bg-emerald-700">
-                  إرسال قالب Twilio
-                </Button>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-800">
+                  تم تعطيل الإرسال المباشر من هنا. احفظ القالب واستخدمه من إعدادات الحملة حتى ما ينرسل بالغلط للكل.
+                </div>
               </div>
             </CardContent>
           </Card>

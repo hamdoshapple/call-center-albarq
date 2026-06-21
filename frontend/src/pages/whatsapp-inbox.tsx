@@ -52,6 +52,8 @@ type Msg = {
 export default function WhatsappInboxPage() {
   const [tab, setTab] = useState<'inbox' | 'settings'>('inbox');
   const [convs, setConvs] = useState<Conv[]>([]);
+  const [convCursor, setConvCursor] = useState<string | null>(null);
+  const [convHasMore, setConvHasMore] = useState(true);
   const [active, setActive] = useState<Conv | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [reply, setReply] = useState('');
@@ -65,9 +67,11 @@ export default function WhatsappInboxPage() {
   const [settings, setSettings] = useState<any>({});
   const [saveMsg, setSaveMsg] = useState('');
   const [accountsOpen, setAccountsOpen] = useState(false);
-  const lastUnreadRef = useRef(0);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const activeIdRef = useRef<string | null>(null);
+  const lastMsgCountRef = useRef(0);
+  const loadingConvsRef = useRef(false);
+  const loadingMoreConvsRef = useRef(false);
 
   const linkedAccounts = useMemo(() => {
     if (!active) return [];
@@ -91,23 +95,34 @@ export default function WhatsappInboxPage() {
   }, [active?.windowExpiresAt]);
 
 
-  async function loadConvs(search = q) {
-    setErr('');
-    setLoading(true);
-    try {
-      const path = search.trim()
-        ? `/whatsapp-twilio/conversations?q=${encodeURIComponent(search.trim())}`
-        : '/whatsapp-twilio/conversations';
+  async function loadConvs(search = q, append = false) {
+    if (loadingConvsRef.current && !append) return;
+    if (loadingMoreConvsRef.current && append) return;
 
-      const res = await fetch(`/api${path}`, {
+    if (append) loadingMoreConvsRef.current = true;
+    else loadingConvsRef.current = true;
+
+    setErr('');
+    setLoading(!append);
+
+    try {
+      const params = new URLSearchParams();
+      params.set('take', '10');
+
+      if (search.trim()) params.set('q', search.trim());
+      if (append && convCursor) params.set('cursor', convCursor);
+
+      const res = await fetch(`/api/whatsapp-twilio/conversations?${params.toString()}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}` },
       });
+
       if (!res.ok) throw new Error('LOAD_FAILED');
 
       const data = await res.json();
-      const unreadTotal = data.reduce((n: number, x: Conv) => n + Number(x.unreadCount || 0), 0);
+      const list: Conv[] = Array.isArray(data) ? data : (data.rows || []);
 
-      if (lastUnreadRef.current && unreadTotal > lastUnreadRef.current) {
+      const unreadTotal = list.reduce((n: number, x: any) => n + Number(x.unreadCount || 0), 0);
+      if (lastMsgCountRef.current && unreadTotal > lastMsgCountRef.current) {
         try {
           const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
           const osc = ctx.createOscillator();
@@ -120,21 +135,34 @@ export default function WhatsappInboxPage() {
           setTimeout(() => { osc.stop(); ctx.close(); }, 160);
         } catch {}
       }
+      lastMsgCountRef.current = unreadTotal;
 
-      lastUnreadRef.current = unreadTotal;
-      setConvs(data);
+      setConvCursor(data.nextCursor || null);
+      setConvHasMore(Boolean(data.hasMore));
+
+      setConvs((old) => {
+        const merged = append ? [...old, ...list] : list;
+        const seen = new Set<string>();
+        return merged.filter((x) => {
+          if (seen.has(x.id)) return false;
+          seen.add(x.id);
+          return true;
+        });
+      });
 
       const currentId = activeIdRef.current;
       if (currentId) {
-        const updated = data.find((x: Conv) => x.id === currentId);
+        const updated = list.find((x: Conv) => x.id === currentId);
         if (updated) setActive(updated);
-      } else if (!active && data[0]) {
-        activeIdRef.current = data[0].id;
-        setActive(data[0]);
+      } else if (!append && list[0]) {
+        activeIdRef.current = list[0].id;
+        setActive(list[0]);
       }
     } catch {
       setErr('فشل تحميل المحادثات');
     } finally {
+      loadingConvsRef.current = false;
+      loadingMoreConvsRef.current = false;
       setLoading(false);
     }
   }
@@ -165,7 +193,7 @@ export default function WhatsappInboxPage() {
       setFileData('');
       setFileName('');
       setFileInputKey((x) => x + 1);
-      await loadConvs();
+      await loadConvs(q, false);
       setTimeout(() => messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight }), 80);
     } catch {
       setErr('فشل الإرسال. إذا كانت نافذة المحادثة مغلقة، يجب أن يرسل المشترك رسالة جديدة أولاً.');
@@ -192,19 +220,23 @@ export default function WhatsappInboxPage() {
   }
 
   useEffect(() => {
-    loadConvs();
+    loadConvs(q, false);
     loadSettings().catch(() => null);
   }, []);
 
+  const activeWindowOpen = !!active?.windowExpiresAt && new Date(active.windowExpiresAt).getTime() > Date.now();
+
   useEffect(() => {
+    setSending(false);
+    setErr('');
     if (active?.id) loadMessages(active.id);
   }, [active?.id]);
 
   useEffect(() => {
     const t = setInterval(() => {
-      loadConvs();
+      loadConvs(q, false);
       if (active?.id) loadMessages(active.id);
-    }, 7000);
+    }, 20000);
     return () => clearInterval(t);
   }, [active?.id, q]);
 
@@ -284,7 +316,7 @@ export default function WhatsappInboxPage() {
             <div className="shrink-0 border-b p-3">
               <div className="mb-2 flex items-center justify-between">
                 <div className="font-black">المحادثات</div>
-                <button onClick={() => loadConvs()} className="rounded-xl p-2 hover:bg-slate-100">
+                <button onClick={() => { setConvCursor(null); setConvHasMore(true); loadConvs(q, false); }} className="rounded-xl p-2 hover:bg-slate-100">
                   <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                 </button>
               </div>
@@ -292,14 +324,22 @@ export default function WhatsappInboxPage() {
                 <Search className="absolute right-3 top-2.5 h-4 w-4 text-slate-400" />
                 <input
                   value={q}
-                  onChange={(e) => { setQ(e.target.value); loadConvs(e.target.value); }}
+                  onChange={(e) => { setQ(e.target.value); setConvCursor(null); setConvHasMore(true); loadConvs(e.target.value, false); }}
                   placeholder="بحث: اسم، رقم، يوزر..."
                   className="w-full rounded-2xl border py-2.5 pr-10 pl-3 text-xs outline-none focus:ring-2 focus:ring-slate-300"
                 />
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-2">
+            <div
+              className="min-h-0 flex-1 overflow-y-auto p-2"
+              onScroll={(e) => {
+                const el = e.currentTarget;
+                if (convHasMore && el.scrollTop + el.clientHeight >= el.scrollHeight - 350) {
+                  loadConvs(q, true);
+                }
+              }}
+            >
               {convs.length === 0 && <div className="p-8 text-center text-xs text-slate-400">ماكو نتائج</div>}
               {convs.map((c) => {
                 const title = c.subscriber?.name || c.name || c.phone;
@@ -316,6 +356,7 @@ export default function WhatsappInboxPage() {
                   </button>
                 );
               })}
+              {convHasMore && <div className="py-3 text-center text-xs font-bold text-slate-400">جاري تحميل المزيد...</div>}
             </div>
           </aside>
 
@@ -334,9 +375,9 @@ export default function WhatsappInboxPage() {
                       <div className="text-xs text-slate-400">{active.phone}</div>
                     </div>
 
-                    <div className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-black ${active.conversationOpen ? 'bg-slate-100 text-slate-700' : 'bg-red-50 text-red-700'}`}>
+                    <div className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-black ${activeWindowOpen ? 'bg-slate-100 text-slate-700' : 'bg-red-50 text-red-700'}`}>
                       <Clock3 className="h-3.5 w-3.5" />
-                      {active.conversationOpen ? `نافذة مفتوحة • ${windowRemainingText}` : 'انتهت نافذة المراسلة'}
+                      {activeWindowOpen ? `نافذة مفتوحة • ${windowRemainingText}` : 'انتهت نافذة المراسلة'}
                     </div>
                     {linkedAccounts.length === 0 && (
                       <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">غير مرتبط بمشترك</div>
@@ -443,10 +484,10 @@ export default function WhatsappInboxPage() {
                         }
                       }}
                       className="max-h-28 min-h-[46px] flex-1 resize-none rounded-2xl border p-3 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-                      placeholder={active.conversationOpen ? "اكتب الرد هنا..." : "انتهت نافذة المحادثة، يجب أن يرسل المشترك رسالة جديدة أولاً"}
+                      placeholder={activeWindowOpen ? "اكتب الرد هنا..." : "انتهت نافذة المحادثة، يجب أن يرسل المشترك رسالة جديدة أولاً"}
                     />
 
-                    <button disabled={sending || !active.conversationOpen || (!reply.trim() && !fileData)} onClick={sendReply} className="inline-flex h-[46px] items-center rounded-2xl bg-green-600 px-6 text-sm font-black text-white disabled:opacity-50">
+                    <button disabled={sending || !activeWindowOpen || (!reply.trim() && !fileData)} onClick={sendReply} className="inline-flex h-[46px] items-center rounded-2xl bg-green-600 px-6 text-sm font-black text-white disabled:opacity-50">
                       إرسال
                     </button>
                   </div>
