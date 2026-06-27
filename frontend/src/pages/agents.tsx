@@ -56,6 +56,16 @@ import { formatDuration } from '@/lib/utils';
 
 const STATUSES: AgentStatus[] = ['online', 'offline', 'busy', 'paused'];
 
+const WORK_DAYS = [
+  { id: 0, label: 'الأحد' },
+  { id: 1, label: 'الاثنين' },
+  { id: 2, label: 'الثلاثاء' },
+  { id: 3, label: 'الأربعاء' },
+  { id: 4, label: 'الخميس' },
+  { id: 5, label: 'الجمعة' },
+  { id: 6, label: 'السبت' },
+];
+
 const emptyForm = (): AgentInput => ({
   name: '',
   extension: '',
@@ -385,6 +395,60 @@ export function AgentsPage() {
                 </SelectContent>
               </Select>
             </Field>
+            <Field label="بداية الدوام">
+              <Input
+                type="time"
+                value={form.workingHours?.from || '09:00'}
+                onChange={(e) => setForm({
+                  ...form,
+                  workingHours: {
+                    ...(form.workingHours || { from: '09:00', to: '17:00', days: [0, 1, 2, 3, 4] }),
+                    from: e.target.value,
+                  },
+                })}
+              />
+            </Field>
+
+            <Field label="نهاية الدوام">
+              <Input
+                type="time"
+                value={form.workingHours?.to || '17:00'}
+                onChange={(e) => setForm({
+                  ...form,
+                  workingHours: {
+                    ...(form.workingHours || { from: '09:00', to: '17:00', days: [0, 1, 2, 3, 4] }),
+                    to: e.target.value,
+                  },
+                })}
+              />
+            </Field>
+
+            <div className="sm:col-span-2 space-y-2">
+              <Label>أيام الدوام</Label>
+              <div className="flex flex-wrap gap-2">
+                {WORK_DAYS.map((d) => {
+                  const days = form.workingHours?.days || [];
+                  const active = days.includes(d.id);
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => setForm({
+                        ...form,
+                        workingHours: {
+                          ...(form.workingHours || { from: '09:00', to: '17:00', days: [] }),
+                          days: active ? days.filter((x) => x !== d.id) : [...days, d.id].sort(),
+                        },
+                      })}
+                      className={`rounded-full border px-3 py-1 text-sm transition-colors ${active ? 'border-primary bg-primary text-primary-foreground' : 'hover:bg-accent'}`}
+                    >
+                      {d.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="sm:col-span-2 space-y-2">
               <Label>{t('agents.queues')}</Label>
               <div className="flex flex-wrap gap-2">
