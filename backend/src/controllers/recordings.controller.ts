@@ -94,6 +94,13 @@ async function syncRecordingsFromDisk() {
 
     const parsed = parseRecordingFile(fileName);
 
+    const liveCall = await prisma.call.findUnique({ where: { uniqueId: parsed.uniqueId } });
+    if (liveCall && parsed.callerNumber === '7000') {
+      parsed.callerNumber = liveCall.callerNumber || parsed.callerNumber;
+      parsed.destinationNumber = liveCall.destinationNumber || parsed.destinationNumber;
+      parsed.direction = liveCall.direction || parsed.direction;
+    }
+
     const ext = await prisma.extension.findUnique({
       where: { number: parsed.destinationNumber },
       include: { agent: true },
