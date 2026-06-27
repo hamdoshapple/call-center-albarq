@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import http from 'node:http';
+import net from 'node:net';
 import { z } from 'zod';
 import { prisma } from '../config/prisma.js';
 import { ApiError } from '../utils/ApiError.js';
@@ -77,14 +77,42 @@ async function shell(cmd: string, args: string[] = []) {
 
 async function httpCheck(ip: string) {
   const started = Date.now();
+
   return await new Promise<{ ok: boolean; latencyMs: number | null; statusCode: number | null }>((resolve) => {
-    const req = http.request({ host: ip, port: 80, method: 'HEAD', path: '/', timeout: 2500 }, (res) => {
-      res.resume();
-      resolve({ ok: true, latencyMs: Date.now() - started, statusCode: res.statusCode ?? null });
+    const socket = net.createConnection({ host: ip, port: 80, timeout: 3000 });
+    let settled = false;
+    let data = '';
+
+    const done = (ok: boolean, statusCode: number | null = null) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve({ ok, latencyMs: ok ? Date.now() - started : null, statusCode });
+    };
+
+    socket.on('connect', () => {
+      socket.write(`GET /cgi/WebCGI?1010 HTTP/1.0\r\nHost: ${ip}\r\nConnection: close\r\n\r\n`);
     });
-    req.on('timeout', () => { req.destroy(); resolve({ ok: false, latencyMs: null, statusCode: null }); });
-    req.on('error', () => resolve({ ok: false, latencyMs: null, statusCode: null }));
-    req.end();
+
+    socket.on('data', (chunk) => {
+      data += chunk.toString('utf8');
+      if (data.includes('<html') || data.includes('MyPBX_COMM') || data.includes('onLogout')) {
+        const m = data.match(/HTTP\/\d\.\d\s+(\d+)/);
+        done(true, m ? Number(m[1]) : 200);
+      }
+    });
+
+    socket.on('end', () => {
+      if (data.length) {
+        const m = data.match(/HTTP\/\d\.\d\s+(\d+)/);
+        done(true, m ? Number(m[1]) : 200);
+      } else {
+        done(false);
+      }
+    });
+
+    socket.on('timeout', () => done(false));
+    socket.on('error', () => done(false));
   });
 }
 
@@ -95,12 +123,12 @@ export async function live(_req: Request, res: Response) {
     shell('/usr/bin/nsenter', ['-t', '1', '-n', '/usr/sbin/ip', 'route', 'get', ip]),
     shell('/usr/bin/nsenter', ['-t', '1', '-n', '/usr/sbin/ip', '-o', 'addr', 'show']),
     httpCheck(ip),
-    shell('/usr/sbin/asterisk', ['-rx', 'pjsip show contacts']),
+    shell('/usr/bin/nsenter', ['-t', '1', '-m', '-u', '-i', '-n', '-p', '/usr/sbin/asterisk', '-rx', 'pjsip show contacts']),
   ]);
 
   const routeText = route.stdout || '';
   const iface = (routeText.match(/\bdev\s+(\S+)/)?.[1]) || '';
-  const routeOk = routeText.includes('192.168.0.6') && routeText.includes('dev ppp0');
+  const routeOk = routeText.includes('192.168.0.6') && /dev\s+ppp\d+/.test(routeText);
 
   const pppLines = (ppp.stdout || '')
     .split('\n')
