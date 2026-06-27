@@ -17,9 +17,25 @@ function parseRecordingFile(fileName: string) {
     return { callerNumber: 'test-rec', destinationNumber: 'test-rec', uniqueId: base, direction: 'internal' };
   }
 
+  // Format examples:
+  // 20260628-015216-102-9900046850780339-1782600736.1264.wav
+  // 20260627-235406-in-20001-7000-1782593646.1213.wav
+  const p2 = parts[2] || '';
+  const p3 = parts[3] || '';
+  const p4 = parts[4] || '';
+
+  if (['in', 'out', 'internal'].includes(p2)) {
+    return {
+      callerNumber: p4 || p3 || 'unknown',
+      destinationNumber: p3 || 'unknown',
+      uniqueId: parts.slice(5).join('-') || base,
+      direction: p2 === 'out' ? 'outbound' : p2 === 'internal' ? 'internal' : 'inbound',
+    };
+  }
+
   return {
-    callerNumber: parts[2] || 'unknown',
-    destinationNumber: parts[3] || 'unknown',
+    callerNumber: p3 || 'unknown',
+    destinationNumber: p2 || 'unknown',
     uniqueId: parts.slice(4).join('-') || base,
     direction: 'inbound',
   };
