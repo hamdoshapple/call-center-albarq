@@ -241,7 +241,7 @@ export async function list(req: Request, res: Response) {
     return {
       ...r,
       callerNumber: r.call?.callerNumber || r.callerNumber,
-      subscriberId: localSubscriberId,
+      subscriberId: r.call?.subscriber?.id ?? null,
       subscriberName: subscriber?.name ?? null,
       queueName: r.call?.queue?.name ?? null,
       queueId: r.call?.queueId ?? null,
