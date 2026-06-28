@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { prisma } from '../config/prisma.js';
 import { ApiError } from '../utils/ApiError.js';
+import { searchSubscriberCache } from '../services/subscriber-cache.service.js';
 
 async function recordingBasePath() {
   const setting = await prisma.setting.findUnique({ where: { key: 'asterisk' } });
@@ -47,32 +48,49 @@ function estimateWavDurationSec(size: number) {
 
 function normalizePhone(v?: string | null) {
   let n = String(v || '').replace(/\D/g, '');
-  if (n.startsWith('00964')) n = '0' + n.slice(5);
-  if (n.startsWith('964')) n = '0' + n.slice(3);
+
+  if (n.startsWith('00964')) n = n.slice(5);
+  else if (n.startsWith('964')) n = n.slice(3);
+
+  if (n.startsWith('0')) n = n.slice(1);
+
   return n;
 }
 
 async function findSubscriberByPhone(phone: string) {
   const normalized = normalizePhone(phone);
-  if (!normalized) return null;
+  if (!normalized || normalized.length < 10) return null;
 
-  const rows = await prisma.subscriber.findMany({
-    select: { id: true, name: true, phone: true, pppoeUsername: true },
-    take: 5000,
+  // التسجيلات تعتمد على الكاش فقط حتى لا نضغط على لايف MSSQL
+  const cachedRows = await searchSubscriberCache(normalized);
+  const exactCached = cachedRows.find((x: any) => {
+    const p = normalizePhone(x.phone);
+    const u = normalizePhone(x.pppoeUsername);
+    return (
+      (p.length >= 10 && p === normalized) ||
+      (u.length >= 10 && u === normalized)
+    );
   });
 
-  return rows.find((s) => {
-    const p = normalizePhone(s.phone);
-    const u = normalizePhone(s.pppoeUsername);
-    if (!p && !u) return false;
+  if (exactCached) return exactCached as any;
 
+  const rows = await prisma.subscriber.findMany({
+    where: {
+      OR: [
+        { phone: { contains: normalized } },
+        { pppoeUsername: { contains: normalized } },
+      ],
+    },
+    select: { id: true, name: true, phone: true, pppoeUsername: true },
+    take: 50,
+  });
+
+  return rows.find((x) => {
+    const p = normalizePhone(x.phone);
+    const u = normalizePhone(x.pppoeUsername);
     return (
-      p === normalized ||
-      u === normalized ||
-      normalized.endsWith(p) ||
-      normalized.endsWith(u) ||
-      (p && normalized.includes(p)) ||
-      (u && normalized.includes(u))
+      (p.length >= 10 && p === normalized) ||
+      (u.length >= 10 && u === normalized)
     );
   }) || null;
 }
@@ -196,19 +214,37 @@ export async function list(req: Request, res: Response) {
     take: 200,
   });
 
-  const mapped = rows.map((r) => {
+  const mapped = await Promise.all(rows.map(async (r) => {
     const safeName = path.basename(r.fileName);
     const exists = fs.existsSync(path.join(basePath, safeName));
+
+    const callPhone = normalizePhone(r.call?.callerNumber || r.callerNumber);
+    const linkedSubPhone = normalizePhone(r.call?.subscriber?.phone);
+    const linkedSubUser = normalizePhone(r.call?.subscriber?.pppoeUsername);
+
+    let subscriber = null;
+
+    if (
+      r.call?.subscriber &&
+      callPhone &&
+      (callPhone === linkedSubPhone || callPhone === linkedSubUser)
+    ) {
+      subscriber = r.call.subscriber;
+    } else if (callPhone) {
+      subscriber = await findSubscriberByPhone(callPhone);
+    }
+
     return {
       ...r,
-      subscriberId: r.call?.subscriber?.id ?? null,
-      subscriberName: r.call?.subscriber?.name ?? null,
+      callerNumber: r.call?.callerNumber || r.callerNumber,
+      subscriberId: subscriber?.id ?? null,
+      subscriberName: subscriber?.name ?? null,
       queueName: r.call?.queue?.name ?? null,
       queueId: r.call?.queueId ?? null,
       fileExists: exists,
       url: exists ? `/api/recordings/${r.id}/audio` : null,
     };
-  });
+  }));
 
   res.json(includeMissing === '1' ? mapped : mapped.filter((r) => r.fileExists));
 }

@@ -6,6 +6,32 @@ import { getAsteriskGateway } from '../asterisk/index.js';
 import { searchExternalSubscribers } from '../services/external-subscriber.service.js';
 import { searchSubscriberCache, upsertExternalSubscriberCache } from '../services/subscriber-cache.service.js';
 
+function normalizeLogPhone(v?: string | null) {
+  let n = String(v || '').replace(/\D/g, '');
+  if (n.startsWith('00964')) n = n.slice(5);
+  else if (n.startsWith('964')) n = n.slice(3);
+  if (n.startsWith('0')) n = n.slice(1);
+  return n;
+}
+
+function isRealMobile(v?: string | null) {
+  const n = normalizeLogPhone(v);
+  return n.length >= 10 && n.startsWith('7');
+}
+
+async function findCachedSubscriberForCall(phone?: string | null) {
+  const n = normalizeLogPhone(phone);
+  if (!n || n.length < 10) return null;
+
+  const cachedRows = await searchSubscriberCache(n);
+  return cachedRows.find((x: any) => {
+    const p = normalizeLogPhone(x.phone);
+    const u = normalizeLogPhone(x.pppoeUsername);
+    return (p.length >= 10 && p === n) || (u.length >= 10 && u === n);
+  }) || null;
+}
+
+
 export async function listLogs(req: Request, res: Response) {
   const { search, direction, disposition, agentId, queueId, from, to } = req.query as Record<string, string | undefined>;
   const page = Math.max(1, Number(req.query.page ?? 1));
@@ -38,7 +64,7 @@ export async function listLogs(req: Request, res: Response) {
       include: {
         agent: { select: { id: true, name: true } },
         queue: { select: { id: true, name: true } },
-        recording: { select: { id: true } },
+        recording: { select: { id: true, callerNumber: true, fileName: true } },
       },
       orderBy: { startedAt: 'desc' },
       skip: (page - 1) * pageSize,
@@ -46,7 +72,49 @@ export async function listLogs(req: Request, res: Response) {
     }),
   ]);
 
-  res.json({ total, page, pageSize, rows });
+  const mapped = await Promise.all(rows.map(async (r: any) => {
+    const effectiveCaller =
+      [r.callerNumber, r.recording?.callerNumber, r.destinationNumber].find((x) => isRealMobile(x)) ||
+      r.callerNumber;
+
+    const subscriber = await findCachedSubscriberForCall(effectiveCaller);
+
+    return {
+      ...r,
+      callerNumber: effectiveCaller,
+      callerName: subscriber?.name ?? null,
+      subscriberId: subscriber?.id ?? null,
+      subscriberName: subscriber?.name ?? null,
+      subscriber: subscriber ? {
+        id: subscriber.id,
+        name: subscriber.name,
+        phone: subscriber.phone,
+        pppoeUsername: subscriber.pppoeUsername,
+        status: subscriber.status,
+        package: subscriber.package,
+        speed: subscriber.speed,
+        expiration: subscriber.expiration,
+        debt: subscriber.debt,
+        address: subscriber.address,
+      } : null,
+    };
+  }));
+
+  const realMobiles = new Set(
+    mapped
+      .filter((r: any) => isRealMobile(r.callerNumber))
+      .map((r: any) => String(r.uniqueId || '').split('.')[0])
+  );
+
+  const cleaned = mapped.filter((r: any) => {
+    const base = String(r.uniqueId || '').split('.')[0];
+    const trunkGarbage =
+      ['20001', '2000', '7000'].includes(String(r.callerNumber)) ||
+      ['s', '7000'].includes(String(r.destinationNumber));
+    return !(trunkGarbage && realMobiles.has(base));
+  });
+
+  res.json({ total: cleaned.length, page, pageSize, rows: cleaned });
 }
 
 export async function getLive(req: Request, res: Response) {
