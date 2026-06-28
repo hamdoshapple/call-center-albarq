@@ -140,12 +140,17 @@ export function CallLogsPage() {
                   {pageData.map((l) => (
                     <TableRow key={l.id}>
                       <TableCell>
-                        <div className="font-medium tabular-nums">{l.callerNumber}</div>
+                        <div className="font-medium">
+                          {(l as any).subscriberName || (l as any).callerName || l.callerNumber}
+                        </div>
+                        {((l as any).subscriberName || (l as any).callerName) && (
+                          <div className="text-xs text-muted-foreground tabular-nums">{l.callerNumber}</div>
+                        )}
                         <div className="text-xs text-muted-foreground tabular-nums">← {l.destinationNumber}</div>
                       </TableCell>
                       <TableCell><Badge variant="outline">{t(`call_logs.${l.direction}`)}</Badge></TableCell>
                       <TableCell className="text-sm">{agentName(l.agentId)}</TableCell>
-                      <TableCell className="text-sm">{queueName(l.queueId)}</TableCell>
+                      <TableCell className="text-sm">{queueName(l.queueId) || '—'}</TableCell>
                       <TableCell className="text-sm whitespace-nowrap">{formatDateTime(l.startedAt, lang)}</TableCell>
                       <TableCell className="font-mono tabular-nums">{formatDuration(l.durationSec)}</TableCell>
                       <TableCell><StatusBadge status={l.disposition} /></TableCell>

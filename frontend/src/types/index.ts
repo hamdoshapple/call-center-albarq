@@ -180,6 +180,9 @@ export interface LiveCall {
 export interface CallLog {
   id: string;
   callerNumber: string;
+  callerName?: string;
+  subscriberName?: string;
+  subscriber?: any;
   destinationNumber: string;
   direction: CallDirection;
   disposition: CallDisposition;

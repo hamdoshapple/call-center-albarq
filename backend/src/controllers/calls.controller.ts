@@ -19,18 +19,34 @@ function isRealMobile(v?: string | null) {
   return n.length >= 10 && n.startsWith('7');
 }
 
-async function findCachedSubscriberForCall(phone?: string | null) {
-  const n = normalizeLogPhone(phone);
-  if (!n || n.length < 10) return null;
-
-  const cachedRows = await searchSubscriberCache(n);
-  return cachedRows.find((x: any) => {
-    const p = normalizeLogPhone(x.phone);
-    const u = normalizeLogPhone(x.pppoeUsername);
-    return (p.length >= 10 && p === n) || (u.length >= 10 && u === n);
-  }) || null;
+function phoneVariants(v?: string | null) {
+  const n = normalizeLogPhone(v);
+  if (!n || n.length < 10) return [];
+  return [...new Set([
+    n,
+    '0' + n,
+    '964' + n,
+    '+964' + n,
+    '00964' + n,
+  ])];
 }
 
+async function findCachedSubscriberForCall(phone?: string | null) {
+  const normalized = normalizeLogPhone(phone);
+  if (!normalized || normalized.length < 10) return null;
+
+  const allRows: any[] = [];
+  for (const q of phoneVariants(phone)) {
+    const rows = await searchSubscriberCache(q);
+    allRows.push(...rows);
+  }
+
+  return allRows.find((x: any) => {
+    const p = normalizeLogPhone(x.phone);
+    const u = normalizeLogPhone(x.pppoeUsername);
+    return (p.length >= 10 && p === normalized) || (u.length >= 10 && u === normalized);
+  }) || null;
+}
 
 export async function listLogs(req: Request, res: Response) {
   const { search, direction, disposition, agentId, queueId, from, to } = req.query as Record<string, string | undefined>;
@@ -100,19 +116,42 @@ export async function listLogs(req: Request, res: Response) {
     };
   }));
 
-  const realMobiles = new Set(
-    mapped
-      .filter((r: any) => isRealMobile(r.callerNumber))
-      .map((r: any) => String(r.uniqueId || '').split('.')[0])
-  );
+  const cleanedMap = new Map<string, any>();
 
-  const cleaned = mapped.filter((r: any) => {
-    const base = String(r.uniqueId || '').split('.')[0];
-    const trunkGarbage =
-      ['20001', '2000', '7000'].includes(String(r.callerNumber)) ||
-      ['s', '7000'].includes(String(r.destinationNumber));
-    return !(trunkGarbage && realMobiles.has(base));
-  });
+  for (const r of mapped as any[]) {
+    const caller = String(r.callerNumber || '');
+    const dest = String(r.destinationNumber || '');
+
+    // احذف أسطر الترنك والـ IVR الوهمية
+    if (caller === '20001') continue;
+    if (['s', '7000', '', 'unknown'].includes(dest)) continue;
+
+    // لازم رقم المتصل يكون موبايل حقيقي
+    if (!isRealMobile(caller)) continue;
+
+    // تجميع حسب رقم الزبون كل 3 دقائق حتى لا تطلع نفس المكالمة 4 مرات
+    const t = new Date(r.startedAt).getTime();
+    const bucket = Math.floor(t / (3 * 60 * 1000));
+    const key = `${normalizeLogPhone(caller)}-${bucket}`;
+
+    const prev = cleanedMap.get(key);
+    if (!prev) {
+      cleanedMap.set(key, r);
+      continue;
+    }
+
+    const score = (x: any) =>
+      (x.recording?.id ? 1000 : 0) +
+      (x.subscriberName || x.callerName ? 100 : 0) +
+      (Number(x.durationSec || 0) > 0 ? 50 : 0) +
+      (x.agentId ? 10 : 0);
+
+    if (score(r) > score(prev)) cleanedMap.set(key, r);
+  }
+
+  const cleaned = [...cleanedMap.values()].sort(
+    (a: any, b: any) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
+  );
 
   res.json({ total: cleaned.length, page, pageSize, rows: cleaned });
 }

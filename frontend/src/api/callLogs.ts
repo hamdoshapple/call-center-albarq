@@ -51,6 +51,9 @@ type BackendCallLog = {
   talkTimeSec: number;
   waitTimeSec: number;
   recording?: { id: string } | null;
+  callerName?: string | null;
+  subscriberName?: string | null;
+  subscriber?: any | null;
 };
 
 type BackendResponse = {
@@ -65,6 +68,8 @@ function mapCallLog(r: BackendCallLog): CallLog {
     id: r.id,
     callerNumber: r.callerNumber,
     destinationNumber: r.destinationNumber,
+    callerName: r.callerName || r.subscriberName || r.subscriber?.name || '',
+    subscriberName: r.subscriberName || r.callerName || r.subscriber?.name || '',
     direction: r.direction,
     disposition: (r.disposition ?? 'no_answer') as CallLog['disposition'],
     agentId: r.agentId || undefined,
