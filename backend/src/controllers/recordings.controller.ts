@@ -125,6 +125,10 @@ async function syncRecordingsFromDisk() {
     });
 
     const subscriber = await findSubscriberByPhone(parsed.callerNumber);
+    const localSubscriberId =
+      subscriber?.id && !String(subscriber.id).startsWith('ext-')
+        ? subscriber.id
+        : null;
     const duration = estimateWavDurationSec(stat.size);
 
     const call = await prisma.call.upsert({
@@ -136,7 +140,7 @@ async function syncRecordingsFromDisk() {
         status: 'ended',
         disposition: 'answered',
         agentId: ext?.agent?.id ?? null,
-        subscriberId: subscriber?.id ?? null,
+        subscriberId: localSubscriberId,
         endedAt: stat.mtime,
         durationSec: duration,
         talkTimeSec: duration,
@@ -150,7 +154,7 @@ async function syncRecordingsFromDisk() {
         status: 'ended',
         disposition: 'answered',
         agentId: ext?.agent?.id ?? null,
-        subscriberId: subscriber?.id ?? null,
+        subscriberId: localSubscriberId,
         startedAt: stat.birthtime,
         endedAt: stat.mtime,
         durationSec: duration,
@@ -237,7 +241,7 @@ export async function list(req: Request, res: Response) {
     return {
       ...r,
       callerNumber: r.call?.callerNumber || r.callerNumber,
-      subscriberId: subscriber?.id ?? null,
+      subscriberId: localSubscriberId,
       subscriberName: subscriber?.name ?? null,
       queueName: r.call?.queue?.name ?? null,
       queueId: r.call?.queueId ?? null,
