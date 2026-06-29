@@ -337,7 +337,7 @@ export default function EmployeeWhatsappPage() {
             />
           ) : null}
 
-          <div className={`sticky ${composerFocused ? 'bottom-[calc(env(safe-area-inset-bottom)+10px)]' : 'bottom-[calc(env(safe-area-inset-bottom)+82px)]'} z-40 mb-2 flex items-center gap-2 rounded-[1.8rem] bg-white p-2 shadow-xl shadow-slate-200/80 transition-all duration-200`}>
+          <div className={`sticky ${composerFocused ? 'bottom-[calc(env(safe-area-inset-bottom)+4px)]' : 'bottom-[calc(env(safe-area-inset-bottom)+82px)]'} z-40 mb-2 flex items-center gap-2 rounded-[1.8rem] bg-white p-2 shadow-xl shadow-slate-200/80 transition-all duration-200`}>
             <label className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl bg-slate-50 text-sky-500">
               <Paperclip className="h-5 w-5" />
               <input
@@ -363,7 +363,10 @@ export default function EmployeeWhatsappPage() {
             <input
               value={reply}
               onChange={(e) => setReply(e.target.value)}
-              onFocus={() => setComposerFocused(true)}
+              onFocus={() => {
+                setComposerFocused(true);
+                setTimeout(() => messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: 'smooth' }), 250);
+              }}
               onBlur={() => setTimeout(() => setComposerFocused(false), 120)}
               onKeyDown={(e) => e.key === 'Enter' && sendReply()}
               className="min-h-12 min-w-0 flex-1 rounded-full bg-slate-100 px-5 text-sm font-semibold outline-none placeholder:text-slate-400"
