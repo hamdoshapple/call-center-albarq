@@ -61,6 +61,7 @@ services:
         condition: service_healthy
     environment:
       NODE_ENV: production
+      PUBLIC_BASE_URL: https://dashboard.albarq.app
       PORT: 4000
       DATABASE_URL: "mysql://albarq:%40Cs5.01998@mysql:3306/callcenter"
       JWT_SECRET: 9571d3eb6aa3d565b67adfad5f7374e87675f8ec674e4bc190bd182eda6f5f5f8dc4884f0ff1efa980d36fc5bb86791f

@@ -9,7 +9,11 @@ import { searchSubscriberCache, upsertExternalSubscriberCache } from '../service
 
 
 function publicBase(req: Request) {
-  const host = req.get('host');
+  const envBase = String(process.env.PUBLIC_BASE_URL || process.env.APP_PUBLIC_URL || '').trim().replace(/\/$/, '');
+  if (envBase) return envBase;
+
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+  const host = forwardedHost || req.get('host') || 'dashboard.albarq.app';
   const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'https').split(',')[0];
   return `${proto === 'http' ? 'https' : proto}://${host}`;
 }
