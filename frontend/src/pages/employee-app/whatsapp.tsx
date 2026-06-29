@@ -309,11 +309,6 @@ export default function EmployeeWhatsappPage() {
     const text = reply.trim();
     if (!active || (!text && !fileData)) return;
 
-    if (fileData && String(fileType || '').startsWith('audio/')) {
-      showToast('إرسال الصوت غير مدعوم حالياً من المتصفح');
-      return;
-    }
-
     setSending(true);
     try {
       console.log('EMP_WA_SEND', { conversationId: active.id, hasText: !!text, hasFile: !!fileData, fileName, fileType, fileSize: fileData.length });
@@ -565,7 +560,7 @@ function AttachmentPreview({
         <div className="min-w-0 flex-1 py-1">
           <p className="truncate text-sm font-black text-slate-950">{fileName || 'مرفق'}</p>
           <p className="mt-1 text-xs font-bold text-slate-400">جاهز للإرسال</p>
-          {isAudio ? <p className="mt-2 text-xs font-bold text-sky-500">رسالة صوتية جاهزة للإرسال</p> : null}
+          {isAudio ? <p className="mt-2 text-xs font-bold text-sky-500">مرفق صوتي جاهز للإرسال</p> : null}
         </div>
 
         <button onClick={onClear} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-red-50 text-red-500">

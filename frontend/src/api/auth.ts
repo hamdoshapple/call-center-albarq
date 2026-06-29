@@ -1,6 +1,9 @@
 import type { AuthSession, User } from '@/types';
 
-const API_BASE = (window.location.protocol === 'capacitor:' ? 'https://dashboard.albarq.app/api' : '/api');
+const API_BASE =
+  window.location.hostname === 'localhost' || window.location.protocol === 'capacitor:'
+    ? 'https://dashboard.albarq.app/api'
+    : '/api';
 
 function mapUser(u: any): User {
   return {
