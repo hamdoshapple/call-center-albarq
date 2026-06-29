@@ -48,6 +48,7 @@ export default function EmployeeWhatsappPage() {
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState<{ type: ToastType; text: string } | null>(null);
+  const [preparingFile, setPreparingFile] = useState(false);
   const [recording, setRecording] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -117,55 +118,162 @@ export default function EmployeeWhatsappPage() {
   async function pickFile(file?: File | null) {
     if (!file) return;
 
-    const allowed =
-      file.type.startsWith('image/') ||
-      file.type.startsWith('audio/') ||
-      file.type === 'application/pdf' ||
-      file.type.includes('word') ||
-      file.type.includes('excel') ||
-      file.type.includes('spreadsheet') ||
-      file.type.includes('officedocument');
+    setPreparingFile(true);
+    try {
+      const isImage = file.type.startsWith('image/') || /\.(heic|heif|jpg|jpeg|png|webp)$/i.test(file.name);
+      const allowed =
+        isImage ||
+        file.type.startsWith('audio/') ||
+        file.type === 'application/pdf' ||
+        file.type.includes('word') ||
+        file.type.includes('excel') ||
+        file.type.includes('spreadsheet') ||
+        file.type.includes('officedocument');
 
-    if (!allowed) {
-      showToast('نوع الملف غير مدعوم');
-      return;
+      if (!allowed) {
+        showToast('نوع الملف غير مدعوم');
+        return;
+      }
+
+      if (file.size > 12 * 1024 * 1024) {
+        showToast('حجم الملف كبير جداً');
+        return;
+      }
+
+      if (isImage) {
+        const data = await compressImageToJpeg(file);
+        setFileData(data);
+        setFileName((file.name || 'image').replace(/\.[^.]+$/, '') + '.jpg');
+        setFileType('image/jpeg');
+        showToast('تم تجهيز الصورة للإرسال', 'success');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        setFileData(String(reader.result || ''));
+        setFileName(file.name);
+        setFileType(file.type || 'application/octet-stream');
+        showToast('تم تجهيز المرفق للإرسال', 'success');
+      };
+      reader.onerror = () => showToast('تعذر قراءة الملف');
+      reader.readAsDataURL(file);
+    } finally {
+      setPreparingFile(false);
+    }
+  }
+
+  async function compressImageToJpeg(file: File): Promise<string> {
+    const objectUrl = URL.createObjectURL(file);
+
+    try {
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = objectUrl;
+
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('IMAGE_LOAD_FAILED'));
+      });
+
+      const maxSide = 1280;
+      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('CANVAS_FAILED');
+
+      ctx.drawImage(img, 0, 0, w, h);
+      return canvas.toDataURL('image/jpeg', 0.82);
+    } catch {
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+
+
+  function bestAudioMime() {
+    const choices = [
+      'audio/mp4',
+      'audio/mpeg',
+      'audio/ogg;codecs=opus',
+      'audio/webm;codecs=opus',
+      'audio/webm',
+    ];
+
+    for (const t of choices) {
+      try {
+        if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) return t;
+      } catch {}
     }
 
-    if (file.size > 8 * 1024 * 1024) {
-      showToast('حجم الملف يجب أن يكون أقل من 8MB');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      setFileData(String(reader.result || ''));
-      setFileName(file.name);
-      setFileType(file.type);
-      showToast('تم تجهيز المرفق للإرسال', 'success');
-    };
-    reader.readAsDataURL(file);
+    return '';
   }
 
   async function startRecording() {
     try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        showToast('التسجيل الصوتي غير مدعوم بهذا المتصفح');
+        return;
+      }
+
+      clearFile();
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
+      const mimeType = bestAudioMime();
+      const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+
       audioChunksRef.current = [];
 
       rec.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
 
+      rec.onerror = () => {
+        showToast('تعذر تسجيل الصوت');
+        setRecording(false);
+        stream.getTracks().forEach((t) => t.stop());
+      };
+
       rec.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const type = rec.mimeType || mimeType || 'audio/mp4';
+        const blob = new Blob(audioChunksRef.current, { type });
+
+        if (!blob.size) {
+          showToast('لم يتم تسجيل صوت');
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        const ext =
+          type.includes('mp4') ? 'm4a' :
+          type.includes('mpeg') ? 'mp3' :
+          type.includes('ogg') ? 'ogg' :
+          type.includes('webm') ? 'webm' :
+          'audio';
+
         const reader = new FileReader();
         reader.onload = () => {
           setFileData(String(reader.result || ''));
-          setFileName(`voice-${Date.now()}.webm`);
-          setFileType('audio/webm');
+          setFileName(`voice-${Date.now()}.${ext}`);
+          setFileType(type);
           showToast('تم تجهيز التسجيل الصوتي', 'success');
         };
+        reader.onerror = () => showToast('تعذر تجهيز التسجيل');
         reader.readAsDataURL(blob);
+
         stream.getTracks().forEach((t) => t.stop());
       };
 
@@ -173,13 +281,21 @@ export default function EmployeeWhatsappPage() {
       rec.start();
       setRecording(true);
     } catch {
-      showToast('تعذر تشغيل المايكروفون');
+      showToast('تعذر الوصول إلى المايكروفون');
+      setRecording(false);
     }
   }
 
   function stopRecording() {
-    mediaRecorderRef.current?.stop();
-    setRecording(false);
+    try {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+    } catch {
+      showToast('تعذر إيقاف التسجيل');
+    } finally {
+      setRecording(false);
+    }
   }
 
   function clearFile() {
@@ -192,6 +308,11 @@ export default function EmployeeWhatsappPage() {
   async function sendReply() {
     const text = reply.trim();
     if (!active || (!text && !fileData)) return;
+
+    if (fileData && String(fileType || '').startsWith('audio/')) {
+      showToast('إرسال الصوت غير مدعوم حالياً من المتصفح');
+      return;
+    }
 
     setSending(true);
     try {
@@ -336,6 +457,7 @@ export default function EmployeeWhatsappPage() {
             </label>
 
             <button
+              type="button"
               onClick={recording ? stopRecording : startRecording}
               className={`flex h-11 w-11 items-center justify-center rounded-2xl ${
                 recording ? 'bg-red-50 text-red-500' : 'bg-slate-50 text-sky-500'
@@ -354,10 +476,10 @@ export default function EmployeeWhatsappPage() {
 
             <button
               onClick={sendReply}
-              disabled={sending || (!reply.trim() && !fileData)}
+              disabled={sending || preparingFile || (!reply.trim() && !fileData)}
               className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-sky-500 text-white shadow-lg shadow-sky-200 disabled:opacity-50"
             >
-              {sending ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+              {sending || preparingFile ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             </button>
           </div>
         </>

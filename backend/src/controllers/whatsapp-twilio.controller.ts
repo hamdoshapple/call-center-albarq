@@ -68,8 +68,22 @@ function saveBase64Media(dataUrl: string, preferredType = '') {
     mime = 'image/webp'; ext = 'webp';
   } else if (buf.toString('ascii', 0, 4) === '%PDF') {
     mime = 'application/pdf'; ext = 'pdf';
-  } else if (inputMime.includes('pdf')) {
+  } else if (mime.includes('pdf') || inputMime.includes('pdf')) {
     mime = 'application/pdf'; ext = 'pdf';
+  } else if (mime.includes('webm')) {
+    mime = 'audio/webm'; ext = 'webm';
+  } else if (mime.includes('ogg')) {
+    mime = 'audio/ogg'; ext = 'ogg';
+  } else if (mime.includes('mpeg') || mime.includes('mp3')) {
+    mime = 'audio/mpeg'; ext = 'mp3';
+  } else if (mime.includes('mp4') || mime.includes('m4a')) {
+    mime = 'audio/mp4'; ext = 'm4a';
+  } else if (mime.includes('wav')) {
+    mime = 'audio/wav'; ext = 'wav';
+  } else if (mime.includes('wordprocessingml') || mime.includes('msword')) {
+    mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'; ext = 'docx';
+  } else if (mime.includes('spreadsheetml') || mime.includes('excel')) {
+    mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'; ext = 'xlsx';
   }
 
   const name = `${Date.now()}-${randomUUID()}.${ext}`;
@@ -372,7 +386,7 @@ export async function reply(req: Request, res: Response) {
 
   await prisma.twilioWhatsappContact.update({
     where: { id: contactId },
-    data: { lastMessage: body, lastAt: new Date() },
+    data: { lastMessage: body || (savedMedia?.mime?.startsWith('image/') ? 'صورة' : savedMedia ? 'مرفق' : ''), lastAt: new Date() },
   });
 
   res.json(msg);
@@ -432,20 +446,34 @@ export async function mediaFile(req: Request, res: Response) {
   const full = path.join('/app/uploads/whatsapp-twilio', file);
   if (!fs.existsSync(full)) return res.status(404).send('Not found');
 
+  const ext = path.extname(file).toLowerCase().replace('.', '');
   const head = fs.readFileSync(full).subarray(0, 16);
+
   const type =
     head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff ? 'image/jpeg' :
     head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47 ? 'image/png' :
     head.toString('ascii', 0, 3) === 'GIF' ? 'image/gif' :
     head.toString('ascii', 0, 4) === 'RIFF' && head.toString('ascii', 8, 12) === 'WEBP' ? 'image/webp' :
+    head.toString('ascii', 0, 4) === '%PDF' ? 'application/pdf' :
+    ext === 'webm' ? 'audio/webm' :
+    ext === 'ogg' ? 'audio/ogg' :
+    ext === 'mp3' ? 'audio/mpeg' :
+    ext === 'm4a' ? 'audio/mp4' :
+    ext === 'mp4' ? 'video/mp4' :
+    ext === 'wav' ? 'audio/wav' :
+    ext === 'pdf' ? 'application/pdf' :
+    ext === 'doc' ? 'application/msword' :
+    ext === 'docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' :
+    ext === 'xls' ? 'application/vnd.ms-excel' :
+    ext === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' :
     'application/octet-stream';
 
   res.setHeader('Content-Type', type);
+  res.setHeader('Content-Disposition', `inline; filename="${file}"`);
   res.setHeader('Cache-Control', 'public, max-age=86400');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.sendFile(full);
 }
-
 
 export async function statusCallback(req: Request, res: Response) {
   const sid = String(req.body?.MessageSid || req.body?.SmsSid || '');
@@ -454,6 +482,7 @@ export async function statusCallback(req: Request, res: Response) {
   const errorMessage = req.body?.ErrorMessage ? String(req.body.ErrorMessage) : null;
 
   if (sid && status) {
+    console.log('[twilio-status]', { sid, status, errorCode, errorMessage });
     await prisma.twilioWhatsappMessage.updateMany({
       where: { twilioSid: sid },
       data: {
