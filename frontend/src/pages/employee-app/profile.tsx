@@ -1,4 +1,5 @@
 import { Bell, LogOut, ShieldCheck, User } from 'lucide-react';
+import employeeLogout from './logout';
 
 export default function EmployeeProfilePage() {
   return (
@@ -16,7 +17,10 @@ export default function EmployeeProfilePage() {
         <ProfileItem icon={<Bell />} title="الإشعارات" subtitle="جاهزة للاستقبال" />
       </div>
 
-      <button className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-50 px-4 py-4 text-sm font-black text-red-500">
+      <button
+        onClick={employeeLogout}
+        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-500 px-4 py-4 text-sm font-black text-white shadow-lg shadow-red-100"
+      >
         <LogOut className="h-5 w-5" />
         تسجيل الخروج
       </button>

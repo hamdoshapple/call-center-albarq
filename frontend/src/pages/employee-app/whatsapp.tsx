@@ -29,6 +29,7 @@ type Msg = {
   mediaUrl?: string;
   mediaType?: string;
   status?: string;
+  agentName?: string;
   createdAt: string;
 };
 
@@ -415,9 +416,17 @@ function MessageBubble({ msg }: { msg: Msg }) {
           <p className="whitespace-pre-wrap px-3 py-2 text-sm font-semibold leading-6">{msg.body}</p>
         ) : null}
 
-        <div className={`flex items-center gap-1 px-3 pb-2 text-[10px] ${outbound ? 'text-sky-100' : 'text-slate-400'}`}>
-          <span>{formatTime(msg.createdAt)}</span>
-          {outbound ? <CheckCheck className="h-3.5 w-3.5" /> : null}
+        <div className={`px-3 pb-2 ${outbound ? 'text-sky-100' : 'text-slate-400'}`}>
+          {outbound && msg.agentName ? (
+            <div className="mb-1 max-w-[150px] truncate text-[8px] leading-none opacity-70">
+              {msg.agentName}
+            </div>
+          ) : null}
+
+          <div className="flex items-center gap-1 text-[10px] leading-none">
+            <span>{formatTime(msg.createdAt)}</span>
+            {outbound ? <CheckCheck className="h-3.5 w-3.5" /> : null}
+          </div>
         </div>
       </div>
     </div>
