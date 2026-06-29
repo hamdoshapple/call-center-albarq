@@ -49,6 +49,7 @@ export default function EmployeeWhatsappPage() {
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState<{ type: ToastType; text: string } | null>(null);
   const [preparingFile, setPreparingFile] = useState(false);
+  const [composerFocused, setComposerFocused] = useState(false);
 
   const messagesRef = useRef<HTMLDivElement | null>(null);
 
@@ -308,7 +309,7 @@ export default function EmployeeWhatsappPage() {
         </>
       ) : (
         <>
-          <div className="flex items-center gap-3 rounded-[1.5rem] bg-white p-3 shadow-lg shadow-slate-200/70">
+          <div className="sticky top-[calc(env(safe-area-inset-top)+10px)] z-50 flex items-center gap-3 rounded-[1.5rem] bg-white/95 p-3 shadow-lg shadow-slate-200/70 backdrop-blur-xl">
             <button onClick={() => setActive(null)} className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-50 text-slate-500">
               <ArrowRight className="h-5 w-5" />
             </button>
@@ -336,7 +337,7 @@ export default function EmployeeWhatsappPage() {
             />
           ) : null}
 
-          <div className="sticky bottom-[calc(env(safe-area-inset-bottom)+82px)] z-40 mb-2 flex items-center gap-2 rounded-[1.8rem] bg-white p-2 shadow-xl shadow-slate-200/80">
+          <div className={`sticky ${composerFocused ? 'bottom-[calc(env(safe-area-inset-bottom)+10px)]' : 'bottom-[calc(env(safe-area-inset-bottom)+82px)]'} z-40 mb-2 flex items-center gap-2 rounded-[1.8rem] bg-white p-2 shadow-xl shadow-slate-200/80 transition-all duration-200`}>
             <label className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl bg-slate-50 text-sky-500">
               <Paperclip className="h-5 w-5" />
               <input
@@ -362,6 +363,8 @@ export default function EmployeeWhatsappPage() {
             <input
               value={reply}
               onChange={(e) => setReply(e.target.value)}
+              onFocus={() => setComposerFocused(true)}
+              onBlur={() => setTimeout(() => setComposerFocused(false), 120)}
               onKeyDown={(e) => e.key === 'Enter' && sendReply()}
               className="min-h-12 min-w-0 flex-1 rounded-full bg-slate-100 px-5 text-sm font-semibold outline-none placeholder:text-slate-400"
               placeholder="اكتب رسالة"

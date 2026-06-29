@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { Home, MessageCircle, Phone, Ticket, User } from 'lucide-react';
 
@@ -12,6 +12,23 @@ const navItems = [
 
 export default function EmployeeLayout() {
   const navigate = useNavigate();
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  useEffect(() => {
+    const onFocus = (e: FocusEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && ['INPUT', 'TEXTAREA'].includes(el.tagName)) setKeyboardOpen(true);
+    };
+    const onBlur = () => setTimeout(() => setKeyboardOpen(false), 120);
+
+    window.addEventListener('focusin', onFocus);
+    window.addEventListener('focusout', onBlur);
+
+    return () => {
+      window.removeEventListener('focusin', onFocus);
+      window.removeEventListener('focusout', onBlur);
+    };
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem('cc_token') || localStorage.getItem('token');
@@ -22,11 +39,11 @@ export default function EmployeeLayout() {
     <div dir="rtl" className="min-h-screen bg-[#f6f8fb] text-slate-950">
       
       <HelmetManifest />
-      <main className="mx-auto min-h-screen max-w-md pb-24">
+      <main className={`mx-auto min-h-screen max-w-md transition-all duration-200 ${keyboardOpen ? "pb-0" : "pb-24"}`}>
         <Outlet />
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md border-t border-slate-200 bg-white/95 px-3 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-2 shadow-[0_-14px_40px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+      <nav className={`fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md border-t border-slate-200 bg-white/95 px-3 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-2 shadow-[0_-14px_40px_rgba(15,23,42,0.08)] backdrop-blur-xl transition-transform duration-200 ${keyboardOpen ? 'translate-y-full' : 'translate-y-0'}`}>
         <div className="grid grid-cols-5 gap-1">
           {navItems.map((item) => {
             const Icon = item.icon;
