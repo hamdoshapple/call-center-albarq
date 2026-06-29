@@ -13,17 +13,17 @@ import {
 export default function EmployeeDashboardPage() {
   return (
     <section className="space-y-5 px-4 pb-6 pt-[calc(env(safe-area-inset-top)+18px)]">
-      <header className="relative overflow-hidden rounded-[2rem] bg-white p-5 shadow-xl shadow-slate-200/70">
+      <header className="relative overflow-hidden rounded-[2rem] bg-white p-6 shadow-xl shadow-slate-200/70">
         <div className="absolute -left-10 -top-10 h-32 w-32 rounded-full bg-sky-100" />
         <div className="absolute -bottom-12 right-16 h-36 w-36 rounded-full bg-cyan-100" />
 
-        <div className="relative flex items-start justify-between gap-3">
+        <div className="relative flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-bold text-sky-500">Albarq Staff</p>
             <h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950">
               صباح الخير 👋
             </h1>
-            <p className="mt-2 text-sm font-medium text-slate-500">
+            <p className="mt-2 max-w-[240px] text-sm font-medium leading-6 text-slate-500">
               تابع عملك بسهولة من مكان واحد.
             </p>
           </div>
@@ -59,7 +59,7 @@ export default function EmployeeDashboardPage() {
 
       <div className="grid grid-cols-2 gap-3">
         <StatCard title="مكالمات اليوم" value="0" icon={<PhoneCall />} />
-        <StatCard title="فائتة" value="0" icon={<PhoneMissed />} />
+        <StatCard title="مكالمات فائتة" value="0" icon={<PhoneMissed />} />
         <StatCard title="تذاكر مفتوحة" value="0" icon={<TicketCheck />} />
         <StatCard title="إشعارات" value="0" icon={<Bell />} />
       </div>

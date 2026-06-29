@@ -25,10 +25,10 @@ export const whatsappTwilioApi = {
   saveSettings: (data: any) => request('/whatsapp-twilio/settings', { method: 'PUT', body: JSON.stringify(data) }),
   conversations: () => request('/whatsapp-twilio/conversations'),
   messages: (id: string) => request(`/whatsapp-twilio/conversations/${id}/messages`),
-  reply: (id: string, body: string, fileData?: string) =>
+  reply: (id: string, body: string, fileData?: string, fileName?: string, fileType?: string) =>
     request(`/whatsapp-twilio/conversations/${id}/reply`, {
       method: 'POST',
-      body: JSON.stringify({ body, fileData, imageData: fileData }),
+      body: JSON.stringify({ body, fileData, imageData: fileData, fileName, fileType }),
     }),
   read: (id: string) => request(`/whatsapp-twilio/conversations/${id}/read`, { method: 'POST', body: JSON.stringify({}) }),
 };

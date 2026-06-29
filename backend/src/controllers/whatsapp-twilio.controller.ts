@@ -47,7 +47,7 @@ async function downloadTwilioMedia(req: Request, url: string, mime: string) {
   return `${publicBase(req)}/api/whatsapp-twilio/media/${name}`;
 }
 
-function saveBase64Media(dataUrl: string) {
+function saveBase64Media(dataUrl: string, preferredType = '') {
   const m = String(dataUrl || '').match(/^([a-zA-Z0-9/+.-]+\/[a-zA-Z0-9.+-]+);base64,(.+)$/)
     || String(dataUrl || '').match(/^data:([a-zA-Z0-9/+.-]+\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
   if (!m) return null;
@@ -55,7 +55,7 @@ function saveBase64Media(dataUrl: string) {
   const inputMime = m[1];
   const buf = Buffer.from(m[2], 'base64');
 
-  let mime = inputMime;
+  let mime = preferredType || inputMime;
   let ext = 'bin';
 
   if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
@@ -313,7 +313,8 @@ export async function reply(req: Request, res: Response) {
   const contactId = String(req.params.id);
   const body = String(req.body?.body || '').trim();
   const imageData = String(req.body?.imageData || req.body?.fileData || '');
-  const savedMedia = imageData ? saveBase64Media(imageData) : null;
+  const fileType = String(req.body?.fileType || '');
+  const savedMedia = imageData ? saveBase64Media(imageData, fileType) : null;
   if (!body && !savedMedia) return res.status(400).json({ message: 'EMPTY_MESSAGE' });
 
   const user: any = (req as any).user || {};
