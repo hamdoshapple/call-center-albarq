@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { useEffect } from 'react';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { Home, MessageCircle, Phone, Ticket, User } from 'lucide-react';
 
 const navItems = [
@@ -10,6 +11,13 @@ const navItems = [
 ];
 
 export default function EmployeeLayout() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const token = localStorage.getItem('cc_token') || localStorage.getItem('token');
+    if (!token) navigate('/employee/login', { replace: true });
+  }, [navigate]);
+
   return (
     <div dir="rtl" className="min-h-screen bg-[#f6f8fb] text-slate-950">
       

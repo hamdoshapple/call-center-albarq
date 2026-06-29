@@ -239,7 +239,7 @@ export default function EmployeeWhatsappPage() {
   }, []);
 
   return (
-    <section className="flex h-screen flex-col px-4 pt-[calc(env(safe-area-inset-top)+18px)]">
+    <section className="flex min-h-[100dvh] flex-col px-4 pt-[calc(env(safe-area-inset-top)+18px)]">
       {toast ? (
         <div
           className={`fixed left-1/2 top-[calc(env(safe-area-inset-top)+12px)] z-[80] w-fit max-w-[90%] -translate-x-1/2 rounded-2xl px-5 py-3 text-center text-sm font-black shadow-xl ${
@@ -320,7 +320,7 @@ export default function EmployeeWhatsappPage() {
             </div>
           </div>
 
-          <div ref={messagesRef} className="mt-4 flex-1 space-y-2 overflow-y-auto pb-3">
+          <div ref={messagesRef} className="mt-4 flex-1 space-y-2 overflow-y-auto pb-32">
             {messages.map((msg) => (
               <MessageBubble key={msg.id} msg={msg} />
             ))}
@@ -335,7 +335,7 @@ export default function EmployeeWhatsappPage() {
             />
           ) : null}
 
-          <div className="mb-[calc(env(safe-area-inset-bottom)+88px)] flex items-center gap-2 rounded-[1.8rem] bg-white p-2 shadow-xl shadow-slate-200/80">
+          <div className="sticky bottom-[calc(env(safe-area-inset-bottom)+82px)] z-40 mb-2 flex items-center gap-2 rounded-[1.8rem] bg-white p-2 shadow-xl shadow-slate-200/80">
             <label className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl bg-slate-50 text-sky-500">
               <Paperclip className="h-5 w-5" />
               <input

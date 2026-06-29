@@ -5,7 +5,9 @@
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
         <meta name="description" content="Call Center Albarq - منصة إدارة مركز الاتصال" />
     <title>Call Center Albarq | مركز اتصال البرق</title>
-                  <link rel="manifest" href="/manifest.json" />
+                  <script>
+      document.write('<link rel="manifest" href="' + (location.pathname.startsWith("/employee") ? "/employee-manifest.json" : "/manifest.json") + '">');
+    </script>
     <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
       <meta name="theme-color" content="#f1f5f9" />

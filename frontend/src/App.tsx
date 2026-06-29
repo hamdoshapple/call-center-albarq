@@ -31,6 +31,7 @@ import EmployeeCallsPage from '@/pages/employee-app/calls';
 import EmployeeTicketsPage from '@/pages/employee-app/tickets';
 import EmployeeProfilePage from '@/pages/employee-app/profile';
 import EmployeeWhatsappPage from '@/pages/employee-app/whatsapp';
+import EmployeeLoginPage from '@/pages/employee-app/login';
 
 function RootRedirect() {
   const host = window.location.hostname;
@@ -46,13 +47,11 @@ export function App() {
       <Route path="/my" element={<SubscriberPortalPage />} />
       <Route path="/login" element={<LoginPage />} />
 
+      <Route path="/employee/login" element={<EmployeeLoginPage />} />
+
       <Route
         path="/employee"
-        element={
-          <ProtectedRoute>
-            <EmployeeLayout />
-          </ProtectedRoute>
-        }
+        element={<EmployeeLayout />}
       >
         <Route index element={<Navigate to="/employee/dashboard" replace />} />
         <Route path="dashboard" element={<EmployeeDashboardPage />} />
