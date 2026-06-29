@@ -6,13 +6,29 @@ import {
   Grid3X3,
   Image as ImageIcon,
   MessageCircle,
+  PhoneCall,
   Paperclip,
+  Ticket,
+  User,
+  Wallet,
   RefreshCw,
   Search,
   Send,
   X,
 } from 'lucide-react';
 import { whatsappTwilioApi } from '@/api/whatsappTwilio';
+
+type SubscriberLite = {
+  id: string;
+  name?: string;
+  phone?: string;
+  pppoeUsername?: string;
+  package?: string;
+  status?: string;
+  source?: string;
+  debt?: number;
+  expiration?: string | null;
+};
 
 type Conv = {
   id: string;
@@ -22,6 +38,8 @@ type Conv = {
   unreadCount?: number;
   conversationOpen?: boolean;
   windowExpiresAt?: string | null;
+  subscriber?: SubscriberLite | null;
+  subscribers?: SubscriberLite[];
 };
 
 type Msg = {
@@ -50,6 +68,8 @@ export default function EmployeeWhatsappPage() {
   const [sending, setSending] = useState(false);
   const [preparingFile, setPreparingFile] = useState(false);
   const [toast, setToast] = useState<{ type: ToastType; text: string } | null>(null);
+  const [showJumpDown, setShowJumpDown] = useState(false);
+  const [customerModalOpen, setCustomerModalOpen] = useState(false);
 
   const messagesRef = useRef<HTMLDivElement>(null!);
 
@@ -80,7 +100,15 @@ export default function EmployeeWhatsappPage() {
   function scrollBottom(delay = 80) {
     window.setTimeout(() => {
       messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: 'smooth' });
+      setShowJumpDown(false);
     }, delay);
+  }
+
+  function handleMessagesScroll() {
+    const el = messagesRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setShowJumpDown(distanceFromBottom > 180);
   }
 
   async function loadConvs(search = q) {
@@ -108,6 +136,8 @@ export default function EmployeeWhatsappPage() {
               ...updated,
               conversationOpen: cur.conversationOpen,
               windowExpiresAt: cur.windowExpiresAt,
+              subscriber: cur.subscriber,
+              subscribers: cur.subscribers,
             }
           : cur;
       });
@@ -137,7 +167,12 @@ export default function EmployeeWhatsappPage() {
       setMessages(Array.isArray(data) ? data : []);
       await whatsappTwilioApi.read(id).catch(() => null);
       setConvs((old) => old.map((x) => (x.id === id ? { ...x, unreadCount: 0 } : x)));
-      scrollBottom();
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          scrollBottom(0);
+        });
+      });
     } catch {
       showToast('تعذر تحميل الرسائل');
     }
@@ -266,10 +301,25 @@ export default function EmployeeWhatsappPage() {
   }
 
   useEffect(() => {
+    if (!active || !messages.length) return;
+
+    requestAnimationFrame(() => {
+      scrollBottom(0);
+    });
+  }, [messages.length, active?.id]);
+
+  useEffect(() => {
     loadConvs('');
     const t = window.setInterval(() => loadConvs(q), 12000);
     return () => window.clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('employee-wa-chat-open', { detail: Boolean(active) }));
+    return () => {
+      window.dispatchEvent(new CustomEvent('employee-wa-chat-open', { detail: false }));
+    };
+  }, [active]);
 
   return (
     <section dir="rtl" className="h-screen overflow-hidden bg-[#f6f8fb] flex flex-col">
@@ -290,6 +340,9 @@ export default function EmployeeWhatsappPage() {
           active={active}
           messages={messages}
           messagesRef={messagesRef}
+          showJumpDown={showJumpDown}
+          onMessagesScroll={handleMessagesScroll}
+          onJumpDown={() => scrollBottom(0)}
           canReply={canReply}
           windowText={windowText}
           reply={reply}
@@ -301,12 +354,17 @@ export default function EmployeeWhatsappPage() {
           sending={sending}
           preparingFile={preparingFile}
           onBack={() => setActive(null)}
+          onOpenCustomer={() => setCustomerModalOpen(true)}
           onPickFile={pickFile}
           onClearFile={clearFile}
           onSend={sendReply}
           onFocus={() => scrollBottom(250)}
         />
       )}
+
+      {active && customerModalOpen ? (
+        <CustomerModal conv={active} onClose={() => setCustomerModalOpen(false)} />
+      ) : null}
     </section>
   );
 }
@@ -376,6 +434,9 @@ function ChatScreen({
   active,
   messages,
   messagesRef,
+  showJumpDown,
+  onMessagesScroll,
+  onJumpDown,
   canReply,
   windowText,
   reply,
@@ -387,6 +448,7 @@ function ChatScreen({
   sending,
   preparingFile,
   onBack,
+  onOpenCustomer,
   onPickFile,
   onClearFile,
   onSend,
@@ -395,6 +457,9 @@ function ChatScreen({
   active: Conv;
   messages: Msg[];
   messagesRef: React.RefObject<HTMLDivElement | null>;
+  showJumpDown: boolean;
+  onMessagesScroll: () => void;
+  onJumpDown: () => void;
   canReply: boolean;
   windowText: string;
   reply: string;
@@ -406,6 +471,7 @@ function ChatScreen({
   sending: boolean;
   preparingFile: boolean;
   onBack: () => void;
+  onOpenCustomer: () => void;
   onPickFile: (file?: File | null) => void;
   onClearFile: () => void;
   onSend: () => void;
@@ -414,15 +480,27 @@ function ChatScreen({
   return (
     <div className="mx-auto w-full max-w-md h-full flex flex-col px-4 pt-[calc(env(safe-area-inset-top)+10px)] pb-[calc(env(safe-area-inset-bottom)+8px)]">
       <div className="shrink-0">
-        <ChatHeader active={active} onBack={onBack} />
+        <ChatHeader active={active} onBack={onBack} onOpenCustomer={onOpenCustomer} />
         <ReplyWindowBanner canReply={canReply} text={windowText} />
       </div>
 
-      <div ref={messagesRef} className="flex-1 min-h-0 overflow-y-auto py-3 space-y-2">
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div ref={messagesRef} onScroll={onMessagesScroll} className="h-full min-h-0 space-y-2 overflow-y-auto px-1 pb-4 pt-3">
         {messages.map((msg) => (
           <MessageBubble key={msg.id} msg={msg} />
         ))}
       </div>
+
+      {showJumpDown ? (
+        <button
+          onClick={onJumpDown}
+          className="absolute bottom-4 left-1/2 z-30 flex h-10 w-10 -translate-x-1/2 items-center justify-center rounded-full bg-white text-sky-500 shadow-xl shadow-slate-300/60"
+          aria-label="النزول لآخر المحادثة"
+        >
+          ↓
+        </button>
+      ) : null}
+    </div>
 
       <div className="shrink-0 space-y-2">
         {fileData ? (
@@ -446,24 +524,255 @@ function ChatScreen({
   );
 }
 
-function ChatHeader({ active, onBack }: { active: Conv; onBack: () => void }) {
+function ChatHeader({ active, onBack, onOpenCustomer }: { active: Conv; onBack: () => void; onOpenCustomer: () => void }) {
   return (
     <div className="flex items-center gap-2 rounded-[1.35rem] border border-white/70 bg-white/90 p-2.5 shadow-lg shadow-slate-200/70 backdrop-blur-xl">
       <button onClick={onBack} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-50 text-slate-500 hover:bg-slate-100 transition-colors">
         <ArrowRight className="h-5 w-5" />
       </button>
 
-      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-500">
+      <button onClick={onOpenCustomer} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-500 active:scale-95 transition">
         <MessageCircle className="h-6 w-6" />
-      </div>
+      </button>
 
-      <div className="min-w-0 flex-1">
+      <button onClick={onOpenCustomer} className="min-w-0 flex-1 text-right active:opacity-80">
         <h1 className="truncate text-[15px] font-black text-slate-950">{active.name || active.phone}</h1>
         <p className="truncate text-[11px] font-bold text-slate-400">{active.phone}</p>
+      </button>
+    </div>
+  );
+}
+
+
+function CustomerModal({ conv, onClose }: { conv: Conv; onClose: () => void }) {
+  const accounts = conv.subscribers?.length ? conv.subscribers : conv.subscriber ? [conv.subscriber] : [];
+  const totalDebt = accounts.reduce((sum, x) => sum + Number(x.debt || 0), 0);
+  const activeAccounts = accounts.filter((x) => String(x.status || '').toLowerCase().includes('active') || String(x.status || '').includes('فعال')).length;
+
+  const [calls, setCalls] = useState<any[]>([]);
+  const [tickets, setTickets] = useState<any[]>([]);
+  const [selectedTicket, setSelectedTicket] = useState<any | null>(null);
+  const [loadingExtra, setLoadingExtra] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadExtra() {
+      setLoadingExtra(true);
+      const token = localStorage.getItem('cc_token') || '';
+      const phone = encodeURIComponent(conv.phone || '');
+
+      try {
+        const [callsRes, ticketsRes] = await Promise.allSettled([
+          fetch(`/api/call-logs?phone=${phone}&take=5`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.ok ? r.json() : []),
+          fetch(`/api/admin-tickets?phone=${phone}&take=5`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.ok ? r.json() : []),
+        ]);
+
+        if (!alive) return;
+
+        const c: any = callsRes.status === 'fulfilled' ? callsRes.value : [];
+        const t: any = ticketsRes.status === 'fulfilled' ? ticketsRes.value : [];
+
+        setCalls(Array.isArray(c) ? c : c.rows || c.data || []);
+        setTickets(Array.isArray(t) ? t : t.rows || t.data || []);
+      } finally {
+        if (alive) setLoadingExtra(false);
+      }
+    }
+
+    loadExtra();
+    return () => { alive = false; };
+  }, [conv.id, conv.phone]);
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/35 px-3 pb-[calc(env(safe-area-inset-bottom)+10px)] backdrop-blur-sm">
+      <div className="relative max-h-[88dvh] w-full max-w-md overflow-hidden rounded-[2rem] bg-white shadow-2xl">
+        <div className="flex items-center gap-3 border-b border-slate-100 p-4">
+          <button onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-50 text-slate-500">
+            <X className="h-5 w-5" />
+          </button>
+
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-50 text-sky-500">
+            <User className="h-6 w-6" />
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-lg font-black text-slate-950">{conv.name || accounts[0]?.name || conv.phone}</h2>
+            <p className="truncate text-xs font-bold text-slate-400">{conv.phone}</p>
+          </div>
+        </div>
+
+        <div className="max-h-[calc(88dvh-86px)] space-y-4 overflow-y-auto p-4">
+          <div className="grid grid-cols-3 gap-2">
+            <MiniStat title="الحسابات" value={String(accounts.length || 0)} />
+            <MiniStat title="الفعالة" value={String(activeAccounts)} />
+            <MiniStat title="الديون" value={formatMoney(totalDebt)} />
+          </div>
+
+          <section>
+            <div className="mb-2 flex items-center gap-2 text-sm font-black text-slate-900">
+              <Wallet className="h-4 w-4 text-sky-500" />
+              حسابات المشترك
+            </div>
+
+            <div className="space-y-2">
+              {accounts.length ? accounts.map((acc, i) => (
+                <div key={`${acc.id}-${i}`} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="min-w-0 truncate text-sm font-black text-slate-950">{acc.name || 'مشترك'}</p>
+                    <span className="rounded-full bg-white px-2 py-1 text-[10px] font-black text-slate-500">{acc.status || 'غير محدد'}</span>
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] font-bold text-slate-500">
+                    <Info label="يوزر" value={acc.pppoeUsername || '-'} />
+                    <Info label="الباقة" value={acc.package || '-'} />
+                    <Info label="الدين" value={formatMoney(Number(acc.debt || 0))} />
+                    <Info label="الانتهاء" value={acc.expiration ? formatDate(acc.expiration) : '-'} />
+                  </div>
+                </div>
+              )) : (
+                <EmptyBox text="لا توجد حسابات مربوطة بهذا الرقم" />
+              )}
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-2 flex items-center gap-2 text-sm font-black text-slate-900">
+              <PhoneCall className="h-4 w-4 text-sky-500" />
+              آخر المكالمات
+              {loadingExtra ? <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-400" /> : null}
+            </div>
+
+            <div className="space-y-2">
+              {calls.length ? calls.slice(0, 5).map((c, i) => (
+                <div key={c.id || i} className="rounded-2xl bg-slate-50 p-3 text-xs font-bold text-slate-600">
+                  <div className="flex justify-between gap-2">
+                    <span>{c.direction || c.type || 'مكالمة'}</span>
+                    <span>{formatDate(c.createdAt || c.startTime || c.date)}</span>
+                  </div>
+                  <p className="mt-1 truncate text-slate-400">{c.agentName || c.agent || c.from || c.to || 'لا توجد تفاصيل'}</p>
+                </div>
+              )) : (
+                <EmptyBox text="لا توجد مكالمات ظاهرة حالياً" />
+              )}
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-2 flex items-center gap-2 text-sm font-black text-slate-900">
+              <Ticket className="h-4 w-4 text-sky-500" />
+              التذاكر التابعة
+            </div>
+
+            <div className="space-y-2">
+              {tickets.length ? tickets.slice(0, 5).map((t, i) => (
+                <button
+                  key={t.id || i}
+                  onClick={() => setSelectedTicket(t)}
+                  className="w-full rounded-2xl bg-slate-50 p-3 text-right transition active:scale-[0.99]"
+                >
+                  <div className="flex justify-between gap-2">
+                    <p className="truncate text-xs font-black text-slate-800">{t.title || t.subject || t.problem || 'تذكرة'}</p>
+                    <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-slate-500">{t.status || 'مفتوحة'}</span>
+                  </div>
+                  <p className="mt-1 line-clamp-2 text-[11px] font-bold text-slate-400">{t.description || t.notes || t.lastMessage || ''}</p>
+                </button>
+              )) : (
+                <EmptyBox text="لا توجد تذاكر مرتبطة حالياً" />
+              )}
+            </div>
+          </section>
+        </div>
+
+        {selectedTicket ? (
+          <div className="absolute inset-0 z-10 flex items-end bg-slate-950/25 backdrop-blur-sm">
+            <div className="max-h-[72%] w-full overflow-y-auto rounded-t-[2rem] bg-white p-4 shadow-2xl">
+              <div className="mb-4 flex items-center gap-3">
+                <button onClick={() => setSelectedTicket(null)} className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-50 text-slate-500">
+                  <X className="h-5 w-5" />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-black text-sky-500">تفاصيل التذكرة</p>
+                  <h3 className="truncate text-lg font-black text-slate-950">
+                    {selectedTicket.title || selectedTicket.subject || selectedTicket.problem || 'تذكرة'}
+                  </h3>
+                </div>
+                <span className="rounded-full bg-slate-50 px-3 py-1 text-xs font-black text-slate-500">
+                  {selectedTicket.status || 'مفتوحة'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <Info label="رقم التذكرة" value={String(selectedTicket.id || selectedTicket.ticketId || '-')} />
+                <Info label="الأولوية" value={String(selectedTicket.priority || selectedTicket.level || '-')} />
+                <Info label="القسم" value={String(selectedTicket.department || selectedTicket.category || '-')} />
+                <Info label="الموظف" value={String(selectedTicket.agentName || selectedTicket.assignedTo || selectedTicket.employee || '-')} />
+                <Info label="تاريخ الإنشاء" value={formatDate(selectedTicket.createdAt || selectedTicket.date)} />
+                <Info label="آخر تحديث" value={formatDate(selectedTicket.updatedAt || selectedTicket.lastUpdate)} />
+              </div>
+
+              <div className="mt-3 rounded-2xl bg-slate-50 p-3">
+                <p className="mb-1 text-xs font-black text-slate-400">الوصف</p>
+                <p className="whitespace-pre-wrap text-sm font-bold leading-7 text-slate-700">
+                  {selectedTicket.description || selectedTicket.notes || selectedTicket.lastMessage || selectedTicket.details || 'لا توجد تفاصيل مكتوبة'}
+                </p>
+              </div>
+
+              {(selectedTicket.comments || selectedTicket.logs || selectedTicket.history) ? (
+                <div className="mt-3 rounded-2xl bg-slate-50 p-3">
+                  <p className="mb-2 text-xs font-black text-slate-400">الملاحظات / السجل</p>
+                  {(Array.isArray(selectedTicket.comments) ? selectedTicket.comments : Array.isArray(selectedTicket.logs) ? selectedTicket.logs : Array.isArray(selectedTicket.history) ? selectedTicket.history : []).slice(0, 8).map((x: any, i: number) => (
+                    <div key={i} className="border-b border-white py-2 last:border-0">
+                      <p className="text-xs font-black text-slate-700">{x.author || x.user || x.employee || 'ملاحظة'}</p>
+                      <p className="mt-1 text-[11px] font-bold text-slate-500">{x.body || x.text || x.note || x.description || ''}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
 }
+
+function MiniStat({ title, value }: { title: string; value: string }) {
+  return (
+    <div className="rounded-2xl bg-sky-50 p-3 text-center">
+      <p className="text-base font-black text-slate-950">{value}</p>
+      <p className="mt-1 text-[10px] font-black text-slate-400">{title}</p>
+    </div>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-xl bg-white px-2 py-2">
+      <p className="text-[10px] text-slate-400">{label}</p>
+      <p className="truncate text-[11px] text-slate-700">{value}</p>
+    </div>
+  );
+}
+
+function EmptyBox({ text }: { text: string }) {
+  return <div className="rounded-2xl bg-slate-50 p-4 text-center text-xs font-bold text-slate-400">{text}</div>;
+}
+
+function formatMoney(v: number) {
+  if (!v) return '0';
+  return new Intl.NumberFormat('ar-IQ').format(v);
+}
+
+function formatDate(v: any) {
+  if (!v) return '-';
+  try {
+    return new Intl.DateTimeFormat('ar-IQ', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(v));
+  } catch {
+    return String(v);
+  }
+}
+
 
 function ReplyWindowBanner({ canReply, text }: { canReply: boolean; text: string }) {
   return (

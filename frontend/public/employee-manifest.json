@@ -2,7 +2,7 @@
   "name": "Albarq Staff",
   "short_name": "Staff",
   "description": "Albarq Staff App",
-  "start_url": "/employee?v=1782765263",
+  "start_url": "/employee?v=1782775121",
   "scope": "/employee",
   "display": "standalone",
   "dir": "rtl",

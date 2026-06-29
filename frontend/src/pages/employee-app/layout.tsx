@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { enableEmployeePush } from './employeePush';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { Home, MessageCircle, Phone, Ticket, User } from 'lucide-react';
 
 const navItems = [
@@ -12,9 +13,28 @@ const navItems = [
 
 export default function EmployeeLayout() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const hideBottomNav = location.pathname.startsWith('/employee/whatsapp');
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [waChatOpen, setWaChatOpen] = useState(false);
+  const hideBottomNav = waChatOpen;
+
+
+  useEffect(() => {
+    const asked = localStorage.getItem('employee_push_asked');
+    if (asked || localStorage.getItem('employee_push_enabled') === '1') return;
+
+    const t = window.setTimeout(() => {
+      localStorage.setItem('employee_push_asked', '1');
+      enableEmployeePush().catch(() => null);
+    }, 1500);
+
+    return () => window.clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    const onWaChat = (e: Event) => setWaChatOpen(Boolean((e as CustomEvent).detail));
+    window.addEventListener('employee-wa-chat-open', onWaChat as EventListener);
+    return () => window.removeEventListener('employee-wa-chat-open', onWaChat as EventListener);
+  }, []);
 
   useEffect(() => {
     const onFocus = (e: FocusEvent) => {

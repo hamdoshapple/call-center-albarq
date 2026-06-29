@@ -668,6 +668,85 @@ async function sendAutoByChannel(phone: string, title: string, message: string, 
   return out;
 }
 
+
+export const employeeSubscribe = asyncHandler(async (req: Request, res: Response) => {
+  const user: any = (req as any).user || {};
+  const userId = String(user.id || user.userId || user.sub || '').trim();
+
+  if (!userId) {
+    return res.status(401).json({ message: 'UNAUTHORIZED' });
+  }
+
+  const subscription = req.body?.subscription || req.body;
+  const endpoint = String(subscription?.endpoint || '');
+  const p256dh = String(subscription?.keys?.p256dh || '');
+  const auth = String(subscription?.keys?.auth || '');
+
+  if (!endpoint || !p256dh || !auth) {
+    return res.status(400).json({ message: 'INVALID_SUBSCRIPTION' });
+  }
+
+  const endpointHash = createHash('sha256').update(endpoint).digest('hex');
+  const employeeKey = `employee:${userId}`;
+
+  await prisma.subscriberPushSubscription.upsert({
+    where: { endpointHash },
+    create: {
+      id: randomUUID(),
+      phone: employeeKey,
+      phoneNorm: employeeKey,
+      endpointHash,
+      endpoint,
+      p256dh,
+      auth,
+      userAgent: String(req.headers['user-agent'] || ''),
+      active: true,
+    },
+    update: {
+      phone: employeeKey,
+      phoneNorm: employeeKey,
+      endpoint,
+      p256dh,
+      auth,
+      userAgent: String(req.headers['user-agent'] || ''),
+      active: true,
+    },
+  });
+
+  res.json({ ok: true });
+});
+
+export async function sendPushToEmployees(title: string, message: string, url = '/employee/whatsapp') {
+  const targets = await prisma.subscriberPushSubscription.findMany({
+    where: {
+      active: true,
+      phoneNorm: { startsWith: 'employee:' },
+    },
+    take: 200,
+  });
+
+  let sent = 0;
+  let failed = 0;
+
+  const payload = {
+    title,
+    body: message,
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    url,
+    tag: 'albarq-staff-wa-' + Date.now(),
+  };
+
+  for (const row of targets) {
+    const ok = await sendOne(row as any, payload, 'employee');
+    if (ok) sent++;
+    else failed++;
+  }
+
+  return { targets: targets.length, sent, failed };
+}
+
+
 export const autoExpiryDebt = asyncHandler(async (_req: Request, res: Response) => {
   const settings = await getNotificationSettingsObject();
 

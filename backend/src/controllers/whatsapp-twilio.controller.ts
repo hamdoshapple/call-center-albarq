@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import Twilio from 'twilio';
 import { prisma } from '../config/prisma.js';
 import { searchExternalSubscribers } from '../services/external-subscriber.service.js';
+import { sendPushToEmployees } from './push.controller.js';
 import { searchSubscriberCache, upsertExternalSubscriberCache } from '../services/subscriber-cache.service.js';
 
 
@@ -440,6 +441,12 @@ export async function webhook(req: Request, res: Response) {
       },
     });
   }
+
+  await sendPushToEmployees(
+    'رسالة واتساب جديدة',
+    body ? `${from}: ${body.slice(0, 120)}` : `${from}: مرفق جديد`,
+    '/employee/whatsapp'
+  ).catch(() => null);
 
   res.type('text/xml').send('<Response></Response>');
 }
