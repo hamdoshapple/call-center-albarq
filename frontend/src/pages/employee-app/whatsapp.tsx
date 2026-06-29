@@ -10,7 +10,6 @@ import {
   RefreshCw,
   Search,
   Send,
-  Square,
   X,
 } from 'lucide-react';
 import { whatsappTwilioApi } from '@/api/whatsappTwilio';
@@ -49,10 +48,7 @@ export default function EmployeeWhatsappPage() {
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState<{ type: ToastType; text: string } | null>(null);
   const [preparingFile, setPreparingFile] = useState(false);
-  const [recording, setRecording] = useState(false);
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
   const messagesRef = useRef<HTMLDivElement | null>(null);
 
   const unreadTotal = useMemo(
@@ -204,100 +200,6 @@ export default function EmployeeWhatsappPage() {
 
 
 
-  function bestAudioMime() {
-    const choices = [
-      'audio/mp4',
-      'audio/mpeg',
-      'audio/ogg;codecs=opus',
-      'audio/webm;codecs=opus',
-      'audio/webm',
-    ];
-
-    for (const t of choices) {
-      try {
-        if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) return t;
-      } catch {}
-    }
-
-    return '';
-  }
-
-  async function startRecording() {
-    try {
-      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-        showToast('التسجيل الصوتي غير مدعوم بهذا المتصفح');
-        return;
-      }
-
-      clearFile();
-
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = bestAudioMime();
-      const rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-
-      audioChunksRef.current = [];
-
-      rec.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      rec.onerror = () => {
-        showToast('تعذر تسجيل الصوت');
-        setRecording(false);
-        stream.getTracks().forEach((t) => t.stop());
-      };
-
-      rec.onstop = () => {
-        const type = rec.mimeType || mimeType || 'audio/mp4';
-        const blob = new Blob(audioChunksRef.current, { type });
-
-        if (!blob.size) {
-          showToast('لم يتم تسجيل صوت');
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-
-        const ext =
-          type.includes('mp4') ? 'm4a' :
-          type.includes('mpeg') ? 'mp3' :
-          type.includes('ogg') ? 'ogg' :
-          type.includes('webm') ? 'webm' :
-          'audio';
-
-        const reader = new FileReader();
-        reader.onload = () => {
-          setFileData(String(reader.result || ''));
-          setFileName(`voice-${Date.now()}.${ext}`);
-          setFileType(type);
-          showToast('تم تجهيز التسجيل الصوتي', 'success');
-        };
-        reader.onerror = () => showToast('تعذر تجهيز التسجيل');
-        reader.readAsDataURL(blob);
-
-        stream.getTracks().forEach((t) => t.stop());
-      };
-
-      mediaRecorderRef.current = rec;
-      rec.start();
-      setRecording(true);
-    } catch {
-      showToast('تعذر الوصول إلى المايكروفون');
-      setRecording(false);
-    }
-  }
-
-  function stopRecording() {
-    try {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
-      }
-    } catch {
-      showToast('تعذر إيقاف التسجيل');
-    } finally {
-      setRecording(false);
-    }
-  }
-
   function clearFile() {
     setFileData('');
     setFileName('');
@@ -308,6 +210,11 @@ export default function EmployeeWhatsappPage() {
   async function sendReply() {
     const text = reply.trim();
     if (!active || (!text && !fileData)) return;
+
+    if (fileData && String(fileType || '').startsWith('audio/')) {
+      showToast('إرسال الصوت غير متاح حالياً');
+      return;
+    }
 
     setSending(true);
     try {
@@ -451,22 +358,12 @@ export default function EmployeeWhatsappPage() {
               />
             </label>
 
-            <button
-              type="button"
-              onClick={recording ? stopRecording : startRecording}
-              className={`flex h-11 w-11 items-center justify-center rounded-2xl ${
-                recording ? 'bg-red-50 text-red-500' : 'bg-slate-50 text-sky-500'
-              }`}
-            >
-              {recording ? <Square className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-            </button>
-
             <input
               value={reply}
               onChange={(e) => setReply(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && sendReply()}
               className="min-h-12 min-w-0 flex-1 rounded-full bg-slate-100 px-5 text-sm font-semibold outline-none placeholder:text-slate-400"
-              placeholder={recording ? 'جاري التسجيل...' : 'اكتب رسالة'}
+              placeholder="اكتب رسالة"
             />
 
             <button

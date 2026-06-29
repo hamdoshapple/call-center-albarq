@@ -12,6 +12,8 @@ const navItems = [
 export default function EmployeeLayout() {
   return (
     <div dir="rtl" className="min-h-screen bg-[#f6f8fb] text-slate-950">
+      
+      <HelmetManifest />
       <main className="mx-auto min-h-screen max-w-md pb-24">
         <Outlet />
       </main>
@@ -39,4 +41,27 @@ export default function EmployeeLayout() {
       </nav>
     </div>
   );
+}
+
+
+function HelmetManifest() {
+  document.title = 'Albarq Staff';
+
+  let manifest = document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null;
+  if (!manifest) {
+    manifest = document.createElement('link');
+    manifest.rel = 'manifest';
+    document.head.appendChild(manifest);
+  }
+  manifest.href = '/employee-manifest.json';
+
+  let theme = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+  if (!theme) {
+    theme = document.createElement('meta');
+    theme.name = 'theme-color';
+    document.head.appendChild(theme);
+  }
+  theme.content = '#0ea5e9';
+
+  return null;
 }
