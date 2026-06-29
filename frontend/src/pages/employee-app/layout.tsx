@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Home, MessageCircle, Phone, Ticket, User } from 'lucide-react';
 
 const navItems = [
@@ -12,6 +12,8 @@ const navItems = [
 
 export default function EmployeeLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const hideBottomNav = location.pathname.startsWith('/employee/whatsapp');
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   useEffect(() => {
@@ -39,10 +41,11 @@ export default function EmployeeLayout() {
     <div dir="rtl" className="min-h-screen bg-[#f6f8fb] text-slate-950">
       
       <HelmetManifest />
-      <main className={`mx-auto min-h-screen max-w-md transition-all duration-200 ${keyboardOpen ? "pb-0" : "pb-24"}`}>
+      <main className={`mx-auto min-h-screen max-w-md transition-all duration-200 ${hideBottomNav || keyboardOpen ? "pb-0" : "pb-24"}`}>
         <Outlet />
       </main>
 
+      {!hideBottomNav ? (
       <nav className={`fixed inset-x-0 bottom-0 z-50 mx-auto max-w-md border-t border-slate-200 bg-white/95 px-3 pb-[calc(env(safe-area-inset-bottom)+10px)] pt-2 shadow-[0_-14px_40px_rgba(15,23,42,0.08)] backdrop-blur-xl transition-transform duration-200 ${keyboardOpen ? 'translate-y-full' : 'translate-y-0'}`}>
         <div className="grid grid-cols-5 gap-1">
           {navItems.map((item) => {
@@ -64,6 +67,7 @@ export default function EmployeeLayout() {
           })}
         </div>
       </nav>
+      ) : null}
     </div>
   );
 }

@@ -6,7 +6,6 @@ import {
   Grid3X3,
   Image as ImageIcon,
   MessageCircle,
-  Mic,
   Paperclip,
   RefreshCw,
   Search,
@@ -23,7 +22,6 @@ type Conv = {
   unreadCount?: number;
   conversationOpen?: boolean;
   windowExpiresAt?: string | null;
-  conversationWindowHours?: number;
 };
 
 type Msg = {
@@ -32,7 +30,6 @@ type Msg = {
   body?: string;
   mediaUrl?: string;
   mediaType?: string;
-  status?: string;
   agentName?: string;
   createdAt: string;
 };
@@ -51,16 +48,22 @@ export default function EmployeeWhatsappPage() {
   const [fileInputKey, setFileInputKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
-  const [toast, setToast] = useState<{ type: ToastType; text: string } | null>(null);
   const [preparingFile, setPreparingFile] = useState(false);
-  const messagesRef = useRef<HTMLDivElement | null>(null);
+  const [toast, setToast] = useState<{ type: ToastType; text: string } | null>(null);
+
+  const messagesRef = useRef<HTMLDivElement>(null!);
 
   const unreadTotal = useMemo(
     () => convs.reduce((sum, x) => sum + Number(x.unreadCount || 0), 0),
     [convs]
   );
 
-  const windowRemainingText = useMemo(() => {
+  const canReply = Boolean(
+    active?.conversationOpen ||
+    (active?.windowExpiresAt && new Date(active.windowExpiresAt).getTime() > Date.now())
+  );
+
+  const windowText = useMemo(() => {
     if (!active?.windowExpiresAt) return 'بانتظار رسالة من الزبون';
     const diff = new Date(active.windowExpiresAt).getTime() - Date.now();
     if (diff <= 0) return 'انتهت نافذة الرد';
@@ -69,48 +72,60 @@ export default function EmployeeWhatsappPage() {
     return `${h}س ${m}د متبقية`;
   }, [active?.windowExpiresAt]);
 
-  const canReply = Boolean(active?.conversationOpen);
-
   function showToast(text: string, type: ToastType = 'error') {
     setToast({ text, type });
-    window.setTimeout(() => setToast(null), 3000);
+    window.setTimeout(() => setToast(null), 2600);
+  }
+
+  function scrollBottom(delay = 80) {
+    window.setTimeout(() => {
+      messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: 'smooth' });
+    }, delay);
   }
 
   async function loadConvs(search = q) {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      params.set('take', '20');
+      params.set('take', '30');
       if (search.trim()) params.set('q', search.trim());
 
       const res = await fetch(`/api/whatsapp-twilio/conversations?${params.toString()}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}` },
       });
-
       if (!res.ok) throw new Error();
+
       const data = await res.json();
       const list: Conv[] = Array.isArray(data) ? data : data.rows || [];
 
       setConvs(list);
-      setActive((current) => {
-        if (!current) return null;
-        const updated = list.find((x) => x.id === current.id);
-        return updated ? { ...current, ...updated } : current;
+      setActive((cur) => {
+        if (!cur) return null;
+        const updated = list.find((x) => x.id === cur.id);
+        return updated
+          ? {
+              ...cur,
+              ...updated,
+              conversationOpen: cur.conversationOpen,
+              windowExpiresAt: cur.windowExpiresAt,
+            }
+          : cur;
       });
     } catch {
-      showToast('تعذر تحميل محادثات واتساب');
+      showToast('تعذر تحميل المحادثات');
     } finally {
       setLoading(false);
     }
   }
 
-  async function loadConversationProfile(id: string) {
+  async function loadProfile(id: string) {
     try {
       const res = await fetch(`/api/whatsapp-twilio/conversations/${encodeURIComponent(id)}/profile`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}` },
       });
       if (!res.ok) return;
       const profile = await res.json();
+
       setActive((old) => (old && old.id === id ? { ...old, ...profile } : old));
       setConvs((old) => old.map((x) => (x.id === id ? { ...x, ...profile } : x)));
     } catch {}
@@ -128,22 +143,16 @@ export default function EmployeeWhatsappPage() {
     }
   }
 
-  function scrollBottom() {
-    window.setTimeout(() => {
-      messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: 'smooth' });
-    }, 80);
-  }
-
   async function openConv(conv: Conv) {
     setActive(conv);
-    await loadConversationProfile(conv.id);
+    await loadProfile(conv.id);
     await loadMessages(conv.id);
   }
 
   async function pickFile(file?: File | null) {
     if (!file) return;
-
     setPreparingFile(true);
+
     try {
       const isImage = file.type.startsWith('image/') || /\.(heic|heif|jpg|jpeg|png|webp)$/i.test(file.name);
       const allowed =
@@ -169,7 +178,7 @@ export default function EmployeeWhatsappPage() {
         setFileData(data);
         setFileName((file.name || 'image').replace(/\.[^.]+$/, '') + '.jpg');
         setFileType('image/jpeg');
-        showToast('تم تجهيز الصورة للإرسال', 'success');
+        showToast('تم تجهيز الصورة', 'success');
         return;
       }
 
@@ -178,7 +187,7 @@ export default function EmployeeWhatsappPage() {
         setFileData(String(reader.result || ''));
         setFileName(file.name);
         setFileType(file.type || 'application/octet-stream');
-        showToast('تم تجهيز المرفق للإرسال', 'success');
+        showToast('تم تجهيز المرفق', 'success');
       };
       reader.onerror = () => showToast('تعذر قراءة الملف');
       reader.readAsDataURL(file);
@@ -193,6 +202,7 @@ export default function EmployeeWhatsappPage() {
       const img = new Image();
       img.decoding = 'async';
       img.src = objectUrl;
+
       await new Promise<void>((resolve, reject) => {
         img.onload = () => resolve();
         img.onerror = () => reject(new Error('IMAGE_LOAD_FAILED'));
@@ -206,17 +216,12 @@ export default function EmployeeWhatsappPage() {
       const canvas = document.createElement('canvas');
       canvas.width = w;
       canvas.height = h;
+
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('CANVAS_FAILED');
+
       ctx.drawImage(img, 0, 0, w, h);
       return canvas.toDataURL('image/jpeg', 0.82);
-    } catch {
-      return await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ''));
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
-      });
     } finally {
       URL.revokeObjectURL(objectUrl);
     }
@@ -234,13 +239,20 @@ export default function EmployeeWhatsappPage() {
     if (!active || (!text && !fileData)) return;
 
     if (!canReply) {
-      showToast('انتهت نافذة الرد، يجب أن يرسل الزبون رسالة جديدة أولاً');
+      showToast('انتهت نافذة الرد');
       return;
     }
 
     setSending(true);
     try {
-      const msg = await whatsappTwilioApi.reply(active.id, text, fileData || undefined, fileName || undefined, fileType || undefined);
+      const msg = await whatsappTwilioApi.reply(
+        active.id,
+        text,
+        fileData || undefined,
+        fileName || undefined,
+        fileType || undefined
+      );
+
       setMessages((old) => [...old, msg]);
       setReply('');
       clearFile();
@@ -260,122 +272,194 @@ export default function EmployeeWhatsappPage() {
   }, []);
 
   return (
-    <section dir="rtl" className="h-[100dvh] overflow-hidden bg-[#f6f8fb]">
+    <section dir="rtl" className="h-screen overflow-hidden bg-[#f6f8fb] flex flex-col">
       {toast ? <Toast toast={toast} /> : null}
 
       {!active ? (
-        <div className="mx-auto flex h-full max-w-md flex-col px-4 pb-24 pt-[calc(env(safe-area-inset-top)+18px)]">
-          <Header unreadTotal={unreadTotal} loading={loading} onRefresh={() => loadConvs(q)} />
-
-          <div className="mt-4 flex shrink-0 items-center gap-2 rounded-2xl bg-white px-4 py-3 shadow-lg shadow-slate-200/70">
-            <Search className="h-5 w-5 text-slate-400" />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && loadConvs(q)}
-              className="w-full bg-transparent text-sm font-semibold outline-none placeholder:text-slate-400"
-              placeholder="بحث بالمحادثات"
-            />
-          </div>
-
-          <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pb-4">
-            {convs.map((conv) => (
-              <ConversationCard key={conv.id} conv={conv} onClick={() => openConv(conv)} />
-            ))}
-
-            {!loading && !convs.length ? (
-              <div className="rounded-[2rem] bg-white p-8 text-center shadow-xl shadow-slate-200/70">
-                <MessageCircle className="mx-auto h-10 w-10 text-sky-500" />
-                <h2 className="mt-4 text-lg font-black">لا توجد محادثات</h2>
-                <p className="mt-2 text-sm font-bold text-slate-400">صندوق واتساب فارغ حالياً</p>
-              </div>
-            ) : null}
-          </div>
-        </div>
+        <ConversationList
+          convs={convs}
+          q={q}
+          setQ={setQ}
+          loading={loading}
+          unreadTotal={unreadTotal}
+          onRefresh={() => loadConvs(q)}
+          onOpen={openConv}
+        />
       ) : (
-        <div className="mx-auto grid h-full max-w-md grid-rows-[auto_auto_minmax(0,1fr)_auto] px-4 pb-[calc(env(safe-area-inset-bottom)+8px)] pt-[calc(env(safe-area-inset-top)+10px)]">
-          <ChatHeader active={active} onBack={() => setActive(null)} />
-
-          <ReplyWindowBanner canReply={canReply} text={windowRemainingText} />
-
-          <div ref={messagesRef} className="min-h-0 space-y-2 overflow-y-auto px-0 pb-3 pt-3">
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} msg={msg} />
-            ))}
-          </div>
-
-          <div className="shrink-0 space-y-2">
-            {fileData ? (
-              <AttachmentPreview fileData={fileData} fileName={fileName} fileType={fileType} onClear={clearFile} />
-            ) : null}
-
-            <Composer
-              canReply={canReply}
-              reply={reply}
-              setReply={setReply}
-              sending={sending}
-              preparingFile={preparingFile}
-              fileInputKey={fileInputKey}
-              fileData={fileData}
-              pickFile={pickFile}
-              sendReply={sendReply}
-              onFocus={scrollBottom}
-            />
-          </div>
-        </div>
+        <ChatScreen
+          active={active}
+          messages={messages}
+          messagesRef={messagesRef}
+          canReply={canReply}
+          windowText={windowText}
+          reply={reply}
+          setReply={setReply}
+          fileData={fileData}
+          fileName={fileName}
+          fileType={fileType}
+          fileInputKey={fileInputKey}
+          sending={sending}
+          preparingFile={preparingFile}
+          onBack={() => setActive(null)}
+          onPickFile={pickFile}
+          onClearFile={clearFile}
+          onSend={sendReply}
+          onFocus={() => scrollBottom(250)}
+        />
       )}
     </section>
   );
 }
 
-function Toast({ toast }: { toast: { type: ToastType; text: string } }) {
+function ConversationList({
+  convs,
+  q,
+  setQ,
+  loading,
+  unreadTotal,
+  onRefresh,
+  onOpen,
+}: {
+  convs: Conv[];
+  q: string;
+  setQ: (v: string) => void;
+  loading: boolean;
+  unreadTotal: number;
+  onRefresh: () => void;
+  onOpen: (c: Conv) => void;
+}) {
   return (
-    <div
-      className={`fixed left-1/2 top-[calc(env(safe-area-inset-top)+12px)] z-[80] w-fit max-w-[90%] -translate-x-1/2 rounded-2xl px-5 py-3 text-center text-sm font-black shadow-xl ${
-        toast.type === 'success'
-          ? 'bg-emerald-50 text-emerald-600'
-          : toast.type === 'info'
-            ? 'bg-sky-50 text-sky-600'
-            : 'bg-red-50 text-red-500'
-      }`}
-    >
-      {toast.text}
+    <div className="mx-auto w-full max-w-md h-full flex flex-col px-4 pt-[calc(env(safe-area-inset-top)+18px)] pb-24">
+      <Header unreadTotal={unreadTotal} loading={loading} onRefresh={onRefresh} />
+
+      <div className="mt-4 flex items-center gap-2 rounded-2xl bg-white px-4 py-3 shadow-lg shadow-slate-200/70">
+        <Search className="h-5 w-5 text-slate-400 shrink-0" />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && onRefresh()}
+          className="w-full bg-transparent text-sm font-semibold outline-none placeholder:text-slate-400 min-w-0"
+          placeholder="بحث بالمحادثات"
+        />
+      </div>
+
+      <div className="mt-4 flex-1 min-h-0 space-y-3 overflow-y-auto pb-4">
+        {convs.map((conv) => (
+          <button
+            key={conv.id}
+            onClick={() => onOpen(conv)}
+            className="flex w-full items-center gap-3 rounded-[1.5rem] bg-white p-4 text-right shadow-lg shadow-slate-200/70 hover:shadow-xl transition-shadow"
+          >
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-500">
+              <MessageCircle className="h-6 w-6" />
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-3">
+                <p className="truncate text-sm font-black text-slate-950">{conv.name || conv.phone}</p>
+                {conv.unreadCount ? (
+                  <span className="shrink-0 rounded-full bg-sky-500 px-2 py-0.5 text-xs font-black text-white">
+                    {conv.unreadCount}
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-1 truncate text-xs font-bold text-slate-400">{conv.lastMessage || 'مرفق'}</p>
+            </div>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
 
-function ConversationCard({ conv, onClick }: { conv: Conv; onClick: () => void }) {
+function ChatScreen({
+  active,
+  messages,
+  messagesRef,
+  canReply,
+  windowText,
+  reply,
+  setReply,
+  fileData,
+  fileName,
+  fileType,
+  fileInputKey,
+  sending,
+  preparingFile,
+  onBack,
+  onPickFile,
+  onClearFile,
+  onSend,
+  onFocus,
+}: {
+  active: Conv;
+  messages: Msg[];
+  messagesRef: React.RefObject<HTMLDivElement | null>;
+  canReply: boolean;
+  windowText: string;
+  reply: string;
+  setReply: (v: string) => void;
+  fileData: string;
+  fileName: string;
+  fileType: string;
+  fileInputKey: number;
+  sending: boolean;
+  preparingFile: boolean;
+  onBack: () => void;
+  onPickFile: (file?: File | null) => void;
+  onClearFile: () => void;
+  onSend: () => void;
+  onFocus: () => void;
+}) {
   return (
-    <button onClick={onClick} className="flex w-full items-center gap-3 rounded-[1.5rem] bg-white p-4 text-right shadow-lg shadow-slate-200/70">
-      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-500">
-        <MessageCircle className="h-6 w-6" />
+    <div className="mx-auto w-full max-w-md h-full flex flex-col px-4 pt-[calc(env(safe-area-inset-top)+10px)] pb-[calc(env(safe-area-inset-bottom)+8px)]">
+      <div className="shrink-0">
+        <ChatHeader active={active} onBack={onBack} />
+        <ReplyWindowBanner canReply={canReply} text={windowText} />
       </div>
 
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center justify-between gap-3">
-          <p className="truncate text-sm font-black text-slate-950">{conv.name || conv.phone}</p>
-          {conv.unreadCount ? (
-            <span className="rounded-full bg-sky-500 px-2 py-0.5 text-xs font-black text-white">{conv.unreadCount}</span>
-          ) : null}
-        </div>
-        <p className="mt-1 truncate text-xs font-bold text-slate-400">{conv.lastMessage || 'مرفق'}</p>
+      <div ref={messagesRef} className="flex-1 min-h-0 overflow-y-auto py-3 space-y-2">
+        {messages.map((msg) => (
+          <MessageBubble key={msg.id} msg={msg} />
+        ))}
       </div>
-    </button>
+
+      <div className="shrink-0 space-y-2">
+        {fileData ? (
+          <AttachmentPreview fileData={fileData} fileName={fileName} fileType={fileType} onClear={onClearFile} />
+        ) : null}
+
+        <Composer
+          canReply={canReply}
+          reply={reply}
+          setReply={setReply}
+          fileInputKey={fileInputKey}
+          fileData={fileData}
+          sending={sending}
+          preparingFile={preparingFile}
+          onPickFile={onPickFile}
+          onSend={onSend}
+          onFocus={onFocus}
+        />
+      </div>
+    </div>
   );
 }
 
 function ChatHeader({ active, onBack }: { active: Conv; onBack: () => void }) {
   return (
-    <div className="flex shrink-0 items-center gap-3 rounded-[1.5rem] bg-white/95 p-3 shadow-lg shadow-slate-200/70 backdrop-blur-xl">
-      <button onClick={onBack} className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-50 text-slate-500">
+    <div className="flex items-center gap-2 rounded-[1.35rem] border border-white/70 bg-white/90 p-2.5 shadow-lg shadow-slate-200/70 backdrop-blur-xl">
+      <button onClick={onBack} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-50 text-slate-500 hover:bg-slate-100 transition-colors">
         <ArrowRight className="h-5 w-5" />
       </button>
-      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-500">
+
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-500">
         <MessageCircle className="h-6 w-6" />
       </div>
+
       <div className="min-w-0 flex-1">
-        <h1 className="truncate text-sm font-black text-slate-950">{active.name || active.phone}</h1>
-        <p className="truncate text-xs font-bold text-slate-400">{active.phone}</p>
+        <h1 className="truncate text-[15px] font-black text-slate-950">{active.name || active.phone}</h1>
+        <p className="truncate text-[11px] font-bold text-slate-400">{active.phone}</p>
       </div>
     </div>
   );
@@ -384,14 +468,12 @@ function ChatHeader({ active, onBack }: { active: Conv; onBack: () => void }) {
 function ReplyWindowBanner({ canReply, text }: { canReply: boolean; text: string }) {
   return (
     <div
-      className={`mx-3 mt-2 flex shrink-0 items-center justify-center gap-2 rounded-full px-4 py-2 text-[11px] font-bold shadow-lg backdrop-blur-xl ${
-        canReply
-          ? 'bg-emerald-100/90 text-emerald-700 shadow-emerald-100/60'
-          : 'bg-red-100/90 text-red-600 shadow-red-100/60'
+      className={`mt-2 flex items-center justify-center gap-2 rounded-full px-4 py-2 text-[11px] font-bold shadow-lg ${
+        canReply ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'
       }`}
     >
-      <Grid3X3 className="h-3.5 w-3.5 shrink-0" />
-      <span>{canReply ? `نافذة الرد مفتوحة • ${text}` : 'انتهت نافذة الرد'}</span>
+      <Grid3X3 className="h-3 w-3 shrink-0" />
+      <span className="truncate">{canReply ? `نافذة الرد مفتوحة • ${text}` : 'انتهت نافذة الرد'}</span>
     </div>
   );
 }
@@ -400,46 +482,46 @@ function Composer({
   canReply,
   reply,
   setReply,
-  sending,
-  preparingFile,
   fileInputKey,
   fileData,
-  pickFile,
-  sendReply,
+  sending,
+  preparingFile,
+  onPickFile,
+  onSend,
   onFocus,
 }: {
   canReply: boolean;
   reply: string;
   setReply: (v: string) => void;
-  sending: boolean;
-  preparingFile: boolean;
   fileInputKey: number;
   fileData: string;
-  pickFile: (file?: File | null) => void;
-  sendReply: () => void;
+  sending: boolean;
+  preparingFile: boolean;
+  onPickFile: (file?: File | null) => void;
+  onSend: () => void;
   onFocus: () => void;
 }) {
   return (
-    <div className="flex items-center gap-2 rounded-[1.8rem] bg-white p-2 shadow-xl shadow-slate-200/80">
-      <label className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl bg-slate-50 text-sky-500">
+    <div className="flex items-center gap-2 rounded-[2rem] border border-white/80 bg-white/95 p-2 shadow-2xl shadow-slate-300/50 backdrop-blur-xl">
+      <label className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-2xl bg-slate-50 text-sky-500 hover:bg-slate-100 transition-colors">
         <Paperclip className="h-5 w-5" />
         <input
           key={`file-${fileInputKey}`}
           type="file"
           accept="image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx"
           className="hidden"
-          onChange={(e) => pickFile(e.target.files?.[0])}
+          onChange={(e) => onPickFile(e.target.files?.[0])}
         />
       </label>
 
-      <label className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl bg-slate-50 text-sky-500">
+      <label className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-2xl bg-slate-50 text-sky-500 hover:bg-slate-100 transition-colors">
         <ImageIcon className="h-5 w-5" />
         <input
           key={`img-${fileInputKey}`}
           type="file"
           accept="image/*"
           className="hidden"
-          onChange={(e) => pickFile(e.target.files?.[0])}
+          onChange={(e) => onPickFile(e.target.files?.[0])}
         />
       </label>
 
@@ -447,16 +529,16 @@ function Composer({
         value={reply}
         onChange={(e) => setReply(e.target.value)}
         onFocus={onFocus}
-        onKeyDown={(e) => e.key === 'Enter' && sendReply()}
+        onKeyDown={(e) => e.key === 'Enter' && onSend()}
         disabled={!canReply}
-        className="min-h-12 min-w-0 flex-1 rounded-full bg-slate-100 px-5 text-sm font-semibold outline-none placeholder:text-slate-400 disabled:opacity-60"
+        className="min-h-12 min-w-0 flex-1 rounded-full bg-slate-100 px-5 text-sm font-semibold outline-none placeholder:text-slate-400 disabled:opacity-60 disabled:cursor-not-allowed"
         placeholder={canReply ? 'اكتب رسالة' : 'نافذة الرد مغلقة'}
       />
 
       <button
-        onClick={sendReply}
+        onClick={onSend}
         disabled={!canReply || sending || preparingFile || (!reply.trim() && !fileData)}
-        className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-sky-500 text-white shadow-lg shadow-sky-200 disabled:opacity-50"
+        className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-sky-500 text-white shadow-lg shadow-sky-200 hover:bg-sky-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
         {sending || preparingFile ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
       </button>
@@ -468,37 +550,38 @@ function MessageBubble({ msg }: { msg: Msg }) {
   const outbound = msg.direction === 'outbound';
   const type = String(msg.mediaType || '');
   const isImage = Boolean(msg.mediaUrl) && type.startsWith('image');
-  const isAudio = Boolean(msg.mediaUrl) && type.startsWith('audio');
   const isPdf = Boolean(msg.mediaUrl) && type.includes('pdf');
 
   return (
-    <div className={`flex ${outbound ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[72%] overflow-hidden rounded-[1.2rem] shadow-sm ${outbound ? 'bg-sky-500 text-white rounded-br-md' : 'bg-white text-slate-950 rounded-bl-md'}`}>
+    <div className={`flex ${outbound ? 'justify-end' : 'justify-start'} px-1`}>
+      <div
+        className={`max-w-[82%] overflow-hidden rounded-[1.35rem] shadow-sm ${
+          outbound ? 'bg-[#21a8e8] text-white rounded-br-md' : 'bg-white text-slate-950 rounded-bl-md border border-slate-100'
+        }`}
+      >
         {msg.mediaUrl ? (
           isImage ? (
-            <a href={msg.mediaUrl} target="_blank" rel="noreferrer">
-              <img src={msg.mediaUrl} className="max-h-60 w-full object-cover" />
+            <a href={msg.mediaUrl} target="_blank" rel="noreferrer" className="block">
+              <img src={msg.mediaUrl} alt="مرفق" className="max-h-64 w-full object-cover" loading="lazy" />
             </a>
-          ) : isAudio ? (
-            <div className="px-3 pt-3">
-              <audio controls src={msg.mediaUrl} className="h-10 max-w-full" />
-            </div>
           ) : (
-            <a href={msg.mediaUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 pt-3 text-sm font-black underline">
-              {isPdf ? <FileText className="h-4 w-4" /> : <Paperclip className="h-4 w-4" />}
+            <a href={msg.mediaUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-3 pt-3 pb-1 text-sm font-black underline hover:opacity-80">
+              {isPdf ? <FileText className="h-4 w-4 shrink-0" /> : <Paperclip className="h-4 w-4 shrink-0" />}
               فتح المرفق
             </a>
           )
         ) : null}
 
-        {msg.body ? <p className="whitespace-pre-wrap px-3 py-2 text-sm font-semibold leading-6">{msg.body}</p> : null}
+        {msg.body ? <p className="whitespace-pre-wrap px-3.5 py-2.5 text-[15px] font-semibold leading-7">{msg.body}</p> : null}
 
-        <div className={`px-3 pb-2 ${outbound ? 'text-sky-100' : 'text-slate-400'}`}>
+        <div className={`px-3 pb-2 flex items-end justify-between gap-2 ${outbound ? 'text-sky-100' : 'text-slate-400'}`}>
           {outbound && msg.agentName ? (
-            <div className="mb-1 max-w-[150px] truncate text-[8px] leading-none opacity-70">{msg.agentName}</div>
-          ) : null}
+            <div className="max-w-[120px] truncate text-[8px] leading-none opacity-70">{msg.agentName}</div>
+          ) : (
+            <div></div>
+          )}
 
-          <div className="flex items-center gap-1 text-[10px] leading-none">
+          <div className="flex items-center gap-1 text-[10px] leading-none shrink-0">
             <span>{formatTime(msg.createdAt)}</span>
             {outbound ? <CheckCheck className="h-3.5 w-3.5" /> : null}
           </div>
@@ -520,30 +603,21 @@ function AttachmentPreview({
   onClear: () => void;
 }) {
   const isImage = fileType.startsWith('image/');
-  const isAudio = fileType.startsWith('audio/');
   const isPdf = fileType.includes('pdf');
 
   return (
     <div className="rounded-[1.4rem] bg-white p-3 shadow-lg shadow-slate-200/70">
-      <div className="flex gap-3">
-        <div className="flex min-h-24 w-28 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-slate-50 text-sky-500">
-          {isImage ? (
-            <img src={fileData} className="h-full w-full object-cover" />
-          ) : isAudio ? (
-            <Mic className="h-8 w-8" />
-          ) : isPdf ? (
-            <FileText className="h-8 w-8" />
-          ) : (
-            <Paperclip className="h-8 w-8" />
-          )}
+      <div className="flex gap-3 items-center">
+        <div className="flex h-20 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-slate-50 text-sky-500">
+          {isImage ? <img src={fileData} alt="معاينة" className="h-full w-full object-cover" /> : isPdf ? <FileText className="h-8 w-8" /> : <Paperclip className="h-8 w-8" />}
         </div>
 
-        <div className="min-w-0 flex-1 py-1">
+        <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-black text-slate-950">{fileName || 'مرفق'}</p>
           <p className="mt-1 text-xs font-bold text-slate-400">جاهز للإرسال</p>
         </div>
 
-        <button onClick={onClear} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-red-50 text-red-500">
+        <button onClick={onClear} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-red-50 text-red-500 hover:bg-red-100 transition-colors">
           <X className="h-5 w-5" />
         </button>
       </div>
@@ -553,22 +627,38 @@ function AttachmentPreview({
 
 function Header({ unreadTotal, loading, onRefresh }: { unreadTotal: number; loading: boolean; onRefresh: () => void }) {
   return (
-    <header className="flex shrink-0 items-center justify-between">
+    <header className="flex items-center justify-between">
       <div>
         <p className="text-sm font-bold text-sky-500">WhatsApp Webhook</p>
         <h1 className="text-3xl font-black text-slate-950">واتساب</h1>
         <p className="mt-1 text-xs font-bold text-slate-400">الرسائل الواردة من العملاء</p>
       </div>
 
-      <button onClick={onRefresh} className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-sky-500 shadow-lg shadow-slate-200">
+      <button onClick={onRefresh} className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-sky-500 shadow-lg shadow-slate-200 hover:shadow-xl transition-shadow">
         <RefreshCw className={`h-5 w-5 ${loading ? 'animate-spin' : ''}`} />
         {unreadTotal ? (
-          <span className="absolute -right-1 -top-1 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-black text-white">
+          <span className="absolute -right-1 -top-1 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-black text-white shadow-sm">
             {unreadTotal}
           </span>
         ) : null}
       </button>
     </header>
+  );
+}
+
+function Toast({ toast }: { toast: { type: ToastType; text: string } }) {
+  return (
+    <div
+      className={`fixed left-1/2 top-[calc(env(safe-area-inset-top)+12px)] z-[80] w-fit max-w-[90%] -translate-x-1/2 rounded-2xl px-5 py-3 text-center text-sm font-black shadow-xl ${
+        toast.type === 'success'
+          ? 'bg-emerald-50 text-emerald-600'
+          : toast.type === 'info'
+            ? 'bg-sky-50 text-sky-600'
+            : 'bg-red-50 text-red-500'
+      }`}
+    >
+      {toast.text}
+    </div>
   );
 }
 
