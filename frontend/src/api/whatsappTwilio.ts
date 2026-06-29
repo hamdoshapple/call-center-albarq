@@ -1,4 +1,7 @@
-const API_BASE = '/api';
+const API_BASE =
+  window.location.hostname === 'localhost' || window.location.protocol === 'capacitor:'
+    ? 'https://dashboard.albarq.app/api'
+    : '/api';
 
 function token() {
   return localStorage.getItem('cc_token') || localStorage.getItem('token') || '';
