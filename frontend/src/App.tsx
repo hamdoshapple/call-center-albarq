@@ -25,6 +25,11 @@ import AdminTicketsPage from '@/pages/admin-tickets';
 import PushNotificationsPage from '@/pages/push-notifications';
 import WhatsappPage from '@/pages/whatsapp';
 import WhatsappInboxPage from '@/pages/whatsapp-inbox';
+import EmployeeLayout from '@/pages/employee-app/layout';
+import EmployeeDashboardPage from '@/pages/employee-app/dashboard';
+import EmployeeCallsPage from '@/pages/employee-app/calls';
+import EmployeeTicketsPage from '@/pages/employee-app/tickets';
+import EmployeeProfilePage from '@/pages/employee-app/profile';
 
 function RootRedirect() {
   const host = window.location.hostname;
@@ -37,8 +42,24 @@ function RootRedirect() {
 export function App() {
   return (
     <Routes>
-        <Route path="/my" element={<SubscriberPortalPage />} />
+      <Route path="/my" element={<SubscriberPortalPage />} />
       <Route path="/login" element={<LoginPage />} />
+
+      <Route
+        path="/employee"
+        element={
+          <ProtectedRoute>
+            <EmployeeLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<Navigate to="/employee/dashboard" replace />} />
+        <Route path="dashboard" element={<EmployeeDashboardPage />} />
+        <Route path="calls" element={<EmployeeCallsPage />} />
+        <Route path="tickets" element={<EmployeeTicketsPage />} />
+        <Route path="profile" element={<EmployeeProfilePage />} />
+      </Route>
+
       <Route
         element={
           <ProtectedRoute>
@@ -69,6 +90,7 @@ export function App() {
         <Route path="/permissions" element={<ProtectedRoute module="permissions"><PermissionsPage /></ProtectedRoute>} />
         <Route path="/company-settings" element={<ProtectedRoute module="company_settings"><CompanySettingsPage /></ProtectedRoute>} />
       </Route>
+
       <Route path="/" element={<RootRedirect />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
