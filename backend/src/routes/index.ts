@@ -273,6 +273,11 @@ router.get('/push/logs', h(push.logs));
 router.get('/push/settings', h(push.getSettings));
 router.put('/push/settings', h(push.saveSettings));
 router.post('/push/send', h(push.send));
+router.post('/push/campaign-preview', h(push.campaignPreview));
+router.post('/push/campaign-confirm', h(push.campaignConfirm));
+router.post('/push-notifications/campaign-preview', h(push.campaignPreview));
+router.post('/push-notifications/campaign-confirm', h(push.campaignConfirm));
+
 
 router.get('/push/twilio-templates', h(push.twilioTemplates));
 router.post('/push/twilio-templates/sync', h(push.syncTwilioTemplates));
@@ -322,5 +327,4 @@ router.patch('/admin-tickets/:id', updateAdminTicket);
 
 
 // Push campaign preview routes
-router.post('/push-notifications/campaign-preview', push.campaignPreview);
-router.post('/push-notifications/campaign-confirm', push.campaignConfirm);
+

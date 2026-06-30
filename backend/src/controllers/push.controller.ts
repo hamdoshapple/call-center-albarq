@@ -2137,26 +2137,44 @@ function parsePreviewTwilioVars(text: any, sub: any) {
 }
 
 async function getPreviewSubscribers(req: any) {
-  const fakeReq: any = {
-    ...req,
-    query: {
-      q: req.body?.targetValue || '',
-      channel: req.body?.channel || 'whatsapp',
-    },
-  };
+  const body = req.body || {};
+  const phones = String(body.targetValue || '')
+    .split(',')
+    .map((x: string) => x.trim())
+    .filter(Boolean);
 
   const rows: any[] = [];
-  const fakeRes: any = {
-    json(data: any) {
-      if (Array.isArray(data)) rows.push(...data);
-      else if (Array.isArray(data?.rows)) rows.push(...data.rows);
-      else if (Array.isArray(data?.subscribers)) rows.push(...data.subscribers);
-    },
-    status() { return this; },
-  };
 
-  if (typeof (exports as any).subscribers === 'function') {
-    await (exports as any).subscribers(fakeReq, fakeRes);
+  async function callSubscribers(q: string) {
+    const fakeReq: any = {
+      ...req,
+      query: {
+        q,
+        channel: body.channel || 'whatsapp',
+      },
+      next: () => {},
+    };
+
+    const fakeRes: any = {
+      json(data: any) {
+        if (Array.isArray(data)) rows.push(...data);
+        else if (Array.isArray(data?.rows)) rows.push(...data.rows);
+        else if (Array.isArray(data?.subscribers)) rows.push(...data.subscribers);
+      },
+      status() { return this; },
+    };
+
+    await subscribers(fakeReq, fakeRes, fakeReq.next);
+  }
+
+  if (body.targetType === 'phone' && phones.length) {
+    for (const ph of phones) {
+      await callSubscribers(ph);
+      const clean = String(ph).replace(/\D/g, '');
+      if (clean.length > 10) await callSubscribers(clean.slice(-10));
+    }
+  } else {
+    await callSubscribers(body.targetValue || '');
   }
 
   return rows;
@@ -2174,8 +2192,21 @@ export async function campaignPreview(req: any, res: any) {
 
     let subs = rawSubs;
     if (body.targetType === 'phone' && wanted.length) {
-      const set = new Set(wanted);
-      subs = rawSubs.filter((x: any) => set.has(normPhoneForPreview(x.phoneNorm || x.phone)));
+      const set = new Set(wanted.map((x: string) => x.slice(-10)));
+      subs = rawSubs.filter((x: any) => {
+        const p = normPhoneForPreview(x.phoneNorm || x.phone);
+        return set.has(p.slice(-10));
+      });
+
+      if (!subs.length) {
+        subs = wanted.map((phone: string) => ({
+          name: 'مشترك',
+          phone,
+          phoneNorm: phone,
+          totalDebt: 0,
+          accounts: [],
+        }));
+      }
     }
 
     const seen = new Set<string>();
@@ -2194,6 +2225,7 @@ export async function campaignPreview(req: any, res: any) {
 
       if (body.channel === 'twilio_template') {
         row.contentVariables = parsePreviewTwilioVars(body.twilioVariablesText, sub);
+        row.renderedMessage = renderPreviewText(body.message, sub);
       } else {
         row.message = renderPreviewText(body.message, sub);
       }
@@ -2220,7 +2252,7 @@ export async function campaignPreview(req: any, res: any) {
       rows,
     });
   } catch (e: any) {
-    return res.status(500).json({ ok: false, error: e?.message || 'preview failed' });
+    console.error('[campaignPreview]', e); return res.status(500).json({ ok: false, error: e?.message || 'preview failed' });
   }
 }
 
@@ -2237,12 +2269,8 @@ export async function campaignConfirm(req: any, res: any) {
 
     req.body = item.body;
 
-    if (typeof (exports as any).send === 'function') {
-      return (exports as any).send(req, res);
-    }
-
-    return res.status(500).json({ ok: false, error: 'send function not found' });
+    return send(req, res, req.next || (() => {}));
   } catch (e: any) {
-    return res.status(500).json({ ok: false, error: e?.message || 'confirm failed' });
+    console.error('[campaignConfirm]', e); return res.status(500).json({ ok: false, error: e?.message || 'confirm failed' });
   }
 }

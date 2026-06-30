@@ -27,12 +27,12 @@ export const pushNotificationsApi = {
     method: 'PUT',
     body: JSON.stringify(data),
   }),
-  previewCampaign: async (payload: any) => request('/push-notifications/campaign-preview', {
+  previewCampaign: async (payload: any) => request('/push/campaign-preview', {
     method: 'POST',
     body: JSON.stringify(payload),
   }),
 
-  confirmCampaign: async (payload: any) => request('/push-notifications/campaign-confirm', {
+  confirmCampaign: async (payload: any) => request('/push/campaign-confirm', {
     method: 'POST',
     body: JSON.stringify(payload),
   }),

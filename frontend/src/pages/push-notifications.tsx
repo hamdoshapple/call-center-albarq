@@ -785,7 +785,7 @@ export default function PushNotificationsPage() {
 
                             {form.channel === 'twilio_template' ? (
                               <pre className="whitespace-pre-wrap rounded-xl bg-slate-100 p-3 text-xs" dir="ltr">
-                                {JSON.stringify(x.contentVariables, null, 2)}
+                                {x.renderedMessage ? `${x.renderedMessage}\n\n--- Content Variables ---\n${JSON.stringify(x.contentVariables, null, 2)}` : JSON.stringify(x.contentVariables, null, 2)}
                               </pre>
                             ) : (
                               <div className="whitespace-pre-wrap rounded-xl bg-slate-100 p-3 text-sm leading-7">
