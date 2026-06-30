@@ -18,9 +18,51 @@ export default function EmployeeLayout() {
   const [pushModalOpen, setPushModalOpen] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
   const [pushMsg, setPushMsg] = useState('');
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [installModalOpen, setInstallModalOpen] = useState(false);
   const hideBottomNav = waChatOpen;
 
 
+
+  useEffect(() => {
+    const standalone =
+      window.matchMedia?.('(display-mode: standalone)').matches ||
+      (window.navigator as any).standalone === true;
+
+    const dismissed = localStorage.getItem('employee_install_dismissed') === '1';
+
+    const onBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+      if (!standalone && !dismissed) setInstallModalOpen(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt);
+
+    const timer = window.setTimeout(() => {
+      if (!standalone && !dismissed) setInstallModalOpen(true);
+    }, 1800);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt);
+      window.clearTimeout(timer);
+    };
+  }, []);
+
+  async function installEmployeeApp() {
+    if (installPrompt) {
+      installPrompt.prompt();
+      await installPrompt.userChoice.catch(() => null);
+    }
+    localStorage.setItem('employee_install_dismissed', '1');
+    setInstallModalOpen(false);
+    setInstallPrompt(null);
+  }
+
+  function dismissInstallModal() {
+    localStorage.setItem('employee_install_dismissed', '1');
+    setInstallModalOpen(false);
+  }
 
   useEffect(() => {
     if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
@@ -99,6 +141,43 @@ export default function EmployeeLayout() {
       <main className={`mx-auto min-h-screen max-w-md transition-all duration-200 ${hideBottomNav || keyboardOpen ? "pb-0" : "pb-24"}`}>
         <Outlet />
       </main>
+
+      {installModalOpen ? (
+        <div dir="rtl" className="fixed inset-0 z-[110] flex items-end justify-center bg-slate-950/40 px-4 pb-[calc(env(safe-area-inset-bottom)+14px)] backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-[2rem] bg-white p-5 shadow-2xl">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-[1.5rem] bg-sky-50 text-sky-500 text-3xl">
+              📲
+            </div>
+
+            <h2 className="mt-4 text-center text-xl font-black text-slate-950">تثبيت تطبيق الموظف</h2>
+            <p className="mt-2 text-center text-sm font-bold leading-6 text-slate-500">
+              ثبّت التطبيق على الشاشة الرئيسية حتى يفتح بسرعة ويشتغل مثل التطبيق الحقيقي.
+            </p>
+
+            {!installPrompt ? (
+              <div className="mt-4 rounded-2xl bg-sky-50 p-3 text-sm font-bold leading-7 text-sky-700">
+                من أندرويد: افتح قائمة المتصفح ⋮ ثم اختر <b>تثبيت التطبيق</b> أو <b>إضافة إلى الشاشة الرئيسية</b>.
+              </div>
+            ) : null}
+
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                onClick={dismissInstallModal}
+                className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-500"
+              >
+                لاحقاً
+              </button>
+
+              <button
+                onClick={installEmployeeApp}
+                className="rounded-2xl bg-sky-500 px-4 py-3 text-sm font-black text-white shadow-lg shadow-sky-200"
+              >
+                تثبيت
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {pushModalOpen ? (
         <div dir="rtl" className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-950/40 px-4 pb-[calc(env(safe-area-inset-bottom)+14px)] backdrop-blur-sm">

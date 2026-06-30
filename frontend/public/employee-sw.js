@@ -13,10 +13,12 @@ self.addEventListener('push', (event) => {
 
   const ticketId = data.ticketId || '';
   const conversationId = data.conversationId || '';
+  const callId = data.callId || '';
 
   let url = data.url || '/employee/dashboard';
   if (ticketId) url = `/employee/tickets?ticket=${encodeURIComponent(ticketId)}`;
   else if (conversationId) url = `/employee/whatsapp?chat=${encodeURIComponent(conversationId)}`;
+  else if (callId) url = `/employee/calls?call=${encodeURIComponent(callId)}`;
 
   event.waitUntil(
     self.registration.showNotification(data.title || 'إشعار جديد', {
@@ -25,7 +27,7 @@ self.addEventListener('push', (event) => {
       badge: data.badge || '/icon-192.png',
       tag: data.tag || ('employee-' + Date.now()),
       renotify: true,
-      data: { ...data, ticketId, conversationId, url },
+      data: { ...data, ticketId, conversationId, callId, url },
     })
   );
 });
@@ -49,9 +51,10 @@ self.addEventListener('notificationclick', (event) => {
           }
 
           client.postMessage({
-            type: 'TICKET_OPEN_FROM_PUSH',
+            type: data.callId ? 'CALL_OPEN_FROM_PUSH' : 'TICKET_OPEN_FROM_PUSH',
             payload: {
               ticketId: data.ticketId || '',
+              callId: data.callId || '',
               url: targetUrl,
             },
           });

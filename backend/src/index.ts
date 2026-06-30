@@ -1,3 +1,4 @@
+import { startLiveCallPushWatcher } from './services/live-call-push-watcher.service.js';
 import { refreshExternalSubscriberCache } from './services/subscriber-cache.service.js';
 import { prisma } from './config/prisma.js';
 import { createServer } from 'node:http';
@@ -18,6 +19,7 @@ async function main() {
   await gw.connect();
   setupSockets(httpServer);
 
+  startLiveCallPushWatcher();
   httpServer.listen(env.port, () => {
     // eslint-disable-next-line no-console
     console.log(`[server] Call Center Albarq API on :${env.port} (asterisk=${env.asterisk.mode}, demo=${env.demoMode})`);
