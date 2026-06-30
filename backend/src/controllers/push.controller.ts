@@ -1362,13 +1362,21 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
             );
 
             try {
+              console.log('[twilio send to]', asTwilioWhatsapp(phone));
               const msg = await client.messages.create({
                 from: asTwilioWhatsapp(setting.whatsappFrom),
                 to: asTwilioWhatsapp(phone),
                 contentSid: twilioTemplateId,
-                contentVariables: JSON.stringify(renderedVariables || {}),
+                contentVariables: (() => {
+                  const pkey = String(phone || '').replace(/\D/g, '').slice(-10);
+                  const pv = req.body?.previewContentVariablesByPhone?.[pkey];
+                  const finalVars = pv && Object.keys(pv).length ? pv : (renderedVariables || {});
+                  console.log('[twilio contentVariables]', JSON.stringify(finalVars));
+                  return JSON.stringify(finalVars);
+                })(),
               } as any);
 
+              console.log('[twilio sent sid]', msg.sid, msg.status);
               whatsappSent++;
               await prisma.pushNotificationLog.create({
                 data: {
@@ -1417,7 +1425,8 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
       const finalStatus = cur?.status === 'cancelled' ? 'cancelled' : 'done';
 
       await prisma.pushCampaign.create({
-        data: {
+    data: {
+      id: `pc_${Date.now()}_${Math.random().toString(36).slice(2)}`,
           title,
           message,
           targetType: `${targetType}:${channel}`,
@@ -1922,7 +1931,13 @@ export const sendTwilioTemplate = asyncHandler(async (req: Request, res: Respons
         from: asTwilioWhatsapp(setting.whatsappFrom),
         to: asTwilioWhatsapp(phone),
         contentSid,
-        contentVariables: JSON.stringify(renderedVariables || {}),
+        contentVariables: (() => {
+                  const pkey = String(phone || '').replace(/\D/g, '').slice(-10);
+                  const pv = req.body?.previewContentVariablesByPhone?.[pkey];
+                  const finalVars = pv && Object.keys(pv).length ? pv : (renderedVariables || {});
+                  console.log('[twilio campaign contentVariables]', JSON.stringify(finalVars));
+                  return JSON.stringify(finalVars);
+                })(),
       } as any);
 
       sent++;
@@ -2136,7 +2151,8 @@ function parsePreviewTwilioVars(text: any, sub: any) {
 
       if (!key) return;
 
-      out[key] = renderPreviewText(raw, sub);
+      const val = renderPreviewText(raw, sub);
+      out[key] = val === '' && raw.includes('{totalDebt}') ? '0' : val;
     });
 
   return out;
@@ -2189,6 +2205,10 @@ async function getPreviewSubscribers(req: any) {
 export async function campaignPreview(req: any, res: any) {
   try {
     const body = req.body || {};
+    if (body.channel === 'twilio_template' && String(body.twilioVariablesText || '').indexOf('2=') === -1) {
+      body.twilioVariablesText = '1={name}\n2={totalDebt}';
+      req.body.twilioVariablesText = body.twilioVariablesText;
+    }
     let rawSubs = await getPreviewSubscribers(req);
     if (Array.isArray(body.previewSubscribers) && body.previewSubscribers.length) {
       rawSubs = body.previewSubscribers;
@@ -2276,7 +2296,23 @@ export async function campaignConfirm(req: any, res: any) {
 
     previewStore.delete(token);
 
-    req.body = item.body;
+    req.body = item.body || {};
+    req.body.usePreviewContentVariables = true;
+    req.body.previewContentVariablesByPhone = Object.fromEntries(
+      (item.rows || []).map((x: any) => [
+        String(x.phone || '').replace(/\D/g, '').slice(-10),
+        x.contentVariables || {}
+      ])
+    );
+    req.body.previewSubscribers = (item.rows || []).map((x: any) => ({
+      name: x.name,
+      phone: x.phone,
+      phoneNorm: x.phone,
+      totalDebt: x.contentVariables?.['2'] || 0,
+      accounts: [],
+    }));
+
+    console.log('[campaignConfirm preview vars]', JSON.stringify(req.body.previewContentVariablesByPhone));
 
     return send(req, res, req.next || (() => {}));
   } catch (e: any) {

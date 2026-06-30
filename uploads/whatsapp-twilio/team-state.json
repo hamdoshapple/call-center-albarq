@@ -42,17 +42,18 @@
   },
   "cmqnn6jjc054jxrhzmh1qfx8d": {
     "viewers": {
-      "user101_1780697434": {
-        "id": "user101_1780697434",
-        "name": "101",
-        "at": 1782815428156
+      "cmpzn633t002vw8t26cmm1udu": {
+        "id": "cmpzn633t002vw8t26cmm1udu",
+        "name": "admin",
+        "at": 1782856797246
       }
     },
     "pinned": false,
-    "claimedById": "user101_1780697434",
-    "claimedByName": "101",
-    "claimedAt": "2026-06-30T07:33:55.818Z",
-    "priority": "normal"
+    "claimedById": "cmpzn633t002vw8t26cmm1udu",
+    "claimedByName": "admin",
+    "claimedAt": "2026-06-30T21:59:33.878Z",
+    "priority": "normal",
+    "typing": {}
   },
   "cmqns5sgz05bnqaam37pjf23e": {
     "claimedById": "user101_1780697434",
