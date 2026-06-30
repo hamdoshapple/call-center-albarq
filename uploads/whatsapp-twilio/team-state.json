@@ -7,7 +7,11 @@
         "at": 1782804433284
       }
     },
-    "priority": "urgent"
+    "priority": "normal",
+    "pinned": true,
+    "claimedById": "user101_1780697434",
+    "claimedByName": "101",
+    "claimedAt": "2026-06-30T07:37:15.990Z"
   },
   "cmqnnh9ml0b2jxrhz7tr3n8v7": {
     "viewers": {
@@ -19,8 +23,8 @@
     },
     "claimedById": "user101_1780697434",
     "claimedByName": "101",
-    "claimedAt": "2026-06-30T06:17:11.564Z",
-    "pinned": true,
+    "claimedAt": "2026-06-30T07:36:51.845Z",
+    "pinned": false,
     "typing": {}
   },
   "cmqnlv2dn0004j6dhfx3k8c4a": {
@@ -28,19 +32,45 @@
       "user101_1780697434": {
         "id": "user101_1780697434",
         "name": "101",
-        "at": 1782804445001
+        "at": 1782805019598
       }
     },
-    "pinned": true
+    "pinned": false,
+    "claimedById": "user101_1780697434",
+    "claimedByName": "101",
+    "claimedAt": "2026-06-30T07:36:55.645Z"
   },
   "cmqnn6jjc054jxrhzmh1qfx8d": {
     "viewers": {
       "user101_1780697434": {
         "id": "user101_1780697434",
         "name": "101",
-        "at": 1782803732294
+        "at": 1782805152917
       }
     },
+    "pinned": true,
+    "claimedById": "user101_1780697434",
+    "claimedByName": "101",
+    "claimedAt": "2026-06-30T07:33:55.818Z",
+    "priority": "normal"
+  },
+  "cmqns5sgz05bnqaam37pjf23e": {
+    "claimedById": "user101_1780697434",
+    "claimedByName": "101",
+    "claimedAt": "2026-06-30T07:36:58.450Z"
+  },
+  "cmr0coter052umous12xyl5y3": {
+    "viewers": {
+      "user101_1780697434": {
+        "id": "user101_1780697434",
+        "name": "101",
+        "at": 1782806104766
+      }
+    },
+    "typing": {},
+    "claimedById": "user101_1780697434",
+    "claimedByName": "101",
+    "claimedAt": "2026-06-30T07:55:12.745Z",
     "pinned": true
   }
 }

@@ -5,6 +5,7 @@ import { ApiError } from '../utils/ApiError.js';
 import { getExternalSubscriberById, searchExternalSubscribers } from '../services/external-subscriber.service.js';
 import { getCachedExternalSubscriberById, refreshExternalSubscriberCache, searchSubscriberCache, subscriberCacheStatus, upsertExternalSubscriberCache } from '../services/subscriber-cache.service.js';
 
+import { sendPushToEmployees } from './push.controller.js';
 const schema = z.object({
   name: z.string().min(1),
   phone: z.string().min(1),

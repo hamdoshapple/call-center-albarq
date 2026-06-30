@@ -4,6 +4,7 @@ import { prisma } from '../config/prisma.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { sendPushToPhones } from './push.controller.js';
 
+import { sendPushToEmployees } from './push.controller.js';
 const cuid = () => 't_' + randomUUID().replace(/-/g, '');
 
 function userId(req: Request) {

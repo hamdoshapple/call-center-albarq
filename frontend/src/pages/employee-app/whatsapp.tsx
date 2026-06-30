@@ -674,12 +674,12 @@ function ConversationList({
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto pb-4">
         {pinned.length ? (
           <ConversationSection title={`المحادثات المثبتة (${pinned.length})`} pinned>
-            {pinned.map((conv) => <ConversationCard key={conv.id} conv={conv} onOpen={onOpen} />)}
+            {pinned.map((conv) => <ConversationCard key={conv.id} conv={conv} onOpen={onOpen} onActionDone={onRefresh} />)}
           </ConversationSection>
         ) : null}
 
         <ConversationSection title={pinned.length ? 'كل المحادثات' : 'المحادثات'}>
-          {normal.map((conv) => <ConversationCard key={conv.id} conv={conv} onOpen={onOpen} />)}
+          {normal.map((conv) => <ConversationCard key={conv.id} conv={conv} onOpen={onOpen} onActionDone={onRefresh} />)}
         </ConversationSection>
 
         {!loading && !filtered.length ? (
@@ -719,24 +719,42 @@ function FilterChip({
 }
 
 
+
 function ConversationSection({ title, pinned, children }: { title: string; pinned?: boolean; children: React.ReactNode }) {
+  const [collapsed, setCollapsed] = useState(false);
+
   return (
     <div className="mb-4">
-      <div className={`mb-2 flex items-center justify-between rounded-2xl border px-4 py-3 ${
-        pinned ? 'border-amber-200 bg-amber-50/70 text-slate-950' : 'border-slate-100 bg-white/75 text-slate-800'
-      }`}>
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        className={`mb-2 flex w-full items-center justify-between rounded-2xl border px-4 py-3 ${
+          pinned ? 'border-amber-200 bg-amber-50/70 text-slate-950' : 'border-slate-100 bg-white/75 text-slate-800'
+        }`}
+      >
         <div className="flex items-center gap-2 text-sm font-black">
           {pinned ? <Pin className="h-4 w-4 text-amber-500" /> : <MessageCircle className="h-4 w-4 text-slate-400" />}
           <span>{title}</span>
         </div>
-        <span className="text-slate-400">⌃</span>
-      </div>
-      <div className="space-y-3">{children}</div>
+
+        <span className={`text-slate-400 transition-transform duration-200 ${collapsed ? 'rotate-180' : ''}`}>
+          ⌃
+        </span>
+      </button>
+
+      {!collapsed ? <div className="space-y-3">{children}</div> : null}
     </div>
   );
 }
 
-function ConversationCard({ conv, onOpen }: { conv: Conv; onOpen: (c: Conv) => void }) {
+
+function ConversationCard({ conv, onOpen, onActionDone }: { conv: Conv; onOpen: (c: Conv) => void; onActionDone: () => void }) {
+  const [dragX, setDragX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const startX = useRef(0);
+  const dragging = useRef(false);
+  const moved = useRef(false);
+
   const accounts = conv.subscribers?.length ? conv.subscribers : conv.subscriber ? [conv.subscriber] : [];
   const hasDebt = accounts.some((x) => Number(x.debt || 0) > 0);
   const isActive = accounts.length
@@ -745,10 +763,15 @@ function ConversationCard({ conv, onOpen }: { conv: Conv; onOpen: (c: Conv) => v
 
   const unread = Number(conv.unreadCount || 0);
   const lastTime = formatConversationTime(conv.lastAt || '');
+  const priorityLabel =
+    conv.priority === 'urgent' ? 'مستعجلة' :
+    conv.priority === 'medium' ? 'متوسطة' :
+    '';
 
   async function quickConvAction(action: 'pin' | 'claim' | 'urgent' | 'normal') {
     try {
       const token = localStorage.getItem('cc_token') || localStorage.getItem('token') || '';
+
       if (action === 'pin') {
         await fetch(`/api/whatsapp-twilio/conversations/${conv.id}/pin`, {
           method: 'POST',
@@ -772,105 +795,147 @@ function ConversationCard({ conv, onOpen }: { conv: Conv; onOpen: (c: Conv) => v
         });
       }
 
-      window.location.reload();
-    } catch {}
+      setDragX(0);
+      setDragX(0);
+      await onActionDone();
+    } catch {
+      setDragX(0);
+    }
   }
 
-  const priorityLabel =
-    conv.priority === 'urgent' ? 'مستعجلة' :
-    conv.priority === 'medium' ? 'متوسطة' :
-    '';
+  function onPointerDown(e: any) {
+    startX.current = e.clientX;
+    dragging.current = true;
+    setIsDragging(true);
+    moved.current = false;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  }
+
+  function onPointerMove(e: any) {
+    if (!dragging.current) return;
+    const dx = e.clientX - startX.current;
+    const clamped = Math.max(-96, Math.min(96, dx));
+
+    if (Math.abs(clamped) > 6) moved.current = true;
+    setDragX((old) => Math.abs(old - clamped) > 1 ? clamped : old);
+  }
+
+  function onPointerUp() {
+    dragging.current = false;
+    setIsDragging(false);
+
+    if (dragX <= -55) {
+      navigator.vibrate?.(12);
+      setDragX(-92);
+      return;
+    }
+
+    if (dragX >= 55) {
+      navigator.vibrate?.(12);
+      setDragX(92);
+      return;
+    }
+
+    setDragX(0);
+  }
 
   return (
-    <div className="group relative overflow-hidden rounded-[1.65rem]">
+    <div className="relative overflow-hidden rounded-[1.65rem]">
       <div className="absolute inset-y-0 right-0 flex items-center gap-2 px-3">
-        <button onClick={() => quickConvAction('pin')} className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+        <button onClick={() => quickConvAction('pin')} className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 shadow-sm">
           <Pin className="h-4 w-4" />
         </button>
-        <button onClick={() => quickConvAction('urgent')} className="flex h-10 w-10 items-center justify-center rounded-2xl bg-red-100 text-red-600">
+
+        <button onClick={() => quickConvAction(conv.priority === 'urgent' ? 'normal' : 'urgent')} className="flex h-11 w-11 items-center justify-center rounded-2xl bg-red-100 text-red-600 shadow-sm">
           <Flag className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="absolute inset-y-0 left-0 flex items-center gap-2 px-3">
-        <button onClick={() => quickConvAction('claim')} className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+      <div className="absolute inset-y-0 left-0 flex items-center px-3">
+        <button onClick={() => quickConvAction('claim')} className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 shadow-sm">
           <UserCheck className="h-4 w-4" />
         </button>
       </div>
 
       <button
-        onClick={() => onOpen(conv)}
-        className="relative z-10 flex w-full gap-3 rounded-[1.65rem] border border-slate-100 bg-white p-4 text-right shadow-lg shadow-slate-200/70 transition-transform duration-200 active:scale-[0.99] group-hover:-translate-x-14"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onClick={() => {
+          if (moved.current || Math.abs(dragX) > 8) {
+            moved.current = false;
+            return;
+          }
+          onOpen(conv);
+        }}
+        style={{ transform: `translateX(${dragX}px)`, touchAction: 'pan-y' }}
+        className={`relative z-10 flex w-full gap-3 rounded-[1.65rem] border border-slate-100 bg-white p-4 text-right shadow-lg shadow-slate-200/70 active:scale-[0.99] ${isDragging ? '' : 'transition-transform duration-200 ease-out'}`}
       >
-      {conv.pinned ? (
-        <div className="absolute right-0 top-0 h-14 w-14 bg-amber-400 [clip-path:polygon(100%_0,0_0,100%_100%)]">
-          <Pin className="absolute right-2 top-2 h-4 w-4 text-white" />
+        {conv.pinned ? (
+          <div className="absolute right-0 top-0 h-14 w-14 bg-amber-400 [clip-path:polygon(100%_0,0_0,100%_100%)]">
+            <Pin className="absolute right-2 top-2 h-4 w-4 text-white" />
+          </div>
+        ) : null}
+
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-500">
+          <MessageCircle className="h-6 w-6" />
         </div>
-      ) : null}
 
-      
-<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-500">
-  <MessageCircle className="h-6 w-6" />
-</div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <h3 className="truncate text-[15px] font-black text-slate-950">{conv.name || conv.phone}</h3>
+              <p className="mt-1 truncate text-xs font-bold text-slate-400">{conv.lastMessage || 'مرفق'}</p>
+            </div>
 
+            <div className="flex shrink-0 flex-col items-end gap-2">
+              {lastTime ? (
+                <span className="inline-flex items-center gap-1 text-[10px] font-black text-slate-400">
+                  <Clock3 className="h-3 w-3" />
+                  {lastTime}
+                </span>
+              ) : null}
 
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <h3 className="truncate text-[15px] font-black text-slate-950">{conv.name || conv.phone}</h3>
-            <p className="mt-1 truncate text-xs font-bold text-slate-400">{conv.lastMessage || 'مرفق'}</p>
+              {unread ? (
+                <span className="flex h-7 min-w-7 items-center justify-center rounded-full bg-red-500 px-2 text-xs font-black text-white shadow-md shadow-red-100">
+                  {unread}
+                </span>
+              ) : null}
+            </div>
           </div>
 
-          <div className="flex shrink-0 flex-col items-end gap-2">
-            {lastTime ? (
-              <span className="inline-flex items-center gap-1 text-[10px] font-black text-slate-400">
-                <Clock3 className="h-3 w-3" />
-                {lastTime}
-              </span>
-            ) : null}
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            {isActive ? <MiniBadge color="green" label="عميل نشط" /> : null}
+            {hasDebt ? <MiniBadge color="orange" label="عليه ديون" /> : null}
 
-            {unread ? (
-              <span className="flex h-7 min-w-7 items-center justify-center rounded-full bg-red-500 px-2 text-xs font-black text-white shadow-md shadow-red-100">
-                {unread}
+            {conv.claimedByName ? (
+              <span className="inline-flex items-center gap-1 rounded-xl bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700">
+                <UserCheck className="h-3 w-3" />
+                مستلمة: {conv.claimedByName}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 rounded-xl bg-slate-50 px-2.5 py-1 text-[10px] font-black text-slate-400">
+                <UserCheck className="h-3 w-3" />
+                غير مستلمة
+              </span>
+            )}
+
+            {priorityLabel ? (
+              <span className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1 text-[10px] font-black ${
+                conv.priority === 'urgent' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-600'
+              }`}>
+                <Flag className="h-3 w-3" />
+                {priorityLabel}
               </span>
             ) : null}
           </div>
         </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          {isActive ? <MiniBadge color="green" label="عميل نشط" /> : null}
-          {hasDebt ? <MiniBadge color="orange" label="عليه ديون" /> : null}
-
-          {conv.claimedByName ? (
-            <span className="inline-flex items-center gap-1 rounded-xl bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700">
-              <UserCheck className="h-3 w-3" />
-              مستلمة: {conv.claimedByName}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 rounded-xl bg-slate-50 px-2.5 py-1 text-[10px] font-black text-slate-400">
-              <UserCheck className="h-3 w-3" />
-              غير مستلمة
-            </span>
-          )}
-
-          {priorityLabel ? (
-            <span className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1 text-[10px] font-black ${
-              conv.priority === 'urgent' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-600'
-            }`}>
-              <Flag className="h-3 w-3" />
-              {priorityLabel}
-            </span>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="absolute bottom-3 left-4 flex h-8 w-8 items-center justify-center rounded-full bg-emerald-50 text-emerald-500">
-        <MessageCircle className="h-5 w-5" />
-      </div>
       </button>
     </div>
   );
 }
+
 
 function MiniBadge({ color, label }: { color: 'green' | 'orange'; label: string }) {
   return (
