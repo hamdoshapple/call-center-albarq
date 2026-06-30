@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'crypto';
 import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
@@ -671,7 +672,17 @@ async function sendAutoByChannel(phone: string, title: string, message: string, 
 
 export const employeeSubscribe = asyncHandler(async (req: Request, res: Response) => {
   const user: any = (req as any).user || {};
-  const userId = String(user.id || user.userId || user.sub || '').trim();
+  let userId = String(user.id || user.userId || user.sub || '').trim();
+
+  if (!userId) {
+    const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    if (token) {
+      try {
+        const payload: any = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+        userId = String(payload.id || payload.userId || payload.sub || '').trim();
+      } catch {}
+    }
+  }
 
   if (!userId) {
     return res.status(401).json({ message: 'UNAUTHORIZED' });

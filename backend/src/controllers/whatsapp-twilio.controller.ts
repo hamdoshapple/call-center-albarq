@@ -442,9 +442,15 @@ export async function webhook(req: Request, res: Response) {
     });
   }
 
+  const pushName = await findSubscribersForPhone(from)
+    .then((rows) => rows?.[0]?.name || rows?.[0]?.fullName || '')
+    .catch(() => '');
+
+  const displayName = pushName || contact.name || from;
+
   await sendPushToEmployees(
-    'رسالة واتساب جديدة',
-    body ? `${from}: ${body.slice(0, 120)}` : `${from}: مرفق جديد`,
+    `رسالة واتساب من ${displayName}`,
+    body ? body.slice(0, 120) : 'مرفق جديد',
     '/employee/whatsapp'
   ).catch(() => null);
 
