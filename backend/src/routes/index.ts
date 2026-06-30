@@ -132,6 +132,8 @@ router.get('/recordings/:id', perm('recordings'), h(recordings.getOne));
 router.delete('/recordings/:id', perm('recordings', 'delete'), h(recordings.remove));
 
 // ---------- Call logs / live ----------
+router.get('/employee/calls', authenticate, h(calls.listLogs));
+router.get('/employee/calls/live', authenticate, h(calls.getLive));
 router.get('/calls', perm('call_logs'), h(calls.listLogs));
 router.get('/calls/live', perm('live_calls'), h(calls.getLive));
 router.post('/calls/:id/note', perm('live_calls', 'edit'), h(calls.addNote));

@@ -80,8 +80,18 @@ function mapCallLog(r: BackendCallLog): CallLog {
     durationSec: Number(r.durationSec || 0),
     talkTimeSec: Number(r.talkTimeSec || 0),
     waitTimeSec: Number(r.waitTimeSec || 0),
+    subscriber: r.subscriber || undefined,
+    subscriberId: r.subscriber?.id || undefined,
+    pppoeUsername: r.subscriber?.pppoeUsername || undefined,
+    subscriberPhone: r.subscriber?.phone || undefined,
+    subscriberStatus: r.subscriber?.status || undefined,
+    subscriberPackage: r.subscriber?.package || undefined,
+    subscriberSpeed: r.subscriber?.speed || undefined,
+    subscriberExpiration: r.subscriber?.expiration || undefined,
+    subscriberDebt: r.subscriber?.debt || undefined,
+    subscriberAddress: r.subscriber?.address || undefined,
     ...(r.recording?.id ? { recordingId: r.recording.id } : {}),
-  };
+  } as any;
 }
 
 export async function listCallLogs(filters: CallLogFilters = {}) {
@@ -102,4 +112,19 @@ export async function listCallLogs(filters: CallLogFilters = {}) {
 export async function getCallLog(id: string) {
   const rows = await listCallLogs();
   return rows.find((r) => r.id === id) ?? null;
+}
+
+export async function listEmployeeCallLogs(filters: CallLogFilters = {}) {
+  const qs = new URLSearchParams();
+
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      qs.set(key, String(value));
+    }
+  });
+
+  qs.set('pageSize', '100');
+
+  const data = await api<BackendResponse>(`/employee/calls?${qs.toString()}`);
+  return data.rows.map(mapCallLog);
 }

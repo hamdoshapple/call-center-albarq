@@ -14,29 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { listLiveCalls } from '@/api/liveCalls';
-import { listCallLogs } from '@/api/callLogs';
-
-function readMe() {
-  const keys = ['cc_user', 'user', 'employee', 'staff'];
-  for (const k of keys) {
-    try {
-      const raw = localStorage.getItem(k);
-      if (!raw) continue;
-      const u = JSON.parse(raw);
-      return {
-        id: String(u.id || u.userId || ''),
-        ext: String(u.extension || u.agentExtension || u.ext || u.sip || ''),
-        name: String(u.fullName || u.name || u.username || ''),
-      };
-    } catch {}
-  }
-
-  return {
-    id: localStorage.getItem('cc_user_id') || '',
-    ext: localStorage.getItem('cc_extension') || localStorage.getItem('extension') || '',
-    name: '',
-  };
-}
+import { listEmployeeCallLogs } from '@/api/callLogs';
 
 function fmt(sec: number) {
   const s = Math.max(0, Math.floor(Number(sec || 0)));
@@ -50,7 +28,14 @@ function fmt(sec: number) {
 
 
 export default function EmployeeCallsPage() {
-  const me = useMemo(() => readMe(), []);
+  const meQuery = useQuery({
+    queryKey: ['employeeMe'],
+    queryFn: () => fetch('/api/auth/me', {
+      headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}` },
+    }).then((r) => r.json()),
+  });
+
+  const me = meQuery.data || {};
   const [q, setQ] = useState('');
   const [tab, setTab] = useState<'live' | 'history' | 'missed'>('history');
   const [selected, setSelected] = useState<any | null>(null);
@@ -62,8 +47,9 @@ export default function EmployeeCallsPage() {
   });
 
   const logs = useQuery({
-    queryKey: ['employeeCallLogs', q, me.ext, me.id],
-    queryFn: () => listCallLogs({ search: q } as any),
+    queryKey: ['employeeCallLogs', q, me?.agentId],
+    queryFn: () => listEmployeeCallLogs({ search: q } as any),
+    enabled: true,
     refetchInterval: 12000,
   });
 
@@ -186,7 +172,8 @@ function Chip({ active, label, onClick }: any) {
 
 function CallCard({ call, live, onOpen }: any) {
   const missed = ['missed', 'no_answer', 'failed'].includes(call.disposition);
-  const name = call.callerName || call.subscriberName || 'مشترك غير معروف';
+  const sub = call.subscriber || {};
+  const name = call.callerName || call.subscriberName || sub.name || 'مشترك غير معروف';
 
   return (
     <button onClick={onOpen} className="relative w-full overflow-hidden rounded-[1.65rem] border border-slate-100 bg-white p-4 text-right shadow-lg shadow-slate-200/70 active:scale-[0.99]">
@@ -207,11 +194,14 @@ function CallCard({ call, live, onOpen }: any) {
 
           <p className="mt-1 truncate text-xs font-bold text-slate-400">
             {call.callerNumber || '—'} ← {call.destinationNumber || '—'}
+            {sub.pppoeUsername ? ` · ${sub.pppoeUsername}` : ''}
           </p>
 
           <div className="mt-3 flex flex-wrap gap-1.5">
             <Badge label={call.direction === 'outbound' ? 'صادرة' : 'واردة'} />
             <Badge label={fmt(call.durationSec || call.talkTimeSec || 0)} />
+            {sub.status ? <Badge label={sub.status} /> : null}
+            {sub.package ? <Badge label={sub.package} /> : null}
             {call.recordingId ? <Badge label="تسجيل" /> : null}
           </div>
         </div>
@@ -237,6 +227,7 @@ function Empty({ text }: any) {
 }
 
 function CallModal({ call, onClose }: any) {
+  const sub = call.subscriber || {};
   return (
     <div className="fixed inset-0 z-[80] flex items-end bg-slate-950/40 backdrop-blur-sm">
       <div className="max-h-[82vh] w-full overflow-y-auto rounded-t-[2rem] bg-white p-4 shadow-2xl">
@@ -256,7 +247,7 @@ function CallModal({ call, onClose }: any) {
               <Phone className="h-7 w-7" />
             </div>
             <div>
-              <h3 className="text-lg font-black text-slate-950">{call.callerName || call.subscriberName || 'مشترك غير معروف'}</h3>
+              <h3 className="text-lg font-black text-slate-950">{call.callerName || call.subscriberName || sub.name || 'مشترك غير معروف'}</h3>
               <p className="text-sm font-bold text-slate-400">{call.callerNumber || '—'}</p>
             </div>
           </div>
@@ -272,6 +263,21 @@ function CallModal({ call, onClose }: any) {
             <div className="col-span-2">الوقت: <b>{call.startedAt ? new Date(call.startedAt).toLocaleString('ar-IQ') : '—'}</b></div>
           </div>
         </div>
+
+        {sub?.id ? (
+          <div className="mt-4 rounded-[1.5rem] bg-sky-50 p-4">
+            <h3 className="mb-3 text-sm font-black text-sky-700">معلومات المشترك</h3>
+            <div className="grid grid-cols-2 gap-2 text-xs font-bold text-slate-600">
+              <div>الاسم: <b>{sub.name || '—'}</b></div>
+              <div>الهاتف: <b>{sub.phone || '—'}</b></div>
+              <div>PPPoE: <b>{sub.pppoeUsername || '—'}</b></div>
+              <div>الحالة: <b>{sub.status || '—'}</b></div>
+              <div>الباقة: <b>{sub.package || sub.speed || '—'}</b></div>
+              <div>الدين: <b>{sub.debt ?? '—'}</b></div>
+              <div className="col-span-2">العنوان: <b>{sub.address || '—'}</b></div>
+            </div>
+          </div>
+        ) : null}
 
         {call.recordingId ? (
           <a
