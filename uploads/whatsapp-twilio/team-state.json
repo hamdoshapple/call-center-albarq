@@ -87,8 +87,15 @@
     "claimedAt": "2026-06-30T08:27:49.783Z"
   },
   "cmqnop7y708tycx4kk9yt1m08": {
-    "claimedById": "cmpzn633t002vw8t26cmm1udu",
-    "claimedByName": "admin",
-    "claimedAt": "2026-06-30T11:01:53.408Z"
+    "claimedById": "user101_1780697434",
+    "claimedByName": "101",
+    "claimedAt": "2026-06-30T13:12:20.899Z",
+    "viewers": {
+      "user101_1780697434": {
+        "id": "user101_1780697434",
+        "name": "101",
+        "at": 1782825140775
+      }
+    }
   }
 }
