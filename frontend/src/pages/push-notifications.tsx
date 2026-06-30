@@ -201,6 +201,8 @@ export default function PushNotificationsPage() {
   });
   const [selectedTwilioTemplateId, setSelectedTwilioTemplateId] = useState('');
   const [twilioVariablesText, setTwilioVariablesText] = useState('1=مشترك');
+  const [previewRows, setPreviewRows] = useState<any[]>([]);
+  const [previewToken, setPreviewToken] = useState('');
 
 
   const stats = useQuery({ queryKey: ['pushStats'], queryFn: pushNotificationsApi.stats, refetchInterval: 15000 });
@@ -347,15 +349,29 @@ export default function PushNotificationsPage() {
     });
   }, [pushSubscribers.data, subscriberFilter]);
 
-  const sendMutation = useMutation({
-    mutationFn: () => pushNotificationsApi.send({
+  const previewMutation = useMutation({
+    mutationFn: () => pushNotificationsApi.previewCampaign({
       ...(form.targetType === 'phone' ? { ...form, targetValue: selectedPhones.join(',') } : form),
       twilioTemplateId: selectedTwilioTemplateId,
       twilioVariablesText,
     }),
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
+      setPreviewRows(data.rows || []);
+      setPreviewToken(data.previewToken || '');
+      toast({
+        title: 'تم تجهيز المعاينة',
+        description: `تم تجهيز ${data.rows?.length || 0} رسالة بدون تكرار.`,
+      });
+    },
+  });
+
+  const confirmSendMutation = useMutation({
+    mutationFn: () => pushNotificationsApi.confirmCampaign({ previewToken }),
+    onSuccess: (data: any) => {
       if (data.jobId) setJobId(data.jobId);
-      toast({ title: 'بدأ الإرسال بالخلفية', description: 'تابع العداد بالأسفل.' });
+      setPreviewRows([]);
+      setPreviewToken('');
+      toast({ title: 'بدأ الإرسال', description: 'تم اعتماد الرسائل بعد المعاينة.' });
       qc.invalidateQueries({ queryKey: ['pushStats'] });
       qc.invalidateQueries({ queryKey: ['pushLogs'] });
     },
@@ -744,12 +760,64 @@ export default function PushNotificationsPage() {
 
                 <Button
                   className="h-12 w-full text-base font-black"
-                  disabled={sendMutation.isPending || !form.title.trim() || (form.channel !== 'twilio_template' && !form.message.trim()) || (form.channel === 'twilio_template' && !selectedTwilioTemplateId) || (form.targetType === 'phone' && selectedPhones.length === 0)}
-                  onClick={() => sendMutation.mutate()}
+                  disabled={previewMutation.isPending || !form.title.trim() || (form.channel !== 'twilio_template' && !form.message.trim()) || (form.channel === 'twilio_template' && !selectedTwilioTemplateId) || (form.targetType === 'phone' && selectedPhones.length === 0)}
+                  onClick={() => previewMutation.mutate()}
                 >
                   <PlayCircle className="ml-2 h-5 w-5" />
-                  {sendMutation.isPending ? 'جاري بدء الحملة...' : 'بدء الإرسال بالخلفية'}
+                  {previewMutation.isPending ? 'جاري تجهيز المعاينة...' : 'معاينة قبل الإرسال'}
                 </Button>
+
+                {previewRows.length > 0 && (
+                  <Card className="border-amber-200 bg-amber-50/50">
+                    <CardHeader>
+                      <CardTitle>معاينة الرسائل قبل الإرسال</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="max-h-[500px] overflow-y-auto rounded-2xl border bg-white">
+                        {previewRows.map((x: any, i: number) => (
+                          <div key={`${x.phone}-${i}`} className="border-b p-4 last:border-b-0">
+                            <div className="mb-2 flex flex-wrap gap-2">
+                              <Badge variant="outline">{i + 1}</Badge>
+                              <Badge>{x.name || 'مشترك'}</Badge>
+                              <Badge variant="secondary" dir="ltr">{x.phone}</Badge>
+                              {x.duplicate && <Badge variant="destructive">مكرر وتم استبعاده</Badge>}
+                            </div>
+
+                            {form.channel === 'twilio_template' ? (
+                              <pre className="whitespace-pre-wrap rounded-xl bg-slate-100 p-3 text-xs" dir="ltr">
+                                {JSON.stringify(x.contentVariables, null, 2)}
+                              </pre>
+                            ) : (
+                              <div className="whitespace-pre-wrap rounded-xl bg-slate-100 p-3 text-sm leading-7">
+                                {x.message}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      <Button
+                        className="h-12 w-full font-black"
+                        disabled={!previewToken || confirmSendMutation.isPending}
+                        onClick={() => confirmSendMutation.mutate()}
+                      >
+                        <Send className="ml-2 h-5 w-5" />
+                        تأكيد وإرسال الرسائل المعروضة فقط
+                      </Button>
+
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => {
+                          setPreviewRows([]);
+                          setPreviewToken('');
+                        }}
+                      >
+                        إلغاء المعاينة
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
               </CardContent>
             </Card>
 
@@ -1218,7 +1286,10 @@ export default function PushNotificationsPage() {
                       <button
                         key={code}
                         type="button"
-                        onClick={() => setTwilioVariablesText((v) => `${v}${v.endsWith('\n') || !v ? '' : '\n'}=${code}`)}
+                        onClick={() => {
+                          const nextNumber = twilioVariablesText.split('\n').filter(Boolean).length + 1;
+                          setTwilioVariablesText((v) => `${v}${v.endsWith('\n') || !v ? '' : '\n'}${nextNumber}=${code}`);
+                        }}
                         className="flex items-center justify-between rounded-xl border bg-white px-3 py-2 text-xs hover:bg-slate-100"
                       >
                         <span className="font-bold">{label}</span>

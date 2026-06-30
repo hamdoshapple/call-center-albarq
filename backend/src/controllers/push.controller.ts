@@ -2085,3 +2085,164 @@ export const syncTwilioTemplates = asyncHandler(async (_req: Request, res: Respo
 
   res.json({ ok: true, total: all.length, approved: approved.length, templates, all });
 });
+
+
+const previewStore = new Map<string, any>();
+
+function normPhoneForPreview(v: any) {
+  return String(v || '').replace(/\D/g, '');
+}
+
+function renderPreviewText(text: any, sub: any) {
+  const account = (sub.accounts && sub.accounts[0]) || {};
+  const vars: any = {
+    name: sub.name || account.name || 'مشترك',
+    phone: sub.phoneNorm || sub.phone || '',
+    pppoe: account.username || sub.username || '',
+    username: account.username || sub.username || '',
+    package: account.package || account.profile || '',
+    status: account.status || '',
+    expiration: account.expiration || '',
+    expireDate: account.expiration || '',
+    debt: String(sub.totalDebt || sub.debt || 0),
+    totalDebt: String(sub.totalDebt || sub.debt || 0),
+    amount: String(sub.amount || sub.totalDebt || sub.debt || 0),
+    balance: String(sub.balance || 0),
+    days: String(sub.days || sub.daysLeft || ''),
+    daysLeft: String(sub.daysLeft || ''),
+    daysExpired: String(sub.daysExpired || ''),
+    today: new Date().toISOString().slice(0, 10),
+    company: 'البرق الرقمي',
+    appUrl: 'https://user.albarq.app',
+    supportPhone: '07818155590',
+  };
+
+  return String(text || '').replace(/\{([^}:]+)\}/g, (_m, k) => vars[k] ?? '');
+}
+
+function parsePreviewTwilioVars(text: any, sub: any) {
+  const out: any = {};
+  String(text || '')
+    .split('\n')
+    .map(x => x.trim())
+    .filter(Boolean)
+    .forEach(line => {
+      const p = line.indexOf('=');
+      if (p < 1) return;
+      const k = line.slice(0, p).trim();
+      const v = line.slice(p + 1).trim();
+      if (k) out[k] = renderPreviewText(v, sub);
+    });
+  return out;
+}
+
+async function getPreviewSubscribers(req: any) {
+  const fakeReq: any = {
+    ...req,
+    query: {
+      q: req.body?.targetValue || '',
+      channel: req.body?.channel || 'whatsapp',
+    },
+  };
+
+  const rows: any[] = [];
+  const fakeRes: any = {
+    json(data: any) {
+      if (Array.isArray(data)) rows.push(...data);
+      else if (Array.isArray(data?.rows)) rows.push(...data.rows);
+      else if (Array.isArray(data?.subscribers)) rows.push(...data.subscribers);
+    },
+    status() { return this; },
+  };
+
+  if (typeof (exports as any).subscribers === 'function') {
+    await (exports as any).subscribers(fakeReq, fakeRes);
+  }
+
+  return rows;
+}
+
+export async function campaignPreview(req: any, res: any) {
+  try {
+    const body = req.body || {};
+    const rawSubs = await getPreviewSubscribers(req);
+
+    const wanted = String(body.targetValue || '')
+      .split(',')
+      .map(normPhoneForPreview)
+      .filter(Boolean);
+
+    let subs = rawSubs;
+    if (body.targetType === 'phone' && wanted.length) {
+      const set = new Set(wanted);
+      subs = rawSubs.filter((x: any) => set.has(normPhoneForPreview(x.phoneNorm || x.phone)));
+    }
+
+    const seen = new Set<string>();
+    const rows = [];
+
+    for (const sub of subs) {
+      const phone = normPhoneForPreview(sub.phoneNorm || sub.phone);
+      if (!phone || seen.has(phone)) continue;
+      seen.add(phone);
+
+      const row: any = {
+        name: sub.name || 'مشترك',
+        phone: sub.phoneNorm || sub.phone,
+        duplicate: false,
+      };
+
+      if (body.channel === 'twilio_template') {
+        row.contentVariables = parsePreviewTwilioVars(body.twilioVariablesText, sub);
+      } else {
+        row.message = renderPreviewText(body.message, sub);
+      }
+
+      rows.push(row);
+    }
+
+    const previewToken = `pv_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+    previewStore.set(previewToken, {
+      createdAt: Date.now(),
+      body: {
+        ...body,
+        targetType: 'phone',
+        targetValue: rows.map((x: any) => x.phone).join(','),
+      },
+      rows,
+    });
+
+    return res.json({
+      ok: true,
+      previewToken,
+      total: rows.length,
+      rows,
+    });
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'preview failed' });
+  }
+}
+
+export async function campaignConfirm(req: any, res: any) {
+  try {
+    const token = req.body?.previewToken;
+    const item = previewStore.get(token);
+
+    if (!item) {
+      return res.status(400).json({ ok: false, error: 'Preview expired or invalid' });
+    }
+
+    previewStore.delete(token);
+
+    req.body = item.body;
+
+    if (typeof (exports as any).send === 'function') {
+      return (exports as any).send(req, res);
+    }
+
+    return res.status(500).json({ ok: false, error: 'send function not found' });
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: e?.message || 'confirm failed' });
+  }
+}

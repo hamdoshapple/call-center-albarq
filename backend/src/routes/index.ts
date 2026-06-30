@@ -320,3 +320,7 @@ router.post('/admin-tickets/:id/replies', replyAdminTicket);
 router.patch('/admin-tickets/:id', updateAdminTicket);
 
 
+
+// Push campaign preview routes
+router.post('/push-notifications/campaign-preview', push.campaignPreview);
+router.post('/push-notifications/campaign-confirm', push.campaignConfirm);
