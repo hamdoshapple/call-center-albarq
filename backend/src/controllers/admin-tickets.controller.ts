@@ -423,7 +423,21 @@ export const createAdminTicket = asyncHandler(async (req: Request, res: Response
   }
 
   const rows = await prisma.$queryRawUnsafe<any[]>('SELECT * FROM AdminTicket WHERE id=? LIMIT 1', id);
-  res.status(201).json(rows[0]);
+  const createdTicket = rows[0];
+
+  // ticket-push-admin-created
+  await sendPushToEmployees(
+    'تذكرة جديدة',
+    `${createdTicket?.subject || 'تذكرة جديدة'}${createdTicket?.externalName ? ' · ' + createdTicket.externalName : ''}`,
+    `/employee/tickets?ticket=${createdTicket.id}`,
+    {
+      tag: `ticket-${createdTicket.id}`,
+      ticketId: createdTicket.id,
+      type: 'ticket',
+    }
+  ).catch(() => null);
+
+  res.status(201).json(createdTicket);
 });
 
 export const replyAdminTicket = asyncHandler(async (req: Request, res: Response) => {
@@ -548,4 +562,119 @@ export const updateAdminTicket = asyncHandler(async (req: Request, res: Response
 
   const rows = await prisma.$queryRawUnsafe<any[]>('SELECT * FROM AdminTicket WHERE id=? LIMIT 1', id);
   res.json(rows[0]);
+});
+
+
+async function ensureTicketTeamTable() {
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS AdminTicketTeam (
+      id VARCHAR(191) PRIMARY KEY,
+      ticketId VARCHAR(191) NOT NULL,
+      userId VARCHAR(191) NOT NULL,
+      role VARCHAR(40) NOT NULL DEFAULT 'member',
+      invitedById VARCHAR(191) NULL,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY AdminTicketTeam_ticket_user_unique (ticketId, userId),
+      KEY AdminTicketTeam_ticket_idx (ticketId),
+      KEY AdminTicketTeam_user_idx (userId)
+    )
+  `);
+}
+
+export const listTicketUsers = asyncHandler(async (_req: Request, res: Response) => {
+  const rows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT u.id, u.fullName, u.username, u.email
+    FROM User u
+    WHERE u.active=1
+    ORDER BY u.fullName ASC
+  `);
+  res.json(rows);
+});
+
+export const getTicketTeam = asyncHandler(async (req: Request, res: Response) => {
+  await ensureTicketTeamTable();
+  const ticketId = String(req.params.id || '');
+
+  const rows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT tt.id, tt.ticketId, tt.userId, tt.role, tt.createdAt,
+           u.fullName, u.username, u.email
+    FROM AdminTicketTeam tt
+    LEFT JOIN User u ON u.id=tt.userId
+    WHERE tt.ticketId=?
+    ORDER BY tt.createdAt ASC
+  `, ticketId);
+
+  res.json(rows);
+});
+
+export const inviteTicketUser = asyncHandler(async (req: Request, res: Response) => {
+  await ensureTicketTeamTable();
+
+  const ticketId = String(req.params.id || '');
+  const userIdToInvite = String(req.body?.userId || '').trim();
+  const note = String(req.body?.note || '').trim();
+
+  if (!ticketId || !userIdToInvite) {
+    return res.status(400).json({ message: 'ticketId and userId are required' });
+  }
+
+  const inviterId = userId(req);
+
+  const ticketRows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT * FROM AdminTicket WHERE id=? LIMIT 1
+  `, ticketId);
+
+  const ticket = ticketRows[0];
+  if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
+
+  const userRows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT id, fullName, username FROM User WHERE id=? LIMIT 1
+  `, userIdToInvite);
+
+  const invited = userRows[0];
+  if (!invited) return res.status(404).json({ message: 'User not found' });
+
+  await prisma.$executeRawUnsafe(`
+    INSERT INTO AdminTicketTeam (id,ticketId,userId,role,invitedById)
+    VALUES (?,?,?,?,?)
+    ON DUPLICATE KEY UPDATE role=VALUES(role)
+  `, cuid(), ticketId, userIdToInvite, 'member', inviterId || null);
+
+  await prisma.$executeRawUnsafe(`
+    INSERT INTO AdminTicketReply (id,ticketId,authorId,body,visibility)
+    VALUES (?,?,?,?,?)
+  `,
+    cuid(),
+    ticketId,
+    inviterId || null,
+    `تم استدعاء ${invited.fullName || invited.username} للتذكرة.${note ? '\nملاحظة: ' + note : ''}`,
+    'internal'
+  );
+
+  await sendPushToEmployees(
+    'تم استدعاؤك لتذكرة',
+    `${ticket.subject || 'تذكرة'}${note ? ' · ' + note : ''}`,
+    `/employee/tickets?ticket=${ticketId}`,
+    {
+      employeeIds: [userIdToInvite],
+      tag: `ticket-invite-${ticketId}-${userIdToInvite}`,
+      ticketId,
+      type: 'ticket',
+    }
+  ).catch(() => null);
+
+  res.json({ ok: true });
+});
+
+export const removeTicketUser = asyncHandler(async (req: Request, res: Response) => {
+  await ensureTicketTeamTable();
+
+  const ticketId = String(req.params.id || '');
+  const userIdToRemove = String(req.params.userId || '');
+
+  await prisma.$executeRawUnsafe(`
+    DELETE FROM AdminTicketTeam WHERE ticketId=? AND userId=?
+  `, ticketId, userIdToRemove);
+
+  res.json({ ok: true });
 });

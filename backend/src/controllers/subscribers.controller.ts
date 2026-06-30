@@ -337,6 +337,18 @@ export async function createTicket(req: Request, res: Response) {
       authorId: req.user?.id,
     },
   });
+  // ticket-push-subscriber-created
+  await sendPushToEmployees(
+    'تذكرة جديدة',
+    `${ticket.subject || 'تذكرة جديدة'} · ${subscriber.name || subscriber.phone || 'مشترك'}`,
+    `/employee/tickets?ticket=${ticket.id}`,
+    {
+      tag: `ticket-${ticket.id}`,
+      ticketId: ticket.id,
+      type: 'ticket',
+    }
+  ).catch(() => null);
+
 
   res.status(201).json({ ...ticket, details });
 }

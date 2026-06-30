@@ -11,6 +11,9 @@ import {
   Send,
   Ticket,
   X,
+  Users,
+  UserPlus,
+  Trash2,
 } from 'lucide-react';
 import { adminTicketsApi } from '@/api/adminTickets';
 
@@ -29,6 +32,22 @@ const priorityMap: any = {
   high: 'عالي',
   urgent: 'طارئ',
 };
+
+async function staffFetch(url: string, options: RequestInit = {}) {
+  const token = localStorage.getItem('cc_token') || localStorage.getItem('token') || '';
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.message || 'REQUEST_FAILED');
+  return data;
+}
 
 export default function EmployeeTicketsPage() {
   const qc = useQueryClient();
@@ -120,18 +139,19 @@ export default function EmployeeTicketsPage() {
   async function openTicketFromPush(id: string) {
     if (!id) return;
 
-    const rows = Array.isArray(tickets.data) ? tickets.data : [];
-    const found = rows.find((x: any) => String(x.id) === String(id));
-
-    if (found) {
-      setSelected(found);
-      return;
-    }
+    await tickets.refetch().catch(() => null);
 
     try {
       const data = await adminTicketsApi.get(id);
-      if (data?.ticket) setSelected(data.ticket);
+      if (data?.ticket) {
+        setSelected(data.ticket);
+        return;
+      }
     } catch {}
+
+    const rows = Array.isArray(tickets.data) ? tickets.data : [];
+    const found = rows.find((x: any) => String(x.id) === String(id));
+    if (found) setSelected(found);
   }
 
 
@@ -139,13 +159,27 @@ export default function EmployeeTicketsPage() {
     const onMsg = (event: MessageEvent) => {
       const id = event.data?.payload?.ticketId || event.data?.ticketId;
       if (event.data?.type === 'TICKET_OPEN_FROM_PUSH' && id) {
+        window.history.replaceState({}, '', `/employee/tickets?ticket=${id}`);
         openTicketFromPush(String(id));
       }
     };
 
     navigator.serviceWorker?.addEventListener?.('message', onMsg);
-    return () => navigator.serviceWorker?.removeEventListener?.('message', onMsg);
+  return () => navigator.serviceWorker?.removeEventListener?.('message', onMsg);
   }, [tickets.data]);
+  // ticket-url-watch-final
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('ticket') || pendingTicketId;
+    if (!id) return;
+
+    adminTicketsApi.get(id).then((data: any) => {
+      if (data?.ticket) {
+        setSelected(data.ticket);
+        setPendingTicketId('');
+        window.history.replaceState({}, '', '/employee/tickets');
+      }
+    }).catch(() => null);
+  }, [pendingTicketId]);
 
   return (
     <section dir="rtl" className="flex h-screen flex-col overflow-hidden bg-[#f6f8fb] px-4 pb-24 pt-[calc(env(safe-area-inset-top)+18px)]">
@@ -226,7 +260,6 @@ function StatusCard({ title, value, icon, color }: any) {
     color === 'green' ? 'bg-emerald-50 text-emerald-600' :
     color === 'amber' ? 'bg-amber-50 text-amber-600' :
     'bg-red-50 text-red-500';
-
   return (
     <div className="rounded-[1.35rem] bg-white p-3 text-center shadow-lg shadow-slate-200/70">
       <div className={`mx-auto flex h-9 w-9 items-center justify-center rounded-2xl ${cls}`}>{icon}</div>
@@ -251,7 +284,6 @@ function Chip({ active, label, onClick }: any) {
 
 function TicketCard({ ticket, onOpen }: any) {
   const urgent = ticket.priority === 'urgent' || ticket.priority === 'high';
-
   return (
     <button
       onClick={onOpen}
@@ -301,6 +333,43 @@ function TicketModal({ selected, details, reply, setReply, setReplyFile, replyMu
   const ticket = details.data?.ticket || selected;
   const replies = details.data?.replies || [];
   const attachments = details.data?.attachments || [];
+  const [inviteUserId, setInviteUserId] = useState('');
+  const [inviteNote, setInviteNote] = useState('');
+
+  const users = useQuery({
+    queryKey: ['ticketUsers'],
+    queryFn: () => staffFetch('/api/admin-tickets/users'),
+  });
+
+  const team = useQuery({
+    queryKey: ['ticketTeam', selected.id],
+    queryFn: () => staffFetch(`/api/admin-tickets/${selected.id}/team`),
+    enabled: Boolean(selected?.id),
+  });
+
+  const inviteMutation = useMutation({
+    mutationFn: () => staffFetch(`/api/admin-tickets/${selected.id}/team/invite`, {
+      method: 'POST',
+      body: JSON.stringify({ userId: inviteUserId, note: inviteNote }),
+    }),
+    onSuccess: () => {
+      alert('تم استدعاء الموظف بنجاح');
+      setInviteUserId('');
+      setInviteNote('');
+      team.refetch();
+      details.refetch();
+    },
+    onError: (e: any) => {
+      alert('فشل الاستدعاء: ' + (e?.message || 'خطأ غير معروف'));
+    },
+  });
+
+  const removeMemberMutation = useMutation({
+    mutationFn: (userId: string) => staffFetch(`/api/admin-tickets/${selected.id}/team/${userId}`, {
+      method: 'DELETE',
+    }),
+    onSuccess: () => team.refetch(),
+  });
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end bg-slate-950/40 backdrop-blur-sm">
@@ -334,6 +403,55 @@ function TicketModal({ selected, details, reply, setReply, setReplyFile, replyMu
                 <div>الهاتف: <b>{ticket.externalPhone || '—'}</b></div>
                 <div>PPPoE: <b>{ticket.externalPppoe || '—'}</b></div>
                 <div>الحالة: <b>{statusMap[ticket.status] || ticket.status}</b></div>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-[1.5rem] bg-white p-3 shadow-sm">
+              <div className="mb-3 flex items-center gap-2 text-sm font-black text-slate-800">
+                <Users className="h-4 w-4 text-emerald-500" />
+                فريق التذكرة
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {(team.data || []).length ? (team.data || []).map((m: any) => (
+                  <span key={m.id} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">
+                    {m.fullName || m.username || 'موظف'}
+                    <button onClick={() => removeMemberMutation.mutate(m.userId)} className="text-red-500">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </span>
+                )) : (
+                  <span className="text-xs font-bold text-slate-400">لا يوجد موظفون مرتبطون بعد</span>
+                )}
+              </div>
+
+              <div className="mt-3 grid gap-2">
+                <select
+                  value={inviteUserId}
+                  onChange={(e) => setInviteUserId(e.target.value)}
+                  className="h-11 rounded-2xl bg-slate-50 px-3 text-sm font-bold outline-none"
+                >
+                  <option value="">اختر موظف للاستدعاء</option>
+                  {(users.data || []).map((u: any) => (
+                    <option key={u.id} value={u.id}>{u.fullName || u.username}</option>
+                  ))}
+                </select>
+
+                <input
+                  value={inviteNote}
+                  onChange={(e) => setInviteNote(e.target.value)}
+                  placeholder="رسالة الاستدعاء / سبب الحاجة"
+                  className="h-11 rounded-2xl bg-slate-50 px-3 text-sm font-bold outline-none placeholder:text-slate-400"
+                />
+
+                <button
+                  disabled={!inviteUserId || inviteMutation.isPending}
+                  onClick={() => inviteMutation.mutate()}
+                  className="flex h-11 items-center justify-center gap-2 rounded-2xl bg-emerald-500 text-sm font-black text-white disabled:opacity-50"
+                >
+                  <UserPlus className="h-4 w-4" />
+                  {inviteMutation.isPending ? 'جاري الاستدعاء...' : 'استدعاء الموظف'}
+                </button>
               </div>
             </div>
 

@@ -8,7 +8,7 @@
       }
     },
     "priority": "normal",
-    "pinned": true,
+    "pinned": false,
     "claimedById": "user101_1780697434",
     "claimedByName": "101",
     "claimedAt": "2026-06-30T07:37:15.990Z"
@@ -48,7 +48,7 @@
         "at": 1782805152917
       }
     },
-    "pinned": true,
+    "pinned": false,
     "claimedById": "user101_1780697434",
     "claimedByName": "101",
     "claimedAt": "2026-06-30T07:33:55.818Z",
@@ -64,13 +64,26 @@
       "user101_1780697434": {
         "id": "user101_1780697434",
         "name": "101",
-        "at": 1782806104766
+        "at": 1782806772990
       }
     },
     "typing": {},
     "claimedById": "user101_1780697434",
     "claimedByName": "101",
     "claimedAt": "2026-06-30T07:55:12.745Z",
-    "pinned": true
+    "pinned": false
+  },
+  "cmqnnq4jr0vpaxrhzaibedmnj": {
+    "viewers": {
+      "cmr0dvmkz05my7gc53ns5hexx": {
+        "id": "cmr0dvmkz05my7gc53ns5hexx",
+        "name": "22",
+        "at": 1782808061397
+      }
+    },
+    "typing": {},
+    "claimedById": "cmr0dvmkz05my7gc53ns5hexx",
+    "claimedByName": "22",
+    "claimedAt": "2026-06-30T08:27:49.783Z"
   }
 }

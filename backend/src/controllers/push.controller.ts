@@ -752,6 +752,8 @@ export async function sendPushToEmployees(title: string, message: string, url = 
     url,
     tag: extra.tag || ('albarq-staff-wa-' + Date.now()),
     conversationId: extra.conversationId || '',
+    ticketId: extra.ticketId || '',
+    type: extra.type || '',
     unread: Number(extra.unread || 1),
   };
 

@@ -427,6 +427,18 @@ export async function createAccountTicket(req: Request, res: Response) {
     },
   });
 
+  // ticket-push-portal-created
+  await sendPushToEmployees(
+    'تذكرة جديدة من المشترك',
+    `${ticket.subject || 'طلب دعم فني'} · ${account.name || account.phone || 'مشترك'}`,
+    `/employee/tickets?ticket=${ticket.id}`,
+    {
+      tag: `ticket-${ticket.id}`,
+      ticketId: ticket.id,
+      type: 'ticket',
+    }
+  ).catch(() => null);
+
   res.status(201).json(await ticketWithNotes(ticket));
 }
 
