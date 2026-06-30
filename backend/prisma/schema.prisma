@@ -844,3 +844,70 @@ model AdminTicketTeam {
   @@index([userId], name: "AdminTicketTeam_user_idx")
   @@map("AdminTicketTeam")
 }
+
+
+model AdminTicketActivity {
+  id        String   @id
+  ticketId  String
+  userId    String?
+  userName  String?
+  type      String
+  message   String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+  @@index([createdAt])
+  @@map("AdminTicketActivity")
+}
+
+model AdminTicketPresence {
+  id        String   @id
+  ticketId  String
+  userId    String
+  userName  String
+  typing    Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([ticketId, userId], name: "AdminTicketPresence_ticket_user_unique")
+  @@index([ticketId])
+  @@map("AdminTicketPresence")
+}
+
+model AdminTicketChecklist {
+  id        String   @id
+  ticketId  String
+  title     String
+  done      Boolean  @default(false)
+  doneById  String?
+  doneAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+  @@map("AdminTicketChecklist")
+}
+
+model AdminTicketTag {
+  id        String   @id
+  ticketId  String
+  tag       String
+  createdAt DateTime @default(now())
+
+  @@unique([ticketId, tag], name: "AdminTicketTag_ticket_tag_unique")
+  @@index([ticketId])
+  @@map("AdminTicketTag")
+}
+
+model AdminTicketWorkSession {
+  id        String   @id
+  ticketId  String
+  userId    String
+  userName  String?
+  startedAt DateTime @default(now())
+  endedAt   DateTime?
+  seconds   Int      @default(0)
+
+  @@index([ticketId])
+  @@index([userId])
+  @@map("AdminTicketWorkSession")
+}

@@ -486,6 +486,7 @@ export const replyAdminTicket = asyncHandler(async (req: Request, res: Response)
   `, replyId, ticketId, userId(req), body, visibility);
 
   // team-reply-push-admin-ticket
+  await ticketActivity(ticketId, req, 'reply', body.slice(0, 180));
   await sendTicketReplyPushToTeam(
     ticketId,
     'رد جديد على التذكرة',
@@ -575,6 +576,7 @@ export const updateAdminTicket = asyncHandler(async (req: Request, res: Response
   }
 
   const rows = await prisma.$queryRawUnsafe<any[]>('SELECT * FROM AdminTicket WHERE id=? LIMIT 1', id);
+  await ticketActivity(id, req, 'status', 'تم تحديث التذكرة');
   res.json(rows[0]);
 });
 
@@ -778,3 +780,381 @@ async function sendTicketReplyPushToTeam(ticketId: string, title: string, messag
     ).catch(() => null);
   } catch {}
 }
+
+
+async function ticketProEnsureTables() {
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS AdminTicketActivity (
+      id VARCHAR(191) PRIMARY KEY,
+      ticketId VARCHAR(191) NOT NULL,
+      userId VARCHAR(191) NULL,
+      userName VARCHAR(191) NULL,
+      type VARCHAR(60) NOT NULL,
+      message TEXT NOT NULL,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY AdminTicketActivity_ticket_idx (ticketId),
+      KEY AdminTicketActivity_created_idx (createdAt)
+    )
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS AdminTicketPresence (
+      id VARCHAR(191) PRIMARY KEY,
+      ticketId VARCHAR(191) NOT NULL,
+      userId VARCHAR(191) NOT NULL,
+      userName VARCHAR(191) NULL,
+      typing TINYINT(1) NOT NULL DEFAULT 0,
+      updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY AdminTicketPresence_ticket_user_unique (ticketId,userId),
+      KEY AdminTicketPresence_ticket_idx (ticketId)
+    )
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS AdminTicketChecklist (
+      id VARCHAR(191) PRIMARY KEY,
+      ticketId VARCHAR(191) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      done TINYINT(1) NOT NULL DEFAULT 0,
+      doneById VARCHAR(191) NULL,
+      doneAt DATETIME NULL,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY AdminTicketChecklist_ticket_idx (ticketId)
+    )
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS AdminTicketTag (
+      id VARCHAR(191) PRIMARY KEY,
+      ticketId VARCHAR(191) NOT NULL,
+      tag VARCHAR(80) NOT NULL,
+      createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY AdminTicketTag_ticket_tag_unique (ticketId,tag),
+      KEY AdminTicketTag_ticket_idx (ticketId)
+    )
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS AdminTicketWorkSession (
+      id VARCHAR(191) PRIMARY KEY,
+      ticketId VARCHAR(191) NOT NULL,
+      userId VARCHAR(191) NOT NULL,
+      userName VARCHAR(191) NULL,
+      startedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      endedAt DATETIME NULL,
+      seconds INT NOT NULL DEFAULT 0,
+      KEY AdminTicketWorkSession_ticket_idx (ticketId),
+      KEY AdminTicketWorkSession_user_idx (userId)
+    )
+  `);
+}
+
+function ticketCurrentUser(req: Request) {
+  const u: any = (req as any).user || {};
+  return {
+    id: String(u.id || u.userId || u.sub || '').trim(),
+    name: String(u.fullName || u.name || u.username || 'موظف').trim(),
+  };
+}
+
+async function ticketActivity(ticketId: string, req: Request, type: string, message: string) {
+  await ticketProEnsureTables();
+  const u = ticketCurrentUser(req);
+  await prisma.$executeRawUnsafe(`
+    INSERT INTO AdminTicketActivity (id,ticketId,userId,userName,type,message)
+    VALUES (?,?,?,?,?,?)
+  `, cuid(), ticketId, u.id || null, u.name || null, type, message);
+}
+
+export const ticketProSummary = asyncHandler(async (_req: Request, res: Response) => {
+  await ticketProEnsureTables();
+
+  const activities = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT * FROM AdminTicketActivity
+    ORDER BY createdAt DESC
+    LIMIT 20
+  `);
+
+  const stats = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT
+      u.id,
+      u.fullName,
+      COUNT(CASE WHEN t.status IN ('resolved','closed') THEN 1 END) AS solved
+    FROM User u
+    LEFT JOIN AdminTicket t ON t.assignedUserId=u.id
+    WHERE u.active=1
+    GROUP BY u.id,u.fullName
+    ORDER BY solved DESC
+    LIMIT 10
+  `).catch(() => []);
+
+  res.json({ activities, stats });
+});
+
+export const ticketProPresence = asyncHandler(async (req: Request, res: Response) => {
+  await ticketProEnsureTables();
+  const ticketId = String(req.params.id || '');
+  const typing = Boolean(req.body?.typing);
+  const u = ticketCurrentUser(req);
+
+  if (u.id) {
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO AdminTicketPresence (id,ticketId,userId,userName,typing)
+      VALUES (?,?,?,?,?)
+      ON DUPLICATE KEY UPDATE userName=VALUES(userName), typing=VALUES(typing), updatedAt=CURRENT_TIMESTAMP
+    `, cuid(), ticketId, u.id, u.name, typing ? 1 : 0);
+  }
+
+  const rows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT *
+    FROM AdminTicketPresence
+    WHERE ticketId=? AND updatedAt >= DATE_SUB(NOW(), INTERVAL 45 SECOND)
+    ORDER BY updatedAt DESC
+  `, ticketId);
+
+  res.json(rows);
+});
+
+export const ticketProActivity = asyncHandler(async (req: Request, res: Response) => {
+  await ticketProEnsureTables();
+  const ticketId = String(req.params.id || '');
+
+  const rows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT *
+    FROM AdminTicketActivity
+    WHERE ticketId=?
+    ORDER BY createdAt DESC
+    LIMIT 80
+  `, ticketId);
+
+  res.json(rows);
+});
+
+export const ticketProChecklist = asyncHandler(async (req: Request, res: Response) => {
+  await ticketProEnsureTables();
+  const ticketId = String(req.params.id || '');
+
+  const rows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT *
+    FROM AdminTicketChecklist
+    WHERE ticketId=?
+    ORDER BY createdAt ASC
+  `, ticketId);
+
+  if (!rows.length) {
+    const defaults = ['فحص الاتصال', 'مراجعة ONU/ONT', 'إعادة تشغيل المنفذ', 'التواصل مع المشترك', 'اختبار السرعة'];
+    for (const title of defaults) {
+      await prisma.$executeRawUnsafe(`
+        INSERT INTO AdminTicketChecklist (id,ticketId,title)
+        VALUES (?,?,?)
+      `, cuid(), ticketId, title);
+    }
+
+    return res.json(await prisma.$queryRawUnsafe<any[]>(`
+      SELECT * FROM AdminTicketChecklist WHERE ticketId=? ORDER BY createdAt ASC
+    `, ticketId));
+  }
+
+  res.json(rows);
+});
+
+export const ticketProChecklistToggle = asyncHandler(async (req: Request, res: Response) => {
+  await ticketProEnsureTables();
+  const ticketId = String(req.params.id || '');
+  const itemId = String(req.params.itemId || '');
+  const done = Boolean(req.body?.done);
+  const u = ticketCurrentUser(req);
+
+  await prisma.$executeRawUnsafe(`
+    UPDATE AdminTicketChecklist
+    SET done=?, doneById=?, doneAt=?
+    WHERE id=? AND ticketId=?
+  `, done ? 1 : 0, done ? u.id || null : null, done ? new Date() : null, itemId, ticketId);
+
+  await ticketActivity(ticketId, req, done ? 'check_done' : 'check_undo', done ? 'تم إكمال خطوة في القائمة' : 'تم إلغاء خطوة من القائمة');
+
+  res.json({ ok: true });
+});
+
+export const ticketProTags = asyncHandler(async (req: Request, res: Response) => {
+  await ticketProEnsureTables();
+  const ticketId = String(req.params.id || '');
+
+  const rows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT * FROM AdminTicketTag WHERE ticketId=? ORDER BY createdAt ASC
+  `, ticketId);
+
+  res.json(rows);
+});
+
+export const ticketProAddTag = asyncHandler(async (req: Request, res: Response) => {
+  await ticketProEnsureTables();
+  const ticketId = String(req.params.id || '');
+  const tag = String(req.body?.tag || '').trim().slice(0, 80);
+
+  if (!tag) return res.status(400).json({ message: 'tag required' });
+
+  await prisma.$executeRawUnsafe(`
+    INSERT IGNORE INTO AdminTicketTag (id,ticketId,tag)
+    VALUES (?,?,?)
+  `, cuid(), ticketId, tag);
+
+  await ticketActivity(ticketId, req, 'tag', `تمت إضافة الوسم: ${tag}`);
+
+  res.json({ ok: true });
+});
+
+export const ticketProRemoveTag = asyncHandler(async (req: Request, res: Response) => {
+  await ticketProEnsureTables();
+  const ticketId = String(req.params.id || '');
+  const tag = String(req.params.tag || '');
+
+  await prisma.$executeRawUnsafe(`
+    DELETE FROM AdminTicketTag WHERE ticketId=? AND tag=?
+  `, ticketId, tag);
+
+  res.json({ ok: true });
+});
+
+export const ticketProStartTimer = asyncHandler(async (req: Request, res: Response) => {
+  await ticketProEnsureTables();
+  const ticketId = String(req.params.id || '');
+  const u = ticketCurrentUser(req);
+
+  if (!u.id) return res.status(401).json({ message: 'UNAUTHORIZED' });
+
+  const open = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT * FROM AdminTicketWorkSession
+    WHERE ticketId=? AND userId=? AND endedAt IS NULL
+    LIMIT 1
+  `, ticketId, u.id);
+
+  if (!open.length) {
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO AdminTicketWorkSession (id,ticketId,userId,userName)
+      VALUES (?,?,?,?)
+    `, cuid(), ticketId, u.id, u.name);
+
+    await ticketActivity(ticketId, req, 'timer_start', 'بدأ العمل على التذكرة');
+  }
+
+  res.json({ ok: true });
+});
+
+export const ticketProStopTimer = asyncHandler(async (req: Request, res: Response) => {
+  await ticketProEnsureTables();
+
+  const ticketId = String(req.params.id || '');
+  const u = ticketCurrentUser(req);
+
+  const rows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT *
+    FROM AdminTicketWorkSession
+    WHERE ticketId=? AND userId=? AND endedAt IS NULL
+    ORDER BY startedAt DESC
+    LIMIT 1
+  `, ticketId, u.id);
+
+  const row = rows[0];
+
+  if (row) {
+    const seconds = Math.max(1, Math.floor((Date.now() - new Date(row.startedAt).getTime()) / 1000));
+
+    await prisma.$executeRawUnsafe(`
+      UPDATE AdminTicketWorkSession
+      SET endedAt=NOW(), seconds=?
+      WHERE id=?
+    `, seconds, row.id);
+
+    await ticketActivity(ticketId, req, 'timer_stop', `أنهى العمل على التذكرة (${Math.round(seconds / 60)} دقيقة)`);
+  }
+
+  const totals = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT userId,userName,SUM(seconds) AS seconds,COUNT(*) AS sessions
+    FROM AdminTicketWorkSession
+    WHERE ticketId=?
+    GROUP BY userId,userName
+    ORDER BY seconds DESC
+  `, ticketId);
+
+  const savedSeconds = totals.reduce((a: number, x: any) => a + Number(x.seconds || 0), 0);
+
+  res.json({
+    ok: true,
+    totals,
+    savedSeconds,
+    activeSeconds: 0,
+    totalSeconds: savedSeconds,
+  });
+});
+
+export const ticketProTimerStatus = asyncHandler(async (req: Request, res: Response) => {
+  await ticketProEnsureTables();
+
+  const ticketId = String(req.params.id || '');
+  const u = ticketCurrentUser(req);
+
+  const activeRows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT * FROM AdminTicketWorkSession
+    WHERE ticketId=? AND userId=? AND endedAt IS NULL
+    ORDER BY startedAt DESC
+    LIMIT 1
+  `, ticketId, u.id);
+
+  const active = activeRows[0] || null;
+
+  const totalRows = await prisma.$queryRawUnsafe<any[]>(`
+    SELECT userId,userName,SUM(seconds) AS seconds,COUNT(*) AS sessions
+    FROM AdminTicketWorkSession
+    WHERE ticketId=?
+    GROUP BY userId,userName
+    ORDER BY seconds DESC
+  `, ticketId);
+
+  const savedSeconds = totalRows.reduce((a: number, x: any) => a + Number(x.seconds || 0), 0);
+
+  let lifecycleRows: any[] = [];
+
+  if (ticketId.startsWith('legacy_')) {
+    const realId = ticketId.replace(/^legacy_/, '');
+    lifecycleRows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT
+        (SELECT MIN(createdAt) FROM Note WHERE refType='ticket' AND refId=?) AS firstReplyAt,
+        status,
+        updatedAt AS endAt
+      FROM Ticket
+      WHERE id=?
+      LIMIT 1
+    `, realId, realId).catch(() => []);
+  } else {
+    lifecycleRows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT
+        (SELECT MIN(createdAt) FROM AdminTicketReply WHERE ticketId=?) AS firstReplyAt,
+        status,
+        COALESCE(closedAt, updatedAt) AS endAt
+      FROM AdminTicket
+      WHERE id=?
+      LIMIT 1
+    `, ticketId, ticketId).catch(() => []);
+  }
+
+  const life = lifecycleRows[0] || {};
+  const firstReplyAt = life.firstReplyAt ? new Date(life.firstReplyAt) : null;
+  const closed = ['resolved', 'closed'].includes(String(life.status || ''));
+  const endAt = closed && life.endAt ? new Date(life.endAt) : new Date();
+
+  const lifecycleSeconds = firstReplyAt
+    ? Math.max(0, Math.floor((endAt.getTime() - firstReplyAt.getTime()) / 1000))
+    : 0;
+
+  res.json({
+    active,
+    totals: totalRows,
+    savedSeconds,
+    totalSeconds: savedSeconds,
+    lifecycleSeconds,
+    firstReplyAt: firstReplyAt ? firstReplyAt.toISOString() : null,
+    lifecycleRunning: Boolean(firstReplyAt && !closed),
+  });
+});

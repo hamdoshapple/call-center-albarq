@@ -19,7 +19,14 @@ import {
   AlertTriangle,
   Users,
   UserPlus,
-  Trash2
+  Trash2,
+  Eye,
+  ListChecks,
+  Timer,
+  Play,
+  Square,
+  Tag,
+  Activity,
 } from 'lucide-react';
 import { adminTicketsApi } from '@/api/adminTickets';
 
@@ -67,6 +74,12 @@ export default function EmployeeTicketsPage() {
   const tickets = useQuery({
     queryKey: ['employeeTickets', q],
     queryFn: () => adminTicketsApi.list({ q }),
+  });
+
+  const ticketProSummary = useQuery({
+    queryKey: ['ticketProSummary'],
+    queryFn: () => staffFetch('/api/admin-tickets-pro/summary'),
+    refetchInterval: 12000,
   });
 
   const details = useQuery({
@@ -268,6 +281,8 @@ return (
         <Chip active={filter === 'closed'} label="مغلقة" onClick={() => setFilter('closed')} />
       </div>
 
+      <LiveActivityStrip data={ticketProSummary.data} />
+
       <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pb-4">
         {tickets.isLoading ? (
           <div className="rounded-[2rem] bg-white p-8 text-center font-black text-slate-400">جاري تحميل التذاكر...</div>
@@ -374,12 +389,36 @@ function Badge({ label, color }: any) {
   return <span className={`rounded-xl px-2.5 py-1 text-[10px] font-black ${cls}`}>{label}</span>;
 }
 
+
+function LiveActivityStrip({ data }: any) {
+  const items = data?.activities || [];
+  if (!items.length) return null;
+
+  return (
+    <div className="mt-3 rounded-[1.4rem] bg-white/80 p-3 shadow-sm">
+      <div className="mb-2 flex items-center gap-2 text-xs font-black text-slate-700">
+        <Activity className="h-4 w-4 text-emerald-500" />
+        النشاط المباشر
+      </div>
+      <div className="flex gap-2 overflow-x-auto">
+        {items.slice(0, 6).map((x: any) => (
+          <div key={x.id} className="min-w-[190px] rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">
+            {x.userName || 'النظام'}: {x.message}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TicketModal({ selected, details, reply, setReply, setReplyFile, replyMutation, updateMutation, onClose }: any) {
   const ticket = details.data?.ticket || selected;
   const replies = details.data?.replies || [];
   const attachments = details.data?.attachments || [];
   const [inviteUserId, setInviteUserId] = useState('');
   const [inviteNote, setInviteNote] = useState('');
+  const [nowTick, setNowTick] = useState(Date.now());
+  const [localTimerStartedAt, setLocalTimerStartedAt] = useState<string | null>(null);
   const [miniToast, setMiniToast] = useState<any>(null);
 
   function showMiniToast(title: string, type: 'success' | 'error' = 'success') {
@@ -396,6 +435,94 @@ function TicketModal({ selected, details, reply, setReply, setReplyFile, replyMu
     queryKey: ['ticketTeam', selected.id],
     queryFn: () => staffFetch(`/api/admin-tickets/${selected.id}/team`),
     enabled: Boolean(selected?.id),
+  });
+
+  const proPresence = useQuery({
+    queryKey: ['ticketPresence', selected.id],
+    queryFn: () => staffFetch(`/api/admin-tickets/${selected.id}/presence`, { method: 'POST', body: JSON.stringify({ typing: false }) }),
+    enabled: Boolean(selected?.id),
+    refetchInterval: 10000,
+  });
+
+  const proActivity = useQuery({
+    queryKey: ['ticketActivity', selected.id],
+    queryFn: () => staffFetch(`/api/admin-tickets/${selected.id}/activity`),
+    enabled: Boolean(selected?.id),
+    refetchInterval: 12000,
+  });
+
+  const proChecklist = useQuery({
+    queryKey: ['ticketChecklist', selected.id],
+    queryFn: () => staffFetch(`/api/admin-tickets/${selected.id}/checklist`),
+    enabled: Boolean(selected?.id),
+  });
+
+  const proTags = useQuery({
+    queryKey: ['ticketTags', selected.id],
+    queryFn: () => staffFetch(`/api/admin-tickets/${selected.id}/tags`),
+    enabled: Boolean(selected?.id),
+  });
+
+  const proTimer = useQuery({
+    queryKey: ['ticketTimer', selected.id],
+    queryFn: () => staffFetch(`/api/admin-tickets/${selected.id}/timer`),
+    enabled: Boolean(selected?.id),
+    refetchInterval: 5000,
+  });
+
+  const checklistToggle = useMutation({
+    mutationFn: ({ itemId, done }: any) => staffFetch(`/api/admin-tickets/${selected.id}/checklist/${itemId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ done }),
+    }),
+    onSuccess: () => {
+      proChecklist.refetch();
+      proActivity.refetch();
+    },
+  });
+
+  const addTagMutation = useMutation({
+    mutationFn: (tag: string) => staffFetch(`/api/admin-tickets/${selected.id}/tags`, {
+      method: 'POST',
+      body: JSON.stringify({ tag }),
+    }),
+    onSuccess: () => proTags.refetch(),
+  });
+
+  const removeTagMutation = useMutation({
+    mutationFn: (tag: string) => staffFetch(`/api/admin-tickets/${selected.id}/tags/${encodeURIComponent(tag)}`, {
+      method: 'DELETE',
+    }),
+    onSuccess: () => proTags.refetch(),
+  });
+
+  const timerStart = useMutation({
+    mutationFn: () => staffFetch(`/api/admin-tickets/${selected.id}/timer/start`, { method: 'POST' }),
+    onMutate: () => {
+      setLocalTimerStartedAt(new Date().toISOString());
+    },
+    onSuccess: () => {
+      proTimer.refetch();
+      proActivity.refetch();
+    },
+    onError: () => {
+      setLocalTimerStartedAt(null);
+    },
+  });
+
+  const timerStop = useMutation({
+    mutationFn: () => staffFetch(`/api/admin-tickets/${selected.id}/timer/stop`, { method: 'POST' }),
+    onMutate: () => {
+      if (localTimerStartedAt) {
+      }
+      setLocalTimerStartedAt(null);
+    },
+    onSuccess: (data: any) => {
+      if (Array.isArray(data?.totals)) {
+      }
+      proTimer.refetch();
+      proActivity.refetch();
+    },
   });
 
   const inviteMutation = useMutation({
@@ -421,6 +548,66 @@ function TicketModal({ selected, details, reply, setReply, setReplyFile, replyMu
     }),
     onSuccess: () => team.refetch(),
   });
+
+  // live-work-timer-effect
+  useEffect(() => {
+    if (!(localTimerStartedAt || proTimer.data?.active?.startedAt)) return;
+
+    const t = window.setInterval(() => {
+      setNowTick(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(t);
+  }, [localTimerStartedAt, proTimer.data?.active?.startedAt]);
+
+  const activeStartedAt = localTimerStartedAt || proTimer.data?.active?.startedAt || '';
+  const isTimerActive = Boolean(activeStartedAt);
+
+  const liveWorkSeconds = activeStartedAt
+    ? Math.max(0, Math.floor((nowTick - new Date(activeStartedAt).getTime()) / 1000))
+    : 0;
+
+  const liveWorkText = new Date(liveWorkSeconds * 1000).toISOString().slice(11, 19);
+
+  const ticketElapsedSecondsFinal = Number(proTimer.data?.lifecycleSeconds || 0);
+  const ticketElapsedTextFinal = ticketElapsedSecondsFinal < 60
+    ? `${ticketElapsedSecondsFinal} ث`
+    : `${Math.floor(ticketElapsedSecondsFinal / 60)} د ${ticketElapsedSecondsFinal % 60} ث`;
+
+  const savedWorkSecondsFinal = Number(proTimer.data?.totalSeconds || 0) || (proTimer.data?.totals || []).reduce((a: number, x: any) => a + Number(x.seconds || 0), 0);
+  const totalWorkSecondsFinal = isTimerActive ? savedWorkSecondsFinal + liveWorkSeconds : savedWorkSecondsFinal;
+
+  // auto-stop-ticket-timer-on-exit-final
+  useEffect(() => {
+    if (!isTimerActive) return;
+
+    const stopOnExit = () => {
+      try {
+        const token = localStorage.getItem('cc_token') || localStorage.getItem('token') || '';
+        const url = `/api/admin-tickets/${selected.id}/timer/stop`;
+        const blob = new Blob([JSON.stringify({ auto: true })], { type: 'application/json' });
+
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon(url, blob);
+        } else {
+          fetch(url, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ auto: true }),
+            keepalive: true,
+          }).catch(() => null);
+        }
+      } catch {}
+    };
+
+    window.addEventListener('pagehide', stopOnExit);
+    window.addEventListener('beforeunload', stopOnExit);
+
+    return () => {
+      window.removeEventListener('pagehide', stopOnExit);
+      window.removeEventListener('beforeunload', stopOnExit);
+    };
+  }, [isTimerActive, selected.id]);
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end bg-slate-950/40 backdrop-blur-sm">
@@ -466,6 +653,113 @@ function TicketModal({ selected, details, reply, setReply, setReplyFile, replyMu
                 <div>الهاتف: <b>{ticket.externalPhone || '—'}</b></div>
                 <div>PPPoE: <b>{ticket.externalPppoe || '—'}</b></div>
                 <div>الحالة: <b>{statusMap[ticket.status] || ticket.status}</b></div>
+              </div>
+            </div>
+
+            {/* pro-ticket-presence-ui */}
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                onClick={() => isTimerActive ? timerStop.mutate() : timerStart.mutate()}
+                className={`relative flex h-12 items-center justify-center gap-2 overflow-hidden rounded-2xl text-sm font-black transition-all active:scale-[0.98] ${
+                  proTimer.data?.active
+                    ? 'bg-red-50 text-red-600 shadow-lg shadow-red-100'
+                    : 'bg-emerald-50 text-emerald-700'
+                }`}
+              >
+                {isTimerActive ? (
+                  <>
+                    <span className="absolute inset-0 animate-pulse bg-red-100/50" />
+                    <Square className="relative h-4 w-4" />
+                    <span className="relative font-mono text-[15px]">{liveWorkText}</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4" />
+                    بدء العمل
+                  </>
+                )}
+              </button>
+
+              <div className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-50 text-sm font-black text-slate-600">
+                <Timer className="h-4 w-4" />
+                {ticketElapsedTextFinal} ث` : `${Math.floor(total / 60)} د ${total % 60} ث`;
+                })()}
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-[1.5rem] bg-white p-3 shadow-sm">
+              <div className="mb-2 flex items-center gap-2 text-sm font-black text-slate-800">
+                <Eye className="h-4 w-4 text-emerald-500" />
+                يشاهد الآن
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(proPresence.data || []).length ? (proPresence.data || []).map((p: any) => (
+                  <span key={p.id} className="rounded-2xl bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700">
+                    {p.userName}{p.typing ? ' يكتب...' : ''}
+                  </span>
+                )) : <span className="text-xs font-bold text-slate-400">لا يوجد أحد حالياً</span>}
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-[1.5rem] bg-white p-3 shadow-sm">
+              <div className="mb-2 flex items-center gap-2 text-sm font-black text-slate-800">
+                <ListChecks className="h-4 w-4 text-emerald-500" />
+                قائمة الفحص
+              </div>
+              <div className="space-y-2">
+                {(proChecklist.data || []).map((c: any) => (
+                  <button
+                    key={c.id}
+                    onClick={() => checklistToggle.mutate({ itemId: c.id, done: !c.done })}
+                    className={`flex w-full items-center justify-between rounded-2xl px-3 py-2 text-sm font-black ${
+                      c.done ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-500'
+                    }`}
+                  >
+                    <span>{c.title}</span>
+                    <span>{c.done ? '✓' : '○'}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-[1.5rem] bg-white p-3 shadow-sm">
+              <div className="mb-2 flex items-center gap-2 text-sm font-black text-slate-800">
+                <Tag className="h-4 w-4 text-emerald-500" />
+                الوسوم
+              </div>
+              <div className="mb-2 flex flex-wrap gap-2">
+                {(proTags.data || []).map((t: any) => (
+                  <button
+                    key={t.id}
+                    onClick={() => removeTagMutation.mutate(t.tag)}
+                    className="rounded-2xl bg-slate-100 px-3 py-1.5 text-xs font-black text-slate-600"
+                  >
+                    #{t.tag}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {['FTTH','PPPoE','Billing','OLT','ONU','Slow','WiFi'].map((tag) => (
+                  <button key={tag} onClick={() => addTagMutation.mutate(tag)} className="rounded-2xl bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-700">
+                    + {tag}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-[1.5rem] bg-white p-3 shadow-sm">
+              <div className="mb-2 flex items-center gap-2 text-sm font-black text-slate-800">
+                <Activity className="h-4 w-4 text-emerald-500" />
+                Timeline
+              </div>
+              <div className="space-y-2">
+                {(proActivity.data || []).map((a: any) => (
+                  <div key={a.id} className="rounded-2xl bg-slate-50 p-3">
+                    <div className="text-xs font-black text-slate-700">{a.userName || 'النظام'} · {a.type}</div>
+                    <div className="mt-1 text-sm font-bold text-slate-600">{a.message}</div>
+                    <div className="mt-1 text-[10px] font-bold text-slate-400">{new Date(a.createdAt).toLocaleString('ar-IQ')}</div>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -561,7 +855,10 @@ function TicketModal({ selected, details, reply, setReply, setReplyFile, replyMu
                 rows={4}
                 placeholder="اكتب رد..."
                 value={reply}
-                onChange={(e) => setReply(e.target.value)}
+                onChange={(e) => {
+                  setReply(e.target.value);
+                  staffFetch(`/api/admin-tickets/${selected.id}/presence`, { method: 'POST', body: JSON.stringify({ typing: true }) }).catch(() => null);
+                }}
                 className="w-full resize-none rounded-2xl bg-white p-3 text-sm font-bold outline-none placeholder:text-slate-400"
               />
 
