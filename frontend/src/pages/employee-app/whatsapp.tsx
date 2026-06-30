@@ -1,4 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState } from 'react';
 import {
   ArrowRight,
   CheckCheck,
@@ -19,7 +23,7 @@ import {
   Users,
   Flag,
   Pin,
-  PencilLine,
+  PencilLine
 } from 'lucide-react';
 import { whatsappTwilioApi } from '@/api/whatsappTwilio';
 
@@ -45,6 +49,10 @@ type Conv = {
   windowExpiresAt?: string | null;
   subscriber?: SubscriberLite | null;
   subscribers?: SubscriberLite[];
+  pinned?: boolean;
+  priority?: 'normal' | 'medium' | 'urgent';
+  claimedByName?: string;
+  claimedById?: string | null;
 };
 
 type Msg = {
@@ -91,6 +99,7 @@ export default function EmployeeWhatsappPage() {
   const [team, setTeam] = useState<TeamState | null>(null);
 
   const messagesRef = useRef<HTMLDivElement>(null!);
+  const typingTimerRef = useRef<number | null>(null);
   const unreadTotal = useMemo(
     () => convs.reduce((sum, x) => sum + Number(x.unreadCount || 0), 0),
     [convs]
@@ -162,7 +171,8 @@ export default function EmployeeWhatsappPage() {
       if (!res.ok) throw new Error();
 
       const data = await res.json();
-      const list: Conv[] = Array.isArray(data) ? data : data.rows || [];
+      const rawList: Conv[] = Array.isArray(data) ? data : data.rows || [];
+      const list = [...rawList].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
 
       setConvs(list);
       setActive((cur) => {
@@ -240,7 +250,8 @@ export default function EmployeeWhatsappPage() {
           headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || localStorage.getItem('token') || ''}` },
         });
         const data = await res.json();
-        const list: Conv[] = Array.isArray(data) ? data : data.rows || [];
+        const rawList: Conv[] = Array.isArray(data) ? data : data.rows || [];
+      const list = [...rawList].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
         setConvs(list);
         conv = list.find((x) => x.id === id);
       } catch {}
@@ -399,6 +410,27 @@ export default function EmployeeWhatsappPage() {
   }
 
 
+
+
+  function handleReplyChange(v: string) {
+    setReply(v);
+
+    if (!active) return;
+
+    localStorage.setItem(`wa_draft_${active.id}`, v);
+
+    sendTyping(Boolean(v.trim())).catch(() => null);
+
+    if (typingTimerRef.current) {
+      window.clearTimeout(typingTimerRef.current);
+    }
+
+    typingTimerRef.current = window.setTimeout(() => {
+      sendTyping(false).catch(() => null);
+    }, 3500);
+  }
+
+
   async function sendReply() {
     const text = reply.trim();
     if (!active || (!text && !fileData)) return;
@@ -431,6 +463,12 @@ export default function EmployeeWhatsappPage() {
       setSending(false);
     }
   }
+
+  useEffect(() => {
+    if (active) {
+      setReply(localStorage.getItem(`wa_draft_${active.id}`) || '');
+    }
+  }, [active?.id]);
 
   useEffect(() => {
     if (!active || !messages.length) return;
@@ -542,7 +580,7 @@ export default function EmployeeWhatsappPage() {
           onTogglePin={togglePinActive}
           windowText={windowText}
           reply={reply}
-          setReply={setReply}
+          setReply={handleReplyChange}
           fileData={fileData}
           fileName={fileName}
           fileType={fileType}
@@ -565,6 +603,7 @@ export default function EmployeeWhatsappPage() {
   );
 }
 
+
 function ConversationList({
   convs,
   q,
@@ -582,49 +621,212 @@ function ConversationList({
   onRefresh: () => void;
   onOpen: (c: Conv) => void;
 }) {
+  const [filter, setFilter] = useState<'all' | 'unclaimed' | 'claimed' | 'urgent' | 'pinned'>('all');
+
+  const sorted = [...convs].sort((a, b) => {
+    const pin = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
+    if (pin) return pin;
+
+    const unread = Number(b.unreadCount || 0) - Number(a.unreadCount || 0);
+    if (unread) return unread;
+
+    return 0;
+  });
+
+  const filtered = sorted.filter((conv) => {
+    if (filter === 'pinned') return Boolean(conv.pinned);
+    if (filter === 'claimed') return Boolean(conv.claimedByName || conv.claimedById);
+    if (filter === 'unclaimed') return !conv.claimedByName && !conv.claimedById;
+    if (filter === 'urgent') return conv.priority === 'urgent';
+    return true;
+  });
+
+  const pinned = filtered.filter((x) => x.pinned);
+  const normal = filtered.filter((x) => !x.pinned);
+
   return (
-    <div className="mx-auto w-full max-w-md h-full flex flex-col px-4 pt-[calc(env(safe-area-inset-top)+18px)] pb-24">
+    <div className="mx-auto flex h-full w-full max-w-md flex-col px-4 pt-[calc(env(safe-area-inset-top)+18px)] pb-24">
       <Header unreadTotal={unreadTotal} loading={loading} onRefresh={onRefresh} />
 
-      <div className="mt-4 flex items-center gap-2 rounded-2xl bg-white px-4 py-3 shadow-lg shadow-slate-200/70">
-        <Search className="h-5 w-5 text-slate-400 shrink-0" />
+      <div className="mt-4 flex items-center gap-2 rounded-[1.4rem] border border-slate-100 bg-white px-4 py-3 shadow-lg shadow-slate-200/70">
+        <Search className="h-5 w-5 shrink-0 text-slate-400" />
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && onRefresh()}
-          className="w-full bg-transparent text-sm font-semibold outline-none placeholder:text-slate-400 min-w-0"
-          placeholder="بحث بالمحادثات"
+          className="min-w-0 w-full bg-transparent text-sm font-bold outline-none placeholder:text-slate-400"
+          placeholder="بحث بالمحادثات أو رقم الهاتف..."
         />
       </div>
 
-      <div className="mt-4 flex-1 min-h-0 space-y-3 overflow-y-auto pb-4">
-        {convs.map((conv) => (
-          <button
-            key={conv.id}
-            onClick={() => onOpen(conv)}
-            className="flex w-full items-center gap-3 rounded-[1.5rem] bg-white p-4 text-right shadow-lg shadow-slate-200/70 hover:shadow-xl transition-shadow"
-          >
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-500">
-              <MessageCircle className="h-6 w-6" />
-            </div>
+      <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+        <FilterChip active={filter === 'all'} onClick={() => setFilter('all')} label="الكل" />
+        <FilterChip active={filter === 'unclaimed'} onClick={() => setFilter('unclaimed')} label="غير مستلمة" />
+        <FilterChip active={filter === 'claimed'} onClick={() => setFilter('claimed')} label="مستلمة" />
+        <FilterChip active={filter === 'urgent'} onClick={() => setFilter('urgent')} label="مستعجلة" />
+        <FilterChip active={filter === 'pinned'} onClick={() => setFilter('pinned')} label="مثبتة" />
+      </div>
 
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-3">
-                <p className="truncate text-sm font-black text-slate-950">{conv.name || conv.phone}</p>
-                {conv.unreadCount ? (
-                  <span className="shrink-0 rounded-full bg-sky-500 px-2 py-0.5 text-xs font-black text-white">
-                    {conv.unreadCount}
-                  </span>
-                ) : null}
-              </div>
-              <p className="mt-1 truncate text-xs font-bold text-slate-400">{conv.lastMessage || 'مرفق'}</p>
-            </div>
-          </button>
-        ))}
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto pb-4">
+        {pinned.length ? (
+          <ConversationSection title={`المحادثات المثبتة (${pinned.length})`} pinned>
+            {pinned.map((conv) => (
+              <ConversationCard key={conv.id} conv={conv} onOpen={onOpen} />
+            ))}
+          </ConversationSection>
+        ) : null}
+
+        <ConversationSection title={pinned.length ? 'كل المحادثات' : 'المحادثات'}>
+          {normal.map((conv) => (
+            <ConversationCard key={conv.id} conv={conv} onOpen={onOpen} />
+          ))}
+        </ConversationSection>
+
+        {!loading && !filtered.length ? (
+          <div className="mt-6 rounded-[2rem] bg-white p-8 text-center shadow-xl shadow-slate-200/70">
+            <MessageCircle className="mx-auto h-10 w-10 text-emerald-500" />
+            <h2 className="mt-4 text-lg font-black text-slate-950">لا توجد محادثات</h2>
+            <p className="mt-2 text-sm font-bold text-slate-400">لا توجد نتائج ضمن هذا الفلتر</p>
+          </div>
+        ) : null}
       </div>
     </div>
   );
 }
+
+function FilterChip({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`shrink-0 rounded-2xl border px-4 py-2 text-xs font-black transition ${
+        active
+          ? 'border-sky-400 bg-sky-500 text-white shadow-lg shadow-sky-200'
+          : 'border-slate-100 bg-white text-slate-600 shadow-sm'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ConversationSection({
+  title,
+  pinned,
+  children,
+}: {
+  title: string;
+  pinned?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mb-4">
+      <div className={`mb-2 flex items-center justify-between rounded-2xl border px-4 py-3 ${
+        pinned ? 'border-amber-100 bg-amber-50/70 text-slate-900' : 'border-slate-100 bg-white/70 text-slate-800'
+      }`}>
+        <div className="flex items-center gap-2 text-sm font-black">
+          {pinned ? <Pin className="h-4 w-4 text-amber-500" /> : <MessageCircle className="h-4 w-4 text-slate-400" />}
+          <span>{title}</span>
+        </div>
+        <span className="text-slate-400">⌃</span>
+      </div>
+
+      <div className="space-y-3">{children}</div>
+    </div>
+  );
+}
+
+function ConversationCard({ conv, onOpen }: { conv: Conv; onOpen: (c: Conv) => void }) {
+  const accounts = conv.subscribers?.length ? conv.subscribers : conv.subscriber ? [conv.subscriber] : [];
+  const hasDebt = accounts.some((x) => Number(x.debt || 0) > 0);
+  const isActive = accounts.some((x) => String(x.status || '').toLowerCase().includes('active') || String(x.status || '').includes('فعال'));
+  const unread = Number(conv.unreadCount || 0);
+
+  const priorityLabel =
+    conv.priority === 'urgent' ? 'مستعجلة' :
+    conv.priority === 'medium' ? 'متوسطة' :
+    '';
+
+  return (
+    <button
+      onClick={() => onOpen(conv)}
+      className="relative flex w-full gap-3 overflow-hidden rounded-[1.55rem] border border-slate-100 bg-white p-4 text-right shadow-lg shadow-slate-200/70 transition active:scale-[0.99]"
+    >
+      {conv.pinned ? (
+        <div className="absolute right-0 top-0 h-12 w-12 bg-amber-400 [clip-path:polygon(100%_0,0_0,100%_100%)]">
+          <Pin className="absolute right-2 top-2 h-3.5 w-3.5 text-white" />
+        </div>
+      ) : null}
+
+      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.2rem] bg-emerald-50 text-emerald-500">
+        <MessageCircle className="h-7 w-7" />
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate text-[15px] font-black text-slate-950">{conv.name || conv.phone}</h3>
+            <p className="mt-1 truncate text-xs font-bold text-slate-400">{conv.lastMessage || 'مرفق'}</p>
+          </div>
+
+          {unread ? (
+            <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-red-500 px-2 text-xs font-black text-white shadow-md shadow-red-100">
+              {unread}
+            </span>
+          ) : null}
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          {isActive ? <MiniBadge color="green" label="فعال" /> : null}
+          {hasDebt ? <MiniBadge color="orange" label="عليه ديون" /> : null}
+
+          {conv.claimedByName ? (
+            <span className="inline-flex items-center gap-1 rounded-xl bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700">
+              <UserCheck className="h-3 w-3" />
+              مستلمة: {conv.claimedByName}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-xl bg-slate-50 px-2.5 py-1 text-[10px] font-black text-slate-400">
+              <UserCheck className="h-3 w-3" />
+              غير مستلمة
+            </span>
+          )}
+
+          {priorityLabel ? (
+            <span className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1 text-[10px] font-black ${
+              conv.priority === 'urgent'
+                ? 'bg-red-50 text-red-600'
+                : 'bg-amber-50 text-amber-600'
+            }`}>
+              <Flag className="h-3 w-3" />
+              {priorityLabel}
+            </span>
+          ) : null}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function MiniBadge({ color, label }: { color: 'green' | 'orange'; label: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1 text-[10px] font-black ${
+      color === 'green' ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-600'
+    }`}>
+      <span className={`h-2 w-2 rounded-full ${color === 'green' ? 'bg-emerald-500' : 'bg-orange-500'}`} />
+      {label}
+    </span>
+  );
+}
+
+
 
 function ChatScreen({
   active,

@@ -303,13 +303,20 @@ export async function conversations(req: Request, res: Response) {
   const nextCursor = hasMore ? pageRows[pageRows.length - 1]?.id || null : null;
 
   res.json({
-    rows: pageRows.map((row: any) => ({
-      ...row,
-      subscriber: null,
-      subscribers: [],
-      conversationOpen: false,
-      windowExpiresAt: null,
-    })),
+    rows: pageRows.map((row: any) => {
+      const team = readTeamState()?.[row.id] || {};
+      return {
+        ...row,
+        subscriber: null,
+        subscribers: [],
+        conversationOpen: false,
+        windowExpiresAt: null,
+        pinned: Boolean(team.pinned),
+        priority: team.priority || 'normal',
+        claimedByName: team.claimedByName || '',
+        claimedById: team.claimedById || null,
+      };
+    }),
     nextCursor,
     hasMore,
   });
