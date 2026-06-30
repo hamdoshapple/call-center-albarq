@@ -33,6 +33,10 @@ import EmployeeProfilePage from '@/pages/employee-app/profile';
 import EmployeeWhatsappPage from '@/pages/employee-app/whatsapp';
 import EmployeeLoginPage from '@/pages/employee-app/login';
 
+if (window.location.hostname === 'staff.albarq.app' && window.location.pathname === '/') {
+  window.location.replace('/employee/');
+}
+
 function RootRedirect() {
   const host = window.location.hostname;
   if (host === 'user.albarq.app') {
