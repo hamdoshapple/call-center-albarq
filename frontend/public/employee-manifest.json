@@ -1,31 +1,20 @@
 {
+  "id": "albarq-staff-pwa-v1",
   "name": "البرق الرقمي - الموظفين",
   "short_name": "الموظفين",
   "description": "Albarq Staff App",
-  "start_url": "/employee?source=pwa",
-  "scope": "/employee",
+  "start_url": "/employee/dashboard?app=staff",
+  "scope": "/employee/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "dir": "rtl",
   "lang": "ar",
   "background_color": "#f6f8fb",
-  "theme_color": "#10b981",
+  "theme_color": "#0ea5e9",
+  "orientation": "portrait",
   "icons": [
-    {
-      "src": "/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
-  ],
-  "display_override": [
-    "standalone",
-    "minimal-ui"
-  ],
-  "orientation": "portrait"
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
 }
