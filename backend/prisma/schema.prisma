@@ -830,3 +830,17 @@ model TwilioWhatsappMessage {
   @@index([createdAt])
   @@index([direction])
 }
+
+model AdminTicketTeam {
+  id          String   @id
+  ticketId    String
+  userId      String
+  role        String   @default("member")
+  invitedById String?
+  createdAt   DateTime @default(now())
+
+  @@unique([ticketId, userId], name: "AdminTicketTeam_ticket_user_unique")
+  @@index([ticketId], name: "AdminTicketTeam_ticket_idx")
+  @@index([userId], name: "AdminTicketTeam_user_idx")
+  @@map("AdminTicketTeam")
+}

@@ -1,5 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  useEffect,
+  useMemo,
+  useState } from 'react';
+import { useQuery,
+  useMutation,
+  useQueryClient } from '@tanstack/react-query';
 import {
   AlertCircle,
   CheckCircle2,
@@ -11,9 +16,10 @@ import {
   Send,
   Ticket,
   X,
+  AlertTriangle,
   Users,
   UserPlus,
-  Trash2,
+  Trash2
 } from 'lucide-react';
 import { adminTicketsApi } from '@/api/adminTickets';
 
@@ -122,6 +128,59 @@ export default function EmployeeTicketsPage() {
   const workCount = (tickets.data || []).filter((x: any) => x.status === 'in_progress').length;
   const doneCount = (tickets.data || []).filter((x: any) => ['resolved', 'closed'].includes(x.status)).length;
 
+  async function openTicketFromUrl(ticketId: string) {
+    if (!ticketId) return;
+
+    try {
+      const data = await adminTicketsApi.get(ticketId);
+      if (data?.ticket) {
+        setSelected(data.ticket);
+        window.history.replaceState({}, '', '/employee/tickets');
+        return;
+      }
+    } catch {}
+
+    const rows = Array.isArray(tickets.data) ? tickets.data : [];
+    const found = rows.find((x: any) => String(x.id) === String(ticketId));
+    if (found) {
+      setSelected(found);
+      window.history.replaceState({}, '', '/employee/tickets');
+    }
+  }
+
+  // ticket-url-watch-final
+  useEffect(() => {
+    const run = () => {
+      const ticketId = new URLSearchParams(window.location.search).get('ticket') || '';
+      if (ticketId) openTicketFromUrl(ticketId);
+    };
+
+    run();
+    window.addEventListener('focus', run);
+    window.addEventListener('popstate', run);
+
+    const onMsg = (event: MessageEvent) => {
+      if (event.data?.type === 'FORCE_NAVIGATE' && event.data?.url) {
+        window.location.href = event.data.url;
+        return;
+      }
+
+      const id = event.data?.payload?.ticketId || event.data?.ticketId || '';
+      if (event.data?.type === 'TICKET_OPEN_FROM_PUSH' && id) {
+        openTicketFromUrl(String(id));
+      }
+    };
+
+    navigator.serviceWorker?.addEventListener?.('message', onMsg);
+
+    return () => {
+      window.removeEventListener('focus', run);
+      window.removeEventListener('popstate', run);
+      navigator.serviceWorker?.removeEventListener?.('message', onMsg);
+    };
+  }, [tickets.data]);
+
+
 
   useEffect(() => {
     if (!pendingTicketId) return;
@@ -167,21 +226,7 @@ export default function EmployeeTicketsPage() {
     navigator.serviceWorker?.addEventListener?.('message', onMsg);
   return () => navigator.serviceWorker?.removeEventListener?.('message', onMsg);
   }, [tickets.data]);
-  // ticket-url-watch-final
-  useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get('ticket') || pendingTicketId;
-    if (!id) return;
-
-    adminTicketsApi.get(id).then((data: any) => {
-      if (data?.ticket) {
-        setSelected(data.ticket);
-        setPendingTicketId('');
-        window.history.replaceState({}, '', '/employee/tickets');
-      }
-    }).catch(() => null);
-  }, [pendingTicketId]);
-
-  return (
+return (
     <section dir="rtl" className="flex h-screen flex-col overflow-hidden bg-[#f6f8fb] px-4 pb-24 pt-[calc(env(safe-area-inset-top)+18px)]">
       <header className="flex shrink-0 items-center justify-between">
         <div>
@@ -335,6 +380,12 @@ function TicketModal({ selected, details, reply, setReply, setReplyFile, replyMu
   const attachments = details.data?.attachments || [];
   const [inviteUserId, setInviteUserId] = useState('');
   const [inviteNote, setInviteNote] = useState('');
+  const [miniToast, setMiniToast] = useState<any>(null);
+
+  function showMiniToast(title: string, type: 'success' | 'error' = 'success') {
+    setMiniToast({ title, type });
+    window.setTimeout(() => setMiniToast(null), 2200);
+  }
 
   const users = useQuery({
     queryKey: ['ticketUsers'],
@@ -353,14 +404,14 @@ function TicketModal({ selected, details, reply, setReply, setReplyFile, replyMu
       body: JSON.stringify({ userId: inviteUserId, note: inviteNote }),
     }),
     onSuccess: () => {
-      alert('تم استدعاء الموظف بنجاح');
+      showMiniToast('تم استدعاء الموظف بنجاح', 'success');
       setInviteUserId('');
       setInviteNote('');
       team.refetch();
       details.refetch();
     },
     onError: (e: any) => {
-      alert('فشل الاستدعاء: ' + (e?.message || 'خطأ غير معروف'));
+      showMiniToast('فشل الاستدعاء: ' + (e?.message || 'خطأ غير معروف'), 'error');
     },
   });
 
@@ -373,6 +424,18 @@ function TicketModal({ selected, details, reply, setReply, setReplyFile, replyMu
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end bg-slate-950/40 backdrop-blur-sm">
+      {miniToast ? (
+        <div className="fixed left-4 right-4 top-[calc(env(safe-area-inset-top)+14px)] z-[9999]">
+          <div className="rounded-[1.5rem] border border-white/70 bg-white/95 p-4 shadow-2xl backdrop-blur-xl">
+            <div className="flex items-center gap-3">
+              {miniToast.type === 'success'
+                ? <CheckCircle2 className="h-6 w-6 text-emerald-500" />
+                : <AlertTriangle className="h-6 w-6 text-red-500" />}
+              <div className="text-sm font-black text-slate-900">{miniToast.title}</div>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="max-h-[88vh] w-full overflow-y-auto rounded-t-[2rem] bg-white p-4 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <button onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-50 text-slate-500">

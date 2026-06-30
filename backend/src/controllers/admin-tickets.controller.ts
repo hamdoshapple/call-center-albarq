@@ -461,12 +461,19 @@ export const replyAdminTicket = asyncHandler(async (req: Request, res: Response)
       } as any,
     });
 
+    // team-reply-push-legacy
+    await sendTicketReplyPushToTeam(
+      ticketId,
+      'رد جديد على التذكرة',
+      body.slice(0, 140),
+      userId(req)
+    );
+
     const mentioned = await extractMentions(body);
     for (const u of mentioned) {
       await notify(u.id, 'تم ذكرك في تكت', body.slice(0, 160));
     }
 
-    await pushTicketUpdate(ticketId, 'رد جديد على التذكرة', body.slice(0, 120));
     await pushTicketUpdate(ticketId, 'رد جديد على التذكرة', body.slice(0, 120));
     return res.status(201).json({ id: replyId, mentioned });
   }
@@ -477,6 +484,14 @@ export const replyAdminTicket = asyncHandler(async (req: Request, res: Response)
     INSERT INTO AdminTicketReply (id,ticketId,authorId,body,visibility)
     VALUES (?,?,?,?,?)
   `, replyId, ticketId, userId(req), body, visibility);
+
+  // team-reply-push-admin-ticket
+  await sendTicketReplyPushToTeam(
+    ticketId,
+    'رد جديد على التذكرة',
+    body.slice(0, 140),
+    userId(req)
+  );
 
   if (req.body?.attachmentUrl) {
     await prisma.$executeRawUnsafe(`
@@ -497,7 +512,6 @@ export const replyAdminTicket = asyncHandler(async (req: Request, res: Response)
 
   await prisma.$executeRawUnsafe(`UPDATE AdminTicket SET updatedAt=NOW(3) WHERE id=?`, ticketId);
 
-  await pushTicketUpdate(ticketId, 'رد جديد على التذكرة', body.slice(0, 120));
   await pushTicketUpdate(ticketId, 'رد جديد على التذكرة', body.slice(0, 120));
   res.status(201).json({ id: replyId, mentioned });
 });
@@ -620,11 +634,34 @@ export const inviteTicketUser = asyncHandler(async (req: Request, res: Response)
 
   const inviterId = userId(req);
 
-  const ticketRows = await prisma.$queryRawUnsafe<any[]>(`
-    SELECT * FROM AdminTicket WHERE id=? LIMIT 1
-  `, ticketId);
+  let ticket: any = null;
+  let legacyRealId = '';
 
-  const ticket = ticketRows[0];
+  if (ticketId.startsWith('legacy_')) {
+    legacyRealId = ticketId.replace(/^legacy_/, '');
+
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT 
+        CONCAT('legacy_', id) AS id,
+        subject,
+        status,
+        priority,
+        createdAt,
+        updatedAt
+      FROM Ticket
+      WHERE id=?
+      LIMIT 1
+    `, legacyRealId);
+
+    ticket = rows[0];
+  } else {
+    const rows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT * FROM AdminTicket WHERE id=? LIMIT 1
+    `, ticketId);
+
+    ticket = rows[0];
+  }
+
   if (!ticket) return res.status(404).json({ message: 'Ticket not found' });
 
   const userRows = await prisma.$queryRawUnsafe<any[]>(`
@@ -637,19 +674,27 @@ export const inviteTicketUser = asyncHandler(async (req: Request, res: Response)
   await prisma.$executeRawUnsafe(`
     INSERT INTO AdminTicketTeam (id,ticketId,userId,role,invitedById)
     VALUES (?,?,?,?,?)
-    ON DUPLICATE KEY UPDATE role=VALUES(role)
+    ON DUPLICATE KEY UPDATE role=VALUES(role), invitedById=VALUES(invitedById)
   `, cuid(), ticketId, userIdToInvite, 'member', inviterId || null);
 
-  await prisma.$executeRawUnsafe(`
-    INSERT INTO AdminTicketReply (id,ticketId,authorId,body,visibility)
-    VALUES (?,?,?,?,?)
-  `,
-    cuid(),
-    ticketId,
-    inviterId || null,
-    `تم استدعاء ${invited.fullName || invited.username} للتذكرة.${note ? '\nملاحظة: ' + note : ''}`,
-    'internal'
-  );
+  const logBody = `تم استدعاء ${invited.fullName || invited.username} للتذكرة.${note ? '\nملاحظة: ' + note : ''}`;
+
+  if (ticketId.startsWith('legacy_')) {
+    await prisma.note.create({
+      data: {
+        id: cuid(),
+        refType: 'ticket',
+        refId: legacyRealId,
+        body: logBody,
+        authorId: inviterId || null,
+      } as any,
+    });
+  } else {
+    await prisma.$executeRawUnsafe(`
+      INSERT INTO AdminTicketReply (id,ticketId,authorId,body,visibility)
+      VALUES (?,?,?,?,?)
+    `, cuid(), ticketId, inviterId || null, logBody, 'internal');
+  }
 
   await sendPushToEmployees(
     'تم استدعاؤك لتذكرة',
@@ -666,6 +711,7 @@ export const inviteTicketUser = asyncHandler(async (req: Request, res: Response)
   res.json({ ok: true });
 });
 
+
 export const removeTicketUser = asyncHandler(async (req: Request, res: Response) => {
   await ensureTicketTeamTable();
 
@@ -678,3 +724,57 @@ export const removeTicketUser = asyncHandler(async (req: Request, res: Response)
 
   res.json({ ok: true });
 });
+
+
+async function sendTicketReplyPushToTeam(ticketId: string, title: string, message: string, authorId?: string | null) {
+  try {
+    await ensureTicketTeamTable();
+
+    const teamRows = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT userId
+      FROM AdminTicketTeam
+      WHERE ticketId=?
+    `, ticketId);
+
+    let ownerRows: any[] = [];
+
+    if (ticketId.startsWith('legacy_')) {
+      const realId = ticketId.replace(/^legacy_/, '');
+      ownerRows = await prisma.$queryRawUnsafe<any[]>(`
+        SELECT assignedUserId, createdById
+        FROM Ticket
+        WHERE id=?
+        LIMIT 1
+      `, realId).catch(() => []);
+    } else {
+      ownerRows = await prisma.$queryRawUnsafe<any[]>(`
+        SELECT assignedUserId, createdById
+        FROM AdminTicket
+        WHERE id=?
+        LIMIT 1
+      `, ticketId).catch(() => []);
+    }
+
+    const owner = ownerRows[0] || {};
+
+    const employeeIds = Array.from(new Set([
+      ...teamRows.map((x: any) => String(x.userId || '').trim()),
+      String(owner.assignedUserId || '').trim(),
+      String(owner.createdById || '').trim(),
+    ].filter((id: string) => id && id !== String(authorId || ''))));
+
+    if (!employeeIds.length) return;
+
+    await sendPushToEmployees(
+      title,
+      message,
+      `/employee/tickets?ticket=${ticketId}`,
+      {
+        employeeIds,
+        tag: `ticket-reply-${ticketId}-${Date.now()}`,
+        ticketId,
+        type: 'ticket',
+      }
+    ).catch(() => null);
+  } catch {}
+}

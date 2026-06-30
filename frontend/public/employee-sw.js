@@ -1,3 +1,4 @@
+
 self.addEventListener('install', () => self.skipWaiting());
 
 self.addEventListener('activate', (event) => {
@@ -13,7 +14,7 @@ self.addEventListener('push', (event) => {
   const ticketId = data.ticketId || '';
   const conversationId = data.conversationId || '';
 
-  let url = data.url || '/employee';
+  let url = data.url || '/employee/dashboard';
   if (ticketId) url = `/employee/tickets?ticket=${encodeURIComponent(ticketId)}`;
   else if (conversationId) url = `/employee/whatsapp?chat=${encodeURIComponent(conversationId)}`;
 
@@ -24,12 +25,7 @@ self.addEventListener('push', (event) => {
       badge: data.badge || '/icon-192.png',
       tag: data.tag || ('employee-' + Date.now()),
       renotify: true,
-      data: {
-        ...data,
-        ticketId,
-        conversationId,
-        url,
-      },
+      data: { ...data, ticketId, conversationId, url },
     })
   );
 });
@@ -38,23 +34,32 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const data = event.notification.data || {};
-  const url = new URL(data.url || '/employee', self.location.origin).href;
+  const targetUrl = new URL(data.url || '/employee/tickets', self.location.origin).href;
 
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (list) => {
-      for (const client of list) {
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(async (clientsList) => {
+      for (const client of clientsList) {
         if (client.url.includes('/employee')) {
           await client.focus();
+
           if ('navigate' in client) {
-            await client.navigate(url);
+            await client.navigate(targetUrl);
           } else {
-            client.postMessage({ type: 'FORCE_NAVIGATE', url });
+            client.postMessage({ type: 'FORCE_NAVIGATE', url: targetUrl });
           }
+
+          client.postMessage({
+            type: 'TICKET_OPEN_FROM_PUSH',
+            payload: {
+              ticketId: data.ticketId || '',
+              url: targetUrl,
+            },
+          });
           return;
         }
       }
 
-      return clients.openWindow(url);
+      return clients.openWindow(targetUrl);
     })
   );
 });
