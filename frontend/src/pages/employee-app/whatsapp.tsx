@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
+  Check,
   CheckCheck,
   FileText,
   Grid3X3,
@@ -50,6 +51,7 @@ type Msg = {
   mediaType?: string;
   agentName?: string;
   createdAt: string;
+  status?: string;
 };
 
 type ToastType = 'error' | 'success' | 'info';
@@ -69,6 +71,7 @@ export default function EmployeeWhatsappPage() {
   const [preparingFile, setPreparingFile] = useState(false);
   const [toast, setToast] = useState<{ type: ToastType; text: string } | null>(null);
   const [showJumpDown, setShowJumpDown] = useState(false);
+  const [pendingChatId, setPendingChatId] = useState<string>(() => new URLSearchParams(window.location.search).get('chat') || '');
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
 
   const messagesRef = useRef<HTMLDivElement>(null!);
@@ -202,6 +205,40 @@ export default function EmployeeWhatsappPage() {
     setActive(conv);
     await loadProfile(conv.id);
     await loadMessages(conv.id);
+  }
+
+  async function openChatById(id: string) {
+    if (!id) return;
+
+    if (active?.id === id) {
+      await loadMessages(id);
+      scrollBottom(0);
+      return;
+    }
+
+    let conv = convs.find((x) => x.id === id);
+
+    if (!conv) {
+      try {
+        const res = await fetch('/api/whatsapp-twilio/conversations?take=80', {
+          headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || localStorage.getItem('token') || ''}` },
+        });
+        const data = await res.json();
+        const list: Conv[] = Array.isArray(data) ? data : data.rows || [];
+        setConvs(list);
+        conv = list.find((x) => x.id === id);
+      } catch {}
+    }
+
+    if (conv) {
+      await openConv(conv);
+      return;
+    }
+
+    const minimal: Conv = { id, phone: '', name: 'محادثة واتساب' };
+    setActive(minimal);
+    await loadProfile(id);
+    await loadMessages(id);
   }
 
   async function pickFile(file?: File | null) {
@@ -346,6 +383,12 @@ export default function EmployeeWhatsappPage() {
     if (!('serviceWorker' in navigator)) return;
 
     const onMsg = (event: MessageEvent) => {
+      if (event.data?.type === 'WA_OPEN_CHAT') {
+        const cid = event.data?.payload?.conversationId;
+        if (cid) setPendingChatId(cid);
+        return;
+      }
+
       if (event.data?.type !== 'WA_PUSH_MESSAGE') return;
       playStaffNotifySound();
       loadConvs(q);
@@ -361,12 +404,13 @@ export default function EmployeeWhatsappPage() {
   }, [active?.id, q]);
 
   useEffect(() => {
-    const chatFromUrl = new URLSearchParams(window.location.search).get('chat');
-    if (!chatFromUrl || !convs.length || active?.id === chatFromUrl) return;
+    const chatFromUrl = pendingChatId || new URLSearchParams(window.location.search).get('chat') || '';
+    if (!chatFromUrl) return;
 
-    const found = convs.find((x) => x.id === chatFromUrl);
-    if (found) openConv(found);
-  }, [convs.length]);
+    openChatById(chatFromUrl);
+    setPendingChatId('');
+    window.history.replaceState({}, '', '/employee/whatsapp');
+  }, [pendingChatId, convs.length]);
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('employee-wa-chat-open', { detail: Boolean(active) }));
@@ -946,13 +990,42 @@ function MessageBubble({ msg }: { msg: Msg }) {
 
           <div className="flex items-center gap-1 text-[10px] leading-none shrink-0">
             <span>{formatTime(msg.createdAt)}</span>
-            {outbound ? <CheckCheck className="h-3.5 w-3.5" /> : null}
+            {outbound ? <MessageStatusTicks status={msg.status} /> : null}
           </div>
         </div>
       </div>
     </div>
   );
 }
+
+
+function MessageStatusTicks({ status }: { status?: string }) {
+  const s = String(status || '').toLowerCase();
+
+  if (s === 'failed' || s === 'undelivered') {
+    return <span className="text-[11px] font-black text-red-200">!</span>;
+  }
+
+  if (s === 'read') {
+    return (
+      <span className="relative inline-flex h-3.5 w-5 items-center text-blue-300">
+        <CheckCheck className="h-3.5 w-3.5" />
+      </span>
+    );
+  }
+
+  if (s === 'delivered') {
+    return <CheckCheck className="h-3.5 w-3.5 opacity-75" />;
+  }
+
+  return (
+    <span className="relative inline-flex h-3.5 w-3.5 items-center opacity-75">
+      <CheckCheck className="h-3.5 w-3.5" />
+      <span className="absolute left-0 top-0 h-full w-1.5 bg-[#21a8e8]" />
+    </span>
+  );
+}
+
 
 function AttachmentPreview({
   fileData,

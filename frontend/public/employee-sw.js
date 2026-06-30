@@ -58,17 +58,21 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = event.notification.data?.url || '/employee/whatsapp';
+
+  const rawUrl = event.notification.data?.url || '/employee/whatsapp';
+  const fullUrl = new URL(rawUrl, self.location.origin).href;
+  const conversationId = event.notification.data?.conversationId || '';
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
+        client.postMessage({ type: 'WA_OPEN_CHAT', payload: { conversationId, url: fullUrl } });
         if ('focus' in client) {
-          client.navigate(url);
+          client.navigate(fullUrl);
           return client.focus();
         }
       }
-      return clients.openWindow(url);
+      return clients.openWindow(fullUrl);
     })
   );
 });
