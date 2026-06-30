@@ -4,33 +4,41 @@
       "user101_1780697434": {
         "id": "user101_1780697434",
         "name": "101",
-        "at": 1782801564175
+        "at": 1782804433284
       }
     },
-    "priority": "urgent",
-    "claimedById": "user101_1780697434",
-    "claimedByName": "101",
-    "claimedAt": "2026-06-30T06:16:56.348Z"
+    "priority": "urgent"
   },
   "cmqnnh9ml0b2jxrhz7tr3n8v7": {
     "viewers": {
       "user101_1780697434": {
         "id": "user101_1780697434",
         "name": "101",
-        "at": 1782802123710
+        "at": 1782802882391
       }
     },
     "claimedById": "user101_1780697434",
     "claimedByName": "101",
     "claimedAt": "2026-06-30T06:17:11.564Z",
-    "pinned": true
+    "pinned": true,
+    "typing": {}
   },
   "cmqnlv2dn0004j6dhfx3k8c4a": {
     "viewers": {
       "user101_1780697434": {
         "id": "user101_1780697434",
         "name": "101",
-        "at": 1782802784405
+        "at": 1782804445001
+      }
+    },
+    "pinned": true
+  },
+  "cmqnn6jjc054jxrhzmh1qfx8d": {
+    "viewers": {
+      "user101_1780697434": {
+        "id": "user101_1780697434",
+        "name": "101",
+        "at": 1782803732294
       }
     },
     "pinned": true

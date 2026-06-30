@@ -23,7 +23,8 @@ import {
   Users,
   Flag,
   Pin,
-  PencilLine
+  PencilLine,
+  Clock3,
 } from 'lucide-react';
 import { whatsappTwilioApi } from '@/api/whatsappTwilio';
 
@@ -53,6 +54,7 @@ type Conv = {
   priority?: 'normal' | 'medium' | 'urgent';
   claimedByName?: string;
   claimedById?: string | null;
+  lastAt?: string | null;
 };
 
 type Msg = {
@@ -604,6 +606,7 @@ export default function EmployeeWhatsappPage() {
 }
 
 
+
 function ConversationList({
   convs,
   q,
@@ -621,23 +624,21 @@ function ConversationList({
   onRefresh: () => void;
   onOpen: (c: Conv) => void;
 }) {
-  const [filter, setFilter] = useState<'all' | 'unclaimed' | 'claimed' | 'urgent' | 'pinned'>('all');
+  const [filter, setFilter] = useState<'all' | 'unread' | 'unclaimed' | 'claimed' | 'pinned'>('all');
 
   const sorted = [...convs].sort((a, b) => {
     const pin = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
     if (pin) return pin;
-
     const unread = Number(b.unreadCount || 0) - Number(a.unreadCount || 0);
     if (unread) return unread;
-
-    return 0;
+    return new Date(b.lastAt || 0).getTime() - new Date(a.lastAt || 0).getTime();
   });
 
   const filtered = sorted.filter((conv) => {
     if (filter === 'pinned') return Boolean(conv.pinned);
     if (filter === 'claimed') return Boolean(conv.claimedByName || conv.claimedById);
+    if (filter === 'unread') return Number(conv.unreadCount || 0) > 0;
     if (filter === 'unclaimed') return !conv.claimedByName && !conv.claimedById;
-    if (filter === 'urgent') return conv.priority === 'urgent';
     return true;
   });
 
@@ -648,38 +649,37 @@ function ConversationList({
     <div className="mx-auto flex h-full w-full max-w-md flex-col px-4 pt-[calc(env(safe-area-inset-top)+18px)] pb-24">
       <Header unreadTotal={unreadTotal} loading={loading} onRefresh={onRefresh} />
 
-      <div className="mt-4 flex items-center gap-2 rounded-[1.4rem] border border-slate-100 bg-white px-4 py-3 shadow-lg shadow-slate-200/70">
+      <div className="mt-4 flex items-center gap-2 rounded-[1.5rem] border border-slate-100 bg-white px-4 py-3 shadow-lg shadow-slate-200/70">
         <Search className="h-5 w-5 shrink-0 text-slate-400" />
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && onRefresh()}
-          className="min-w-0 w-full bg-transparent text-sm font-bold outline-none placeholder:text-slate-400"
+          className="min-w-0 w-full bg-transparent text-sm font-black outline-none placeholder:text-slate-400"
           placeholder="بحث بالمحادثات أو رقم الهاتف..."
         />
       </div>
 
-      <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-        <FilterChip active={filter === 'all'} onClick={() => setFilter('all')} label="الكل" />
-        <FilterChip active={filter === 'unclaimed'} onClick={() => setFilter('unclaimed')} label="غير مستلمة" />
-        <FilterChip active={filter === 'claimed'} onClick={() => setFilter('claimed')} label="مستلمة" />
-        <FilterChip active={filter === 'urgent'} onClick={() => setFilter('urgent')} label="مستعجلة" />
-        <FilterChip active={filter === 'pinned'} onClick={() => setFilter('pinned')} label="مثبتة" />
-      </div>
+      
+<div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+  <FilterChip active={filter==='all'} label="الكل" onClick={()=>setFilter('all')} />
+  <FilterChip active={filter==='unread'} label="غير المقروءة" onClick={()=>setFilter('unread')} />
+  <FilterChip active={filter==='unclaimed'} label="غير مستلمة" onClick={()=>setFilter('unclaimed')} />
+  <FilterChip active={filter==='claimed'} label="مستلمة" onClick={()=>setFilter('claimed')} />
+  <FilterChip active={filter==='pinned'} label="مثبتة" onClick={()=>setFilter('pinned')} />
+</div>
+
+
 
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto pb-4">
         {pinned.length ? (
           <ConversationSection title={`المحادثات المثبتة (${pinned.length})`} pinned>
-            {pinned.map((conv) => (
-              <ConversationCard key={conv.id} conv={conv} onOpen={onOpen} />
-            ))}
+            {pinned.map((conv) => <ConversationCard key={conv.id} conv={conv} onOpen={onOpen} />)}
           </ConversationSection>
         ) : null}
 
         <ConversationSection title={pinned.length ? 'كل المحادثات' : 'المحادثات'}>
-          {normal.map((conv) => (
-            <ConversationCard key={conv.id} conv={conv} onOpen={onOpen} />
-          ))}
+          {normal.map((conv) => <ConversationCard key={conv.id} conv={conv} onOpen={onOpen} />)}
         </ConversationSection>
 
         {!loading && !filtered.length ? (
@@ -690,26 +690,27 @@ function ConversationList({
           </div>
         ) : null}
       </div>
-    </div>
+</div>
   );
 }
+
 
 function FilterChip({
   active,
   label,
   onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
+}:{
+  active:boolean;
+  label:string;
+  onClick:()=>void;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`shrink-0 rounded-2xl border px-4 py-2 text-xs font-black transition ${
+      className={`shrink-0 rounded-2xl px-4 py-2 text-xs font-black transition ${
         active
-          ? 'border-sky-400 bg-sky-500 text-white shadow-lg shadow-sky-200'
-          : 'border-slate-100 bg-white text-slate-600 shadow-sm'
+          ? 'bg-emerald-500 text-white'
+          : 'border border-slate-200 bg-white text-slate-600'
       }`}
     >
       {label}
@@ -717,19 +718,12 @@ function FilterChip({
   );
 }
 
-function ConversationSection({
-  title,
-  pinned,
-  children,
-}: {
-  title: string;
-  pinned?: boolean;
-  children: React.ReactNode;
-}) {
+
+function ConversationSection({ title, pinned, children }: { title: string; pinned?: boolean; children: React.ReactNode }) {
   return (
     <div className="mb-4">
       <div className={`mb-2 flex items-center justify-between rounded-2xl border px-4 py-3 ${
-        pinned ? 'border-amber-100 bg-amber-50/70 text-slate-900' : 'border-slate-100 bg-white/70 text-slate-800'
+        pinned ? 'border-amber-200 bg-amber-50/70 text-slate-950' : 'border-slate-100 bg-white/75 text-slate-800'
       }`}>
         <div className="flex items-center gap-2 text-sm font-black">
           {pinned ? <Pin className="h-4 w-4 text-amber-500" /> : <MessageCircle className="h-4 w-4 text-slate-400" />}
@@ -737,7 +731,6 @@ function ConversationSection({
         </div>
         <span className="text-slate-400">⌃</span>
       </div>
-
       <div className="space-y-3">{children}</div>
     </div>
   );
@@ -746,8 +739,42 @@ function ConversationSection({
 function ConversationCard({ conv, onOpen }: { conv: Conv; onOpen: (c: Conv) => void }) {
   const accounts = conv.subscribers?.length ? conv.subscribers : conv.subscriber ? [conv.subscriber] : [];
   const hasDebt = accounts.some((x) => Number(x.debt || 0) > 0);
-  const isActive = accounts.some((x) => String(x.status || '').toLowerCase().includes('active') || String(x.status || '').includes('فعال'));
+  const isActive = accounts.length
+    ? accounts.some((x) => String(x.status || '').toLowerCase().includes('active') || String(x.status || '').includes('فعال'))
+    : false;
+
   const unread = Number(conv.unreadCount || 0);
+  const lastTime = formatConversationTime(conv.lastAt || '');
+
+  async function quickConvAction(action: 'pin' | 'claim' | 'urgent' | 'normal') {
+    try {
+      const token = localStorage.getItem('cc_token') || localStorage.getItem('token') || '';
+      if (action === 'pin') {
+        await fetch(`/api/whatsapp-twilio/conversations/${conv.id}/pin`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pinned: !conv.pinned }),
+        });
+      }
+
+      if (action === 'claim') {
+        await fetch(`/api/whatsapp-twilio/conversations/${conv.id}/claim`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (action === 'urgent' || action === 'normal') {
+        await fetch(`/api/whatsapp-twilio/conversations/${conv.id}/priority`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ priority: action === 'urgent' ? 'urgent' : 'normal' }),
+        });
+      }
+
+      window.location.reload();
+    } catch {}
+  }
 
   const priorityLabel =
     conv.priority === 'urgent' ? 'مستعجلة' :
@@ -755,19 +782,37 @@ function ConversationCard({ conv, onOpen }: { conv: Conv; onOpen: (c: Conv) => v
     '';
 
   return (
-    <button
-      onClick={() => onOpen(conv)}
-      className="relative flex w-full gap-3 overflow-hidden rounded-[1.55rem] border border-slate-100 bg-white p-4 text-right shadow-lg shadow-slate-200/70 transition active:scale-[0.99]"
-    >
+    <div className="group relative overflow-hidden rounded-[1.65rem]">
+      <div className="absolute inset-y-0 right-0 flex items-center gap-2 px-3">
+        <button onClick={() => quickConvAction('pin')} className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+          <Pin className="h-4 w-4" />
+        </button>
+        <button onClick={() => quickConvAction('urgent')} className="flex h-10 w-10 items-center justify-center rounded-2xl bg-red-100 text-red-600">
+          <Flag className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="absolute inset-y-0 left-0 flex items-center gap-2 px-3">
+        <button onClick={() => quickConvAction('claim')} className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+          <UserCheck className="h-4 w-4" />
+        </button>
+      </div>
+
+      <button
+        onClick={() => onOpen(conv)}
+        className="relative z-10 flex w-full gap-3 rounded-[1.65rem] border border-slate-100 bg-white p-4 text-right shadow-lg shadow-slate-200/70 transition-transform duration-200 active:scale-[0.99] group-hover:-translate-x-14"
+      >
       {conv.pinned ? (
-        <div className="absolute right-0 top-0 h-12 w-12 bg-amber-400 [clip-path:polygon(100%_0,0_0,100%_100%)]">
-          <Pin className="absolute right-2 top-2 h-3.5 w-3.5 text-white" />
+        <div className="absolute right-0 top-0 h-14 w-14 bg-amber-400 [clip-path:polygon(100%_0,0_0,100%_100%)]">
+          <Pin className="absolute right-2 top-2 h-4 w-4 text-white" />
         </div>
       ) : null}
 
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.2rem] bg-emerald-50 text-emerald-500">
-        <MessageCircle className="h-7 w-7" />
-      </div>
+      
+<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-500">
+  <MessageCircle className="h-6 w-6" />
+</div>
+
 
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
@@ -776,15 +821,24 @@ function ConversationCard({ conv, onOpen }: { conv: Conv; onOpen: (c: Conv) => v
             <p className="mt-1 truncate text-xs font-bold text-slate-400">{conv.lastMessage || 'مرفق'}</p>
           </div>
 
-          {unread ? (
-            <span className="flex h-7 min-w-7 shrink-0 items-center justify-center rounded-full bg-red-500 px-2 text-xs font-black text-white shadow-md shadow-red-100">
-              {unread}
-            </span>
-          ) : null}
+          <div className="flex shrink-0 flex-col items-end gap-2">
+            {lastTime ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-black text-slate-400">
+                <Clock3 className="h-3 w-3" />
+                {lastTime}
+              </span>
+            ) : null}
+
+            {unread ? (
+              <span className="flex h-7 min-w-7 items-center justify-center rounded-full bg-red-500 px-2 text-xs font-black text-white shadow-md shadow-red-100">
+                {unread}
+              </span>
+            ) : null}
+          </div>
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          {isActive ? <MiniBadge color="green" label="فعال" /> : null}
+          {isActive ? <MiniBadge color="green" label="عميل نشط" /> : null}
           {hasDebt ? <MiniBadge color="orange" label="عليه ديون" /> : null}
 
           {conv.claimedByName ? (
@@ -801,9 +855,7 @@ function ConversationCard({ conv, onOpen }: { conv: Conv; onOpen: (c: Conv) => v
 
           {priorityLabel ? (
             <span className={`inline-flex items-center gap-1 rounded-xl px-2.5 py-1 text-[10px] font-black ${
-              conv.priority === 'urgent'
-                ? 'bg-red-50 text-red-600'
-                : 'bg-amber-50 text-amber-600'
+              conv.priority === 'urgent' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-600'
             }`}>
               <Flag className="h-3 w-3" />
               {priorityLabel}
@@ -811,7 +863,12 @@ function ConversationCard({ conv, onOpen }: { conv: Conv; onOpen: (c: Conv) => v
           ) : null}
         </div>
       </div>
-    </button>
+
+      <div className="absolute bottom-3 left-4 flex h-8 w-8 items-center justify-center rounded-full bg-emerald-50 text-emerald-500">
+        <MessageCircle className="h-5 w-5" />
+      </div>
+      </button>
+    </div>
   );
 }
 
@@ -824,6 +881,23 @@ function MiniBadge({ color, label }: { color: 'green' | 'orange'; label: string 
       {label}
     </span>
   );
+}
+
+
+function formatConversationTime(v: string) {
+  if (!v) return '';
+  try {
+    const d = new Date(v);
+    const now = new Date();
+    if (d.toDateString() === now.toDateString()) {
+      return new Intl.DateTimeFormat('ar-IQ', { hour: '2-digit', minute: '2-digit' }).format(d);
+    }
+    const diff = now.getTime() - d.getTime();
+    if (diff < 7 * 86400000) return new Intl.DateTimeFormat('ar-IQ', { weekday: 'short' }).format(d);
+    return new Intl.DateTimeFormat('ar-IQ', { month: 'short', day: 'numeric' }).format(d);
+  } catch {
+    return '';
+  }
 }
 
 
