@@ -1,0 +1,28 @@
+{
+  "cmqnsuqgu054gvvkyoopgkx4y": {
+    "viewers": {
+      "user101_1780697434": {
+        "id": "user101_1780697434",
+        "name": "101",
+        "at": 1782800894406
+      }
+    },
+    "priority": "urgent",
+    "claimedById": "user101_1780697434",
+    "claimedByName": "101",
+    "claimedAt": "2026-06-30T06:16:56.348Z"
+  },
+  "cmqnnh9ml0b2jxrhz7tr3n8v7": {
+    "viewers": {
+      "user101_1780697434": {
+        "id": "user101_1780697434",
+        "name": "101",
+        "at": 1782800999067
+      }
+    },
+    "claimedById": "user101_1780697434",
+    "claimedByName": "101",
+    "claimedAt": "2026-06-30T06:17:11.564Z",
+    "pinned": true
+  }
+}

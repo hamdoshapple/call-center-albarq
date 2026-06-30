@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
-  Check,
   CheckCheck,
   FileText,
   Grid3X3,
@@ -16,6 +15,11 @@ import {
   Search,
   Send,
   X,
+  UserCheck,
+  Users,
+  Flag,
+  Pin,
+  PencilLine,
 } from 'lucide-react';
 import { whatsappTwilioApi } from '@/api/whatsappTwilio';
 
@@ -56,6 +60,17 @@ type Msg = {
 
 type ToastType = 'error' | 'success' | 'info';
 
+type TeamState = {
+  myId: string;
+  myName: string;
+  claimedById?: string | null;
+  claimedByName?: string;
+  priority?: 'normal' | 'medium' | 'urgent';
+  pinned?: boolean;
+  typing?: { id: string; name: string; at: number }[];
+  viewers?: { id: string; name: string; at: number }[];
+};
+
 export default function EmployeeWhatsappPage() {
   const [convs, setConvs] = useState<Conv[]>([]);
   const [active, setActive] = useState<Conv | null>(null);
@@ -73,9 +88,9 @@ export default function EmployeeWhatsappPage() {
   const [showJumpDown, setShowJumpDown] = useState(false);
   const [pendingChatId, setPendingChatId] = useState<string>(() => new URLSearchParams(window.location.search).get('chat') || '');
   const [customerModalOpen, setCustomerModalOpen] = useState(false);
+  const [team, setTeam] = useState<TeamState | null>(null);
 
   const messagesRef = useRef<HTMLDivElement>(null!);
-
   const unreadTotal = useMemo(
     () => convs.reduce((sum, x) => sum + Number(x.unreadCount || 0), 0),
     [convs]
@@ -204,6 +219,7 @@ export default function EmployeeWhatsappPage() {
   async function openConv(conv: Conv) {
     setActive(conv);
     await loadProfile(conv.id);
+    await loadTeamState(conv.id);
     await loadMessages(conv.id);
   }
 
@@ -326,6 +342,63 @@ export default function EmployeeWhatsappPage() {
     setFileInputKey((x) => x + 1);
   }
 
+
+  async function apiPost(path: string, body?: any) {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('cc_token') || localStorage.getItem('token') || ''}`,
+        'Content-Type': 'application/json',
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) throw new Error();
+    return res.json().catch(() => ({}));
+  }
+
+  async function loadTeamState(id: string) {
+    try {
+      const res = await fetch(`/api/whatsapp-twilio/conversations/${encodeURIComponent(id)}/team-state`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || localStorage.getItem('token') || ''}` },
+      });
+      if (!res.ok) return;
+      setTeam(await res.json());
+    } catch {}
+  }
+
+  async function claimActive() {
+    if (!active) return;
+    await apiPost(`/api/whatsapp-twilio/conversations/${active.id}/claim`);
+    await loadTeamState(active.id);
+  }
+
+  async function unclaimActive() {
+    if (!active) return;
+    await apiPost(`/api/whatsapp-twilio/conversations/${active.id}/unclaim`);
+    await loadTeamState(active.id);
+  }
+
+  async function setActivePriority(priority: 'normal' | 'medium' | 'urgent') {
+    if (!active) return;
+    await apiPost(`/api/whatsapp-twilio/conversations/${active.id}/priority`, { priority });
+    await loadTeamState(active.id);
+  }
+
+
+
+  async function sendTyping(isTyping: boolean) {
+    if (!active) return;
+    await apiPost(`/api/whatsapp-twilio/conversations/${active.id}/team-typing`, { typing: isTyping }).catch(() => null);
+  }
+
+  async function togglePinActive() {
+    if (!active) return;
+    const next = !team?.pinned;
+    await apiPost(`/api/whatsapp-twilio/conversations/${active.id}/pin`, { pinned: next });
+    await loadTeamState(active.id);
+  }
+
+
   async function sendReply() {
     const text = reply.trim();
     if (!active || (!text && !fileData)) return;
@@ -347,11 +420,13 @@ export default function EmployeeWhatsappPage() {
 
       setMessages((old) => [...old, msg]);
       setReply('');
+      if (active) localStorage.removeItem(`wa_draft_${active.id}`);
+      await sendTyping(false).catch(() => null);
       clearFile();
       await loadConvs(q);
       scrollBottom();
-    } catch {
-      showToast('تعذر إرسال الرسالة');
+    } catch (e: any) {
+      showToast('تعذر إرسال الرسالة أو المحادثة مستلمة من موظف آخر');
     } finally {
       setSending(false);
     }
@@ -413,6 +488,24 @@ export default function EmployeeWhatsappPage() {
   }, [pendingChatId, convs.length]);
 
   useEffect(() => {
+    if (active) setReply(localStorage.getItem(`wa_draft_${active.id}`) || '');
+  }, [active?.id]);
+
+  useEffect(() => {
+    if (!active) return;
+
+    loadTeamState(active.id);
+    apiPost(`/api/whatsapp-twilio/conversations/${active.id}/team-presence`).catch(() => null);
+
+    const t = window.setInterval(() => {
+      apiPost(`/api/whatsapp-twilio/conversations/${active.id}/team-presence`).catch(() => null);
+      loadTeamState(active.id);
+    }, 15000);
+
+    return () => window.clearInterval(t);
+  }, [active?.id]);
+
+  useEffect(() => {
     window.dispatchEvent(new CustomEvent('employee-wa-chat-open', { detail: Boolean(active) }));
     return () => {
       window.dispatchEvent(new CustomEvent('employee-wa-chat-open', { detail: false }));
@@ -441,7 +534,12 @@ export default function EmployeeWhatsappPage() {
           showJumpDown={showJumpDown}
           onMessagesScroll={handleMessagesScroll}
           onJumpDown={() => scrollBottom(0)}
-          canReply={canReply}
+          canReply={canReply && (!team?.claimedById || team.claimedById === team.myId)}
+          team={team}
+          onClaim={claimActive}
+          onUnclaim={unclaimActive}
+          onPriority={setActivePriority}
+          onTogglePin={togglePinActive}
           windowText={windowText}
           reply={reply}
           setReply={setReply}
@@ -536,6 +634,11 @@ function ChatScreen({
   onMessagesScroll,
   onJumpDown,
   canReply,
+  team,
+  onClaim,
+  onUnclaim,
+  onPriority,
+  onTogglePin,
   windowText,
   reply,
   setReply,
@@ -559,6 +662,11 @@ function ChatScreen({
   onMessagesScroll: () => void;
   onJumpDown: () => void;
   canReply: boolean;
+  team: TeamState | null;
+  onClaim: () => void;
+  onUnclaim: () => void;
+  onPriority: (p: 'normal' | 'medium' | 'urgent') => void;
+  onTogglePin: () => void;
   windowText: string;
   reply: string;
   setReply: (v: string) => void;
@@ -580,6 +688,7 @@ function ChatScreen({
       <div className="shrink-0">
         <ChatHeader active={active} onBack={onBack} onOpenCustomer={onOpenCustomer} />
         <ReplyWindowBanner canReply={canReply} text={windowText} />
+        <TeamBar team={team} onClaim={onClaim} onUnclaim={onUnclaim} onPriority={onPriority} onTogglePin={onTogglePin} />
       </div>
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
@@ -606,7 +715,7 @@ function ChatScreen({
         ) : null}
 
         <Composer
-          canReply={canReply}
+          canReply={canReply && (!team?.claimedById || team.claimedById === team.myId)}
           reply={reply}
           setReply={setReply}
           fileInputKey={fileInputKey}
@@ -621,6 +730,72 @@ function ChatScreen({
     </div>
   );
 }
+
+
+function TeamBar({
+  team,
+  onClaim,
+  onUnclaim,
+  onPriority,
+  onTogglePin,
+}: {
+  team: TeamState | null;
+  onClaim: () => void;
+  onUnclaim: () => void;
+  onPriority: (p: 'normal' | 'medium' | 'urgent') => void;
+  onTogglePin: () => void;
+}) {
+  const mine = team?.claimedById && team.claimedById === team.myId;
+  const claimed = Boolean(team?.claimedById);
+  const viewers = (team?.viewers || []).filter((v) => v.id !== team?.myId);
+  const typing = (team?.typing || []).filter((v) => v.id !== team?.myId);
+
+  return (
+    <div className="mt-2 rounded-[1.2rem] border border-white/80 bg-white/85 p-2 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1 text-[11px] font-black text-slate-700">
+            <UserCheck className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+            <span>{claimed ? `مستلمة بواسطة ${team?.claimedByName}` : 'غير مستلمة'}</span>
+          </div>
+          <div className="mt-0.5 flex items-center gap-1 text-[10px] font-bold text-slate-400">
+            {typing.length ? <PencilLine className="h-3 w-3 shrink-0 text-emerald-500" /> : <Users className="h-3 w-3 shrink-0" />}
+            <span className="truncate">
+              {typing.length
+                ? `${typing.map((x) => x.name).join('، ')} يكتب الآن...`
+                : viewers.length
+                  ? `يشاهدها: ${viewers.map((x) => x.name).join('، ')}`
+                  : 'لا يوجد موظف آخر يشاهدها الآن'}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1">
+          <button onClick={onTogglePin} className={`flex h-9 w-9 items-center justify-center rounded-xl ${team?.pinned ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
+            <Pin className="h-3.5 w-3.5" />
+          </button>
+
+          {mine ? (
+            <button onClick={onUnclaim} className="rounded-xl bg-slate-100 px-3 py-2 text-[11px] font-black text-slate-600">
+              ترك
+            </button>
+          ) : (
+            <button onClick={onClaim} className="rounded-xl bg-emerald-500 px-3 py-2 text-[11px] font-black text-white">
+              استلام
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-2 grid grid-cols-3 gap-1">
+        <button onClick={() => onPriority('normal')} className={`rounded-xl py-1.5 text-[10px] font-black ${team?.priority === 'normal' || !team?.priority ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-50 text-slate-400'}`}><Flag className='inline h-3 w-3 ml-1'/>عادي</button>
+        <button onClick={() => onPriority('medium')} className={`rounded-xl py-1.5 text-[10px] font-black ${team?.priority === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-slate-50 text-slate-400'}`}><Flag className='inline h-3 w-3 ml-1'/>متوسط</button>
+        <button onClick={() => onPriority('urgent')} className={`rounded-xl py-1.5 text-[10px] font-black ${team?.priority === 'urgent' ? 'bg-red-100 text-red-700' : 'bg-slate-50 text-slate-400'}`}><Flag className='inline h-3 w-3 ml-1'/>مستعجل</button>
+      </div>
+    </div>
+  );
+}
+
 
 function ChatHeader({ active, onBack, onOpenCustomer }: { active: Conv; onBack: () => void; onOpenCustomer: () => void }) {
   return (
@@ -910,7 +1085,7 @@ function Composer({
 }) {
   return (
     <div className="flex items-center gap-2 rounded-[2rem] border border-white/80 bg-white/95 p-2 shadow-2xl shadow-slate-300/50 backdrop-blur-xl">
-      <label className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-2xl bg-slate-50 text-sky-500 hover:bg-slate-100 transition-colors">
+      <label className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-2xl bg-slate-50 text-emerald-500 hover:bg-emerald-50 transition-colors">
         <Paperclip className="h-5 w-5" />
         <input
           key={`file-${fileInputKey}`}
@@ -921,7 +1096,7 @@ function Composer({
         />
       </label>
 
-      <label className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-2xl bg-slate-50 text-sky-500 hover:bg-slate-100 transition-colors">
+      <label className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-2xl bg-slate-50 text-emerald-500 hover:bg-emerald-50 transition-colors">
         <ImageIcon className="h-5 w-5" />
         <input
           key={`img-${fileInputKey}`}
@@ -945,7 +1120,7 @@ function Composer({
       <button
         onClick={onSend}
         disabled={!canReply || sending || preparingFile || (!reply.trim() && !fileData)}
-        className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-sky-500 text-white shadow-lg shadow-sky-200 hover:bg-sky-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-200 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
         {sending || preparingFile ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
       </button>
@@ -963,7 +1138,7 @@ function MessageBubble({ msg }: { msg: Msg }) {
     <div className={`flex ${outbound ? 'justify-end' : 'justify-start'} px-1`}>
       <div
         className={`max-w-[82%] overflow-hidden rounded-[1.35rem] shadow-sm ${
-          outbound ? 'bg-[#21a8e8] text-white rounded-br-md' : 'bg-white text-slate-950 rounded-bl-md border border-slate-100'
+          outbound ? 'bg-emerald-100 text-emerald-800 rounded-br-md border border-emerald-200' : 'bg-white text-slate-950 rounded-bl-md border border-slate-100'
         }`}
       >
         {msg.mediaUrl ? (
@@ -981,7 +1156,7 @@ function MessageBubble({ msg }: { msg: Msg }) {
 
         {msg.body ? <p className="whitespace-pre-wrap px-3.5 py-2.5 text-[15px] font-semibold leading-7">{msg.body}</p> : null}
 
-        <div className={`px-3 pb-2 flex items-end justify-between gap-2 ${outbound ? 'text-sky-100' : 'text-slate-400'}`}>
+        <div className={`px-3 pb-2 flex items-end justify-between gap-2 ${outbound ? 'text-emerald-600' : 'text-slate-400'}`}>
           {outbound && msg.agentName ? (
             <div className="max-w-[120px] truncate text-[8px] leading-none opacity-70">{msg.agentName}</div>
           ) : (

@@ -19,6 +19,39 @@ function publicBase(req: Request) {
   return `${proto === 'http' ? 'https' : proto}://${host}`;
 }
 
+const WA_TEAM_STATE_FILE = '/app/uploads/whatsapp-twilio/team-state.json';
+
+function readTeamState() {
+  try {
+    if (!fs.existsSync(WA_TEAM_STATE_FILE)) return {};
+    return JSON.parse(fs.readFileSync(WA_TEAM_STATE_FILE, 'utf8') || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function writeTeamState(data: any) {
+  ensureMediaDir();
+  fs.writeFileSync(WA_TEAM_STATE_FILE, JSON.stringify(data, null, 2));
+}
+
+function currentAgent(req: Request) {
+  const u: any = (req as any).user || {};
+  return {
+    id: String(u.id || u.userId || u.sub || u.username || 'unknown'),
+    name: String(u.fullName || u.name || u.username || 'موظف'),
+  };
+}
+
+function cleanPresence(viewers: any = {}) {
+  const now = Date.now();
+  const out: any = {};
+  for (const [id, v] of Object.entries<any>(viewers || {})) {
+    if (now - Number(v.at || 0) < 45000) out[id] = v;
+  }
+  return out;
+}
+
 function ensureMediaDir() {
   const dir = '/app/uploads/whatsapp-twilio';
   fs.mkdirSync(dir, { recursive: true });
@@ -345,6 +378,24 @@ export async function reply(req: Request, res: Response) {
     return res.status(400).json({ message: 'TWILIO_NOT_CONFIGURED' });
   }
 
+  const state = readTeamState();
+  const meta = state[contactId] || {};
+  const agentNow = currentAgent(req);
+  if (meta.claimedById && meta.claimedById !== agentNow.id) {
+    return res.status(423).json({
+      message: 'CONVERSATION_CLAIMED_BY_OTHER',
+      claimedByName: meta.claimedByName || 'موظف آخر',
+    });
+  }
+
+  if (!meta.claimedById) {
+    state[contactId] = state[contactId] || {};
+    state[contactId].claimedById = agentNow.id;
+    state[contactId].claimedByName = agentNow.name;
+    state[contactId].claimedAt = new Date().toISOString();
+    writeTeamState(state);
+  }
+
   const contact = await prisma.twilioWhatsappContact.findUnique({ where: { id: contactId } });
   if (!contact) return res.status(404).json({ message: 'CONTACT_NOT_FOUND' });
 
@@ -453,6 +504,9 @@ export async function webhook(req: Request, res: Response) {
     ? `${unreadNow} رسائل جديدة · ${body ? body.slice(0, 80) : 'مرفق جديد'}`
     : (body ? body.slice(0, 120) : 'مرفق جديد');
 
+  const teamState = readTeamState();
+  const claimedById = teamState?.[contact.id]?.claimedById || '';
+
   await sendPushToEmployees(
     displayName,
     pushBody,
@@ -461,6 +515,7 @@ export async function webhook(req: Request, res: Response) {
       tag: `wa-chat-${contact.id}`,
       conversationId: contact.id,
       unread: unreadNow,
+      employeeIds: claimedById ? [claimedById] : [],
     }
   ).catch(() => null);
 
@@ -520,4 +575,115 @@ export async function statusCallback(req: Request, res: Response) {
   }
 
   res.type('text/xml').send('<Response></Response>');
+}
+
+
+export async function teamState(req: Request, res: Response) {
+  const id = String(req.params.id || '');
+  const agent = currentAgent(req);
+  const state = readTeamState();
+
+  const meta = state[id] || {};
+  meta.viewers = cleanPresence(meta.viewers);
+
+  res.json({
+    myId: agent.id,
+    myName: agent.name,
+    claimedById: meta.claimedById || null,
+    claimedByName: meta.claimedByName || '',
+    claimedAt: meta.claimedAt || null,
+    priority: meta.priority || 'normal',
+    pinned: Boolean(meta.pinned),
+    typing: Object.values(cleanPresence(meta.typing || {})),
+    viewers: Object.values(meta.viewers || {}),
+  });
+}
+
+export async function teamPresence(req: Request, res: Response) {
+  const id = String(req.params.id || '');
+  const agent = currentAgent(req);
+  const state = readTeamState();
+
+  state[id] = state[id] || {};
+  state[id].viewers = cleanPresence(state[id].viewers);
+  state[id].viewers[agent.id] = { id: agent.id, name: agent.name, at: Date.now() };
+
+  writeTeamState(state);
+  res.json({ ok: true });
+}
+
+export async function claimConversation(req: Request, res: Response) {
+  const id = String(req.params.id || '');
+  const agent = currentAgent(req);
+  const state = readTeamState();
+
+  state[id] = state[id] || {};
+  state[id].claimedById = agent.id;
+  state[id].claimedByName = agent.name;
+  state[id].claimedAt = new Date().toISOString();
+
+  writeTeamState(state);
+  res.json({ ok: true, claimedById: agent.id, claimedByName: agent.name });
+}
+
+export async function unclaimConversation(req: Request, res: Response) {
+  const id = String(req.params.id || '');
+  const agent = currentAgent(req);
+  const state = readTeamState();
+
+  state[id] = state[id] || {};
+  if (!state[id].claimedById || state[id].claimedById === agent.id) {
+    delete state[id].claimedById;
+    delete state[id].claimedByName;
+    delete state[id].claimedAt;
+  }
+
+  writeTeamState(state);
+  res.json({ ok: true });
+}
+
+export async function setConversationPriority(req: Request, res: Response) {
+  const id = String(req.params.id || '');
+  const priority = ['normal', 'medium', 'urgent'].includes(String(req.body?.priority))
+    ? String(req.body.priority)
+    : 'normal';
+
+  const state = readTeamState();
+  state[id] = state[id] || {};
+  state[id].priority = priority;
+
+  writeTeamState(state);
+  res.json({ ok: true, priority });
+}
+
+
+export async function teamTyping(req: Request, res: Response) {
+  const id = String(req.params.id || '');
+  const agent = currentAgent(req);
+  const typing = Boolean(req.body?.typing);
+
+  const state = readTeamState();
+  state[id] = state[id] || {};
+  state[id].typing = cleanPresence(state[id].typing);
+
+  if (typing) {
+    state[id].typing[agent.id] = { id: agent.id, name: agent.name, at: Date.now() };
+  } else {
+    delete state[id].typing[agent.id];
+  }
+
+  writeTeamState(state);
+  res.json({ ok: true });
+}
+
+export async function setConversationPinned(req: Request, res: Response) {
+  const id = String(req.params.id || '');
+  const pinned = Boolean(req.body?.pinned);
+
+  const state = readTeamState();
+  state[id] = state[id] || {};
+  state[id].pinned = pinned;
+
+  writeTeamState(state);
+  res.json({ ok: true, pinned });
 }

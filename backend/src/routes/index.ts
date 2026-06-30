@@ -256,6 +256,13 @@ router.get('/whatsapp-twilio/conversations/:id/profile', h(whatsappTwilio.conver
 router.get('/whatsapp-twilio/conversations/:id/messages', h(whatsappTwilio.messages));
 router.post('/whatsapp-twilio/conversations/:id/reply', h(whatsappTwilio.reply));
 router.post('/whatsapp-twilio/conversations/:id/read', h(whatsappTwilio.markRead));
+router.get('/whatsapp-twilio/conversations/:id/team-state', h(whatsappTwilio.teamState));
+router.post('/whatsapp-twilio/conversations/:id/team-presence', h(whatsappTwilio.teamPresence));
+router.post('/whatsapp-twilio/conversations/:id/claim', h(whatsappTwilio.claimConversation));
+router.post('/whatsapp-twilio/conversations/:id/unclaim', h(whatsappTwilio.unclaimConversation));
+router.post('/whatsapp-twilio/conversations/:id/priority', h(whatsappTwilio.setConversationPriority));
+router.post('/whatsapp-twilio/conversations/:id/team-typing', h(whatsappTwilio.teamTyping));
+router.post('/whatsapp-twilio/conversations/:id/pin', h(whatsappTwilio.setConversationPinned));
 
 // ---------- Push Notifications ----------
 router.get('/push/stats', h(push.stats));

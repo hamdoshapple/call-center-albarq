@@ -728,10 +728,15 @@ export const employeeSubscribe = asyncHandler(async (req: Request, res: Response
 });
 
 export async function sendPushToEmployees(title: string, message: string, url = '/employee/whatsapp', extra: any = {}) {
+  const employeeIds = Array.isArray(extra.employeeIds) ? extra.employeeIds.map((x: any) => String(x)).filter(Boolean) : [];
+  const employeeKeys = employeeIds.map((id: string) => `employee:${id}`);
+
   const targets = await prisma.subscriberPushSubscription.findMany({
     where: {
       active: true,
-      phoneNorm: { startsWith: 'employee:' },
+      ...(employeeKeys.length
+        ? { phoneNorm: { in: employeeKeys } }
+        : { phoneNorm: { startsWith: 'employee:' } }),
     },
     take: 200,
   });
