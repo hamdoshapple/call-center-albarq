@@ -104,6 +104,26 @@ export default function EmployeeWhatsappPage() {
     }, delay);
   }
 
+  function playStaffNotifySound() {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.value = 0.045;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      window.setTimeout(() => {
+        osc.stop();
+        ctx.close().catch(() => null);
+      }, 140);
+    } catch {}
+  }
+
   function handleMessagesScroll() {
     const el = messagesRef.current;
     if (!el) return;
@@ -313,6 +333,40 @@ export default function EmployeeWhatsappPage() {
     const t = window.setInterval(() => loadConvs(q), 12000);
     return () => window.clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    const n: any = navigator as any;
+    if (n.setAppBadge) {
+      if (unreadTotal > 0) n.setAppBadge(unreadTotal).catch(() => null);
+      else n.clearAppBadge?.().catch(() => null);
+    }
+  }, [unreadTotal]);
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+
+    const onMsg = (event: MessageEvent) => {
+      if (event.data?.type !== 'WA_PUSH_MESSAGE') return;
+      playStaffNotifySound();
+      loadConvs(q);
+
+      const cid = event.data?.payload?.conversationId;
+      if (cid && active?.id === cid) {
+        loadMessages(cid);
+      }
+    };
+
+    navigator.serviceWorker.addEventListener('message', onMsg);
+    return () => navigator.serviceWorker.removeEventListener('message', onMsg);
+  }, [active?.id, q]);
+
+  useEffect(() => {
+    const chatFromUrl = new URLSearchParams(window.location.search).get('chat');
+    if (!chatFromUrl || !convs.length || active?.id === chatFromUrl) return;
+
+    const found = convs.find((x) => x.id === chatFromUrl);
+    if (found) openConv(found);
+  }, [convs.length]);
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('employee-wa-chat-open', { detail: Boolean(active) }));

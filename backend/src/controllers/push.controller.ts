@@ -727,7 +727,7 @@ export const employeeSubscribe = asyncHandler(async (req: Request, res: Response
   res.json({ ok: true });
 });
 
-export async function sendPushToEmployees(title: string, message: string, url = '/employee/whatsapp') {
+export async function sendPushToEmployees(title: string, message: string, url = '/employee/whatsapp', extra: any = {}) {
   const targets = await prisma.subscriberPushSubscription.findMany({
     where: {
       active: true,
@@ -742,10 +742,12 @@ export async function sendPushToEmployees(title: string, message: string, url = 
   const payload = {
     title,
     body: message,
-    icon: '/icon-192.png',
-    badge: '/icon-192.png',
+    icon: extra.icon || '/icon-192.png',
+    badge: extra.badge || '/icon-192.png',
     url,
-    tag: 'albarq-staff-wa-' + Date.now(),
+    tag: extra.tag || ('albarq-staff-wa-' + Date.now()),
+    conversationId: extra.conversationId || '',
+    unread: Number(extra.unread || 1),
   };
 
   for (const row of targets) {

@@ -1,6 +1,6 @@
 {
-  "name": "Albarq Staff",
-  "short_name": "Staff",
+  "name": "البرق الرقمي - الموظفين",
+  "short_name": "الموظفين",
   "description": "Albarq Staff App",
   "start_url": "/employee?v=1782775121",
   "scope": "/employee",

@@ -448,10 +448,20 @@ export async function webhook(req: Request, res: Response) {
 
   const displayName = pushName || contact.name || from;
 
+  const unreadNow = Number(contact.unreadCount || 1);
+  const pushBody = unreadNow > 1
+    ? `${unreadNow} رسائل جديدة · ${body ? body.slice(0, 80) : 'مرفق جديد'}`
+    : (body ? body.slice(0, 120) : 'مرفق جديد');
+
   await sendPushToEmployees(
-    `رسالة واتساب من ${displayName}`,
-    body ? body.slice(0, 120) : 'مرفق جديد',
-    '/employee/whatsapp'
+    displayName,
+    pushBody,
+    `/employee/whatsapp?chat=${contact.id}`,
+    {
+      tag: `wa-chat-${contact.id}`,
+      conversationId: contact.id,
+      unread: unreadNow,
+    }
   ).catch(() => null);
 
   res.type('text/xml').send('<Response></Response>');
