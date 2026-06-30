@@ -1,8 +1,9 @@
 {
+  "id": "albarq-subscriber-pwa-v1",
   "name": "البرق الرقمي",
   "short_name": "البرق الرقمي",
   "start_url": "/my",
-  "scope": "/",
+  "scope": "/my",
   "display": "standalone",
   "background_color": "#f1f5f9",
   "theme_color": "#f1f5f9",

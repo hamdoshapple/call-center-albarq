@@ -91,11 +91,12 @@
     "claimedByName": "101",
     "claimedAt": "2026-06-30T13:12:20.899Z",
     "viewers": {
-      "user101_1780697434": {
-        "id": "user101_1780697434",
-        "name": "101",
-        "at": 1782827675921
+      "cmqwepvnl9yh9zuc0xldvtcs4": {
+        "id": "cmqwepvnl9yh9zuc0xldvtcs4",
+        "name": "0004",
+        "at": 1782836281349
       }
-    }
+    },
+    "pinned": true
   }
 }
