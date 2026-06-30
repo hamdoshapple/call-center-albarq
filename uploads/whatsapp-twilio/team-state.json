@@ -85,5 +85,10 @@
     "claimedById": "cmr0dvmkz05my7gc53ns5hexx",
     "claimedByName": "22",
     "claimedAt": "2026-06-30T08:27:49.783Z"
+  },
+  "cmqnop7y708tycx4kk9yt1m08": {
+    "claimedById": "cmpzn633t002vw8t26cmm1udu",
+    "claimedByName": "admin",
+    "claimedAt": "2026-06-30T11:01:53.408Z"
   }
 }

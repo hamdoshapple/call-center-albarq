@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../config/prisma.js';
 import { searchSubscriberCache } from '../services/subscriber-cache.service.js';
+import { sendPushToEmployees } from './push.controller.js';
 
 function norm(v: unknown) {
   return String(v || '').replace(/[^\d+]/g, '');
@@ -22,6 +23,46 @@ function clean(v: unknown, max = 80) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, max);
+}
+
+async function notifyIncomingCall(phone: string, displayName: string, ext?: string) {
+  const extension = String(ext || '').replace(/\D/g, '');
+  if (!extension) return;
+
+  try {
+    const user = await prisma.user.findFirst({
+      where: {
+        active: true,
+        agent: {
+          extension: {
+            number: extension,
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!user?.id) return;
+
+    const key = `incoming_call_push_${user.id}_${phone}_${extension}`;
+    const last = Number((globalThis as any)[key] || 0);
+    if (Date.now() - last < 45000) return;
+    (globalThis as any)[key] = Date.now();
+
+    await sendPushToEmployees(
+      'مكالمة واردة مباشرة',
+      `${displayName || phone} يتصل الآن`,
+      `/employee/calls?call=${encodeURIComponent(phone)}`,
+      {
+        employeeIds: [user.id],
+        callId: phone,
+        type: 'live_call',
+        tag: `incoming-call-${user.id}-${phone}`,
+      }
+    );
+  } catch (e: any) {
+    console.error('[internal-caller-call-push]', e?.message || e);
+  }
 }
 
 export async function callerName(req: Request, res: Response) {
@@ -59,6 +100,9 @@ export async function callerName(req: Request, res: Response) {
   const display = debt > 0
     ? `${name} - دين ${Math.trunc(debt)}`
     : name;
+
+  const ext = String(req.query.ext || req.query.extension || req.query.dst || '');
+  await notifyIncomingCall(phone, clean(display, 80), ext).catch(() => null);
 
   res.type('text/plain').send(clean(display, 80));
 }
