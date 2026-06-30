@@ -1840,7 +1840,7 @@ async function getSubscriberVarsForTwilio(phone: string) {
     FROM SubscriberCache
     WHERE normalizedPhone IN (${placeholders}) OR phone IN (${placeholders})
     UNION ALL
-    SELECT name, phone, pppoeUsername, packageName, status, expiration, debt
+    SELECT name, phone, pppoeUsername, NULL AS packageName, status, expiration, debt
     FROM ExternalSubscriberCache
     WHERE phoneNorm IN (${placeholders}) OR phone IN (${placeholders})
     LIMIT 1
@@ -2122,17 +2122,23 @@ function renderPreviewText(text: any, sub: any) {
 
 function parsePreviewTwilioVars(text: any, sub: any) {
   const out: any = {};
+
   String(text || '')
-    .split('\n')
-    .map(x => x.trim())
+    .split(/[\n,]+/)
+    .map((x: string) => x.trim())
     .filter(Boolean)
-    .forEach(line => {
+    .forEach((line: string) => {
       const p = line.indexOf('=');
       if (p < 1) return;
-      const k = line.slice(0, p).trim();
-      const v = line.slice(p + 1).trim();
-      if (k) out[k] = renderPreviewText(v, sub);
+
+      const key = line.slice(0, p).trim();
+      const raw = line.slice(p + 1).trim();
+
+      if (!key) return;
+
+      out[key] = renderPreviewText(raw, sub);
     });
+
   return out;
 }
 
@@ -2183,7 +2189,10 @@ async function getPreviewSubscribers(req: any) {
 export async function campaignPreview(req: any, res: any) {
   try {
     const body = req.body || {};
-    const rawSubs = await getPreviewSubscribers(req);
+    let rawSubs = await getPreviewSubscribers(req);
+    if (Array.isArray(body.previewSubscribers) && body.previewSubscribers.length) {
+      rawSubs = body.previewSubscribers;
+    }
 
     const wanted = String(body.targetValue || '')
       .split(',')

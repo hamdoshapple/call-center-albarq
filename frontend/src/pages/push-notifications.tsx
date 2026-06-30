@@ -200,7 +200,7 @@ export default function PushNotificationsPage() {
     variables: '1:name',
   });
   const [selectedTwilioTemplateId, setSelectedTwilioTemplateId] = useState('');
-  const [twilioVariablesText, setTwilioVariablesText] = useState('1=مشترك');
+  const [twilioVariablesText, setTwilioVariablesText] = useState('1={name}');
   const [previewRows, setPreviewRows] = useState<any[]>([]);
   const [previewToken, setPreviewToken] = useState('');
 
@@ -354,6 +354,15 @@ export default function PushNotificationsPage() {
       ...(form.targetType === 'phone' ? { ...form, targetValue: selectedPhones.join(',') } : form),
       twilioTemplateId: selectedTwilioTemplateId,
       twilioVariablesText,
+      previewSubscribers: filteredSubscribers
+        .filter((x: any) => selectedPhones.includes(x.phoneNorm || x.phone))
+        .map((x: any) => ({
+          name: x.name,
+          phone: x.phoneNorm || x.phone,
+          phoneNorm: x.phoneNorm || x.phone,
+          totalDebt: x.totalDebt,
+          accounts: x.accounts || [],
+        })),
     }),
     onSuccess: (data: any) => {
       setPreviewRows(data.rows || []);
@@ -403,10 +412,12 @@ export default function PushNotificationsPage() {
       const tpl = twilioTemplates.find((x: any) => x.id === id || x.contentSid === id);
       if (!tpl) return;
 
-      setSelectedTwilioTemplateId(tpl.id || tpl.contentSid);
+      const tplId = tpl.id || tpl.contentSid;
+      setSelectedTwilioTemplateId(tplId);
       setForm((f) => ({ ...f, channel: 'twilio_template', message: tpl.body || '' }));
 
-      // لا نغير المتغيرات هنا حتى تبقى القيم التي كتبها المستخدم هي المعتمدة
+      const savedVars = localStorage.getItem(`twilio_vars_${tplId}`);
+      setTwilioVariablesText(savedVars || '1={name}\n2={totalDebt}');
       return;
     }
 
@@ -1255,7 +1266,9 @@ export default function PushNotificationsPage() {
                 <Select value={selectedTwilioTemplateId} onValueChange={(id) => {
                   setSelectedTwilioTemplateId(id);
                   setForm((f) => ({ ...f, twilioTemplateId: id, channel: 'twilio_template' } as any));
-                  // لا نغير المتغيرات هنا حتى لا نستبدل إدخال المستخدم
+
+                  const savedVars = localStorage.getItem(`twilio_vars_${id}`);
+                  setTwilioVariablesText(savedVars || '1={name}\n2={totalDebt}');
                 }}>
                   <SelectTrigger className="rounded-xl">
                     <SelectValue placeholder="اختر قالب" />
@@ -1310,6 +1323,9 @@ export default function PushNotificationsPage() {
                   onChange={(e) => {
                     setTwilioVariablesText(e.target.value);
                     setForm((f) => ({ ...f, twilioVariablesText: e.target.value } as any));
+                    if (selectedTwilioTemplateId) {
+                      localStorage.setItem(`twilio_vars_${selectedTwilioTemplateId}`, e.target.value);
+                    }
                   }}
                   className="min-h-[110px] font-mono"
                   dir="ltr"
