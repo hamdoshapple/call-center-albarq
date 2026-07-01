@@ -15,10 +15,10 @@
   },
   "cmqnnh9ml0b2jxrhz7tr3n8v7": {
     "viewers": {
-      "user101_1780697434": {
-        "id": "user101_1780697434",
-        "name": "101",
-        "at": 1782802882391
+      "cmpzn633t002vw8t26cmm1udu": {
+        "id": "cmpzn633t002vw8t26cmm1udu",
+        "name": "admin",
+        "at": 1782899854460
       }
     },
     "claimedById": "user101_1780697434",
@@ -45,27 +45,28 @@
       "cmpzn633t002vw8t26cmm1udu": {
         "id": "cmpzn633t002vw8t26cmm1udu",
         "name": "admin",
-        "at": 1782856797246
+        "at": 1782899861227
       }
     },
-    "pinned": false,
+    "pinned": true,
     "claimedById": "cmpzn633t002vw8t26cmm1udu",
     "claimedByName": "admin",
     "claimedAt": "2026-06-30T21:59:33.878Z",
-    "priority": "normal",
+    "priority": "urgent",
     "typing": {}
   },
   "cmqns5sgz05bnqaam37pjf23e": {
-    "claimedById": "user101_1780697434",
-    "claimedByName": "101",
-    "claimedAt": "2026-06-30T07:36:58.450Z"
+    "claimedById": "cmpzn633t002vw8t26cmm1udu",
+    "claimedByName": "admin",
+    "claimedAt": "2026-07-01T09:54:46.777Z",
+    "pinned": false
   },
   "cmr0coter052umous12xyl5y3": {
     "viewers": {
-      "user101_1780697434": {
-        "id": "user101_1780697434",
-        "name": "101",
-        "at": 1782810495097
+      "cmpzn633t002vw8t26cmm1udu": {
+        "id": "cmpzn633t002vw8t26cmm1udu",
+        "name": "admin",
+        "at": 1782899852578
       }
     },
     "typing": {},
@@ -76,10 +77,10 @@
   },
   "cmqnnq4jr0vpaxrhzaibedmnj": {
     "viewers": {
-      "cmr0dvmkz05my7gc53ns5hexx": {
-        "id": "cmr0dvmkz05my7gc53ns5hexx",
-        "name": "22",
-        "at": 1782808061397
+      "cmpzn633t002vw8t26cmm1udu": {
+        "id": "cmpzn633t002vw8t26cmm1udu",
+        "name": "admin",
+        "at": 1782899853554
       }
     },
     "typing": {},
@@ -92,12 +93,12 @@
     "claimedByName": "101",
     "claimedAt": "2026-06-30T13:12:20.899Z",
     "viewers": {
-      "cmqwepvnl9yh9zuc0xldvtcs4": {
-        "id": "cmqwepvnl9yh9zuc0xldvtcs4",
-        "name": "0004",
-        "at": 1782836281349
+      "cmpzn633t002vw8t26cmm1udu": {
+        "id": "cmpzn633t002vw8t26cmm1udu",
+        "name": "admin",
+        "at": 1782899838025
       }
     },
-    "pinned": true
+    "pinned": false
   }
 }

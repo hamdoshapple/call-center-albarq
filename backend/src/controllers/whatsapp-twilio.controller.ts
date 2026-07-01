@@ -242,6 +242,7 @@ export async function getSettings(req: Request, res: Response) {
     accountSid: row.accountSid || '',
     authTokenMasked: maskToken(row.authToken),
     whatsappFrom: row.whatsappFrom || '',
+    messagingServiceSid: row.messagingServiceSid || '',
     conversationWindowHours: row.conversationWindowHours || 24,
     webhookUrl: `${req.protocol}://${req.get('host')}/api/whatsapp-twilio/webhook`,
     lastError: row.lastError || '',
@@ -250,7 +251,7 @@ export async function getSettings(req: Request, res: Response) {
 
 export async function saveSettings(req: Request, res: Response) {
   const current = await getSettingRow();
-  const { accountSid, authToken, whatsappFrom, enabled, conversationWindowHours } = req.body || {};
+  const { accountSid, authToken, whatsappFrom, messagingServiceSid, enabled, conversationWindowHours } = req.body || {};
 
   const row = await prisma.twilioWhatsappSetting.update({
     where: { id: current.id },
@@ -258,6 +259,7 @@ export async function saveSettings(req: Request, res: Response) {
       accountSid: typeof accountSid === 'string' ? accountSid.trim() : current.accountSid,
       authToken: typeof authToken === 'string' && authToken.trim() ? authToken.trim() : current.authToken,
       whatsappFrom: typeof whatsappFrom === 'string' ? cleanWhatsappPhone(whatsappFrom) : current.whatsappFrom,
+      messagingServiceSid: typeof messagingServiceSid === 'string' ? messagingServiceSid.trim() : current.messagingServiceSid,
       enabled: Boolean(enabled),
       conversationWindowHours: Math.max(1, Math.min(720, Number(conversationWindowHours || current.conversationWindowHours || 24))),
       lastError: null,
@@ -269,6 +271,7 @@ export async function saveSettings(req: Request, res: Response) {
     accountSid: row.accountSid || '',
     authTokenMasked: maskToken(row.authToken),
     whatsappFrom: row.whatsappFrom || '',
+    messagingServiceSid: row.messagingServiceSid || '',
     conversationWindowHours: row.conversationWindowHours || 24,
   });
 }

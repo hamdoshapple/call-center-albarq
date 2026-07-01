@@ -9,6 +9,11 @@ import {
   Clock3,
   Paperclip,
   X,
+  Pin,
+  Flag,
+  Users,
+  UserCheck,
+  PencilLine,
 } from 'lucide-react';
 import { whatsappTwilioApi } from '@/api/whatsappTwilio';
 
@@ -35,6 +40,10 @@ type Conv = {
   conversationOpen?: boolean;
   windowExpiresAt?: string | null;
   conversationWindowHours?: number;
+  pinned?: boolean;
+  priority?: 'normal' | 'medium' | 'urgent';
+  claimedByName?: string;
+  claimedById?: string | null;
 };
 
 type Msg = {
@@ -67,6 +76,8 @@ export default function WhatsappInboxPage() {
   const [settings, setSettings] = useState<any>({});
   const [saveMsg, setSaveMsg] = useState('');
   const [accountsOpen, setAccountsOpen] = useState(false);
+  const [filter] = useState<'all' | 'unread' | 'unclaimed' | 'claimed' | 'pinned'>('all');
+  const [team, setTeam] = useState<any>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const activeIdRef = useRef<string | null>(null);
   const lastMsgCountRef = useRef(0);
@@ -182,6 +193,77 @@ export default function WhatsappInboxPage() {
     } catch {}
   }
 
+  async function apiPost(path: string, body?: any) {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}`,
+        'Content-Type': 'application/json',
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) throw new Error('REQUEST_FAILED');
+    return res.json().catch(() => ({}));
+  }
+
+  async function loadTeamState(id: string) {
+    try {
+      const res = await fetch(`/api/whatsapp-twilio/conversations/${encodeURIComponent(id)}/team-state`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setTeam(data);
+      setActive((old) => old && old.id === id ? { ...old, pinned: data.pinned, priority: data.priority, claimedById: data.claimedById, claimedByName: data.claimedByName } : old);
+      setConvs((old) => old.map((x) => x.id === id ? { ...x, pinned: data.pinned, priority: data.priority, claimedById: data.claimedById, claimedByName: data.claimedByName } : x));
+    } catch {}
+  }
+
+  async function claimActive() {
+    if (!active) return;
+    await apiPost(`/api/whatsapp-twilio/conversations/${active.id}/claim`);
+    await loadTeamState(active.id);
+    await loadConvs(q, false);
+  }
+
+  async function unclaimActive() {
+    if (!active) return;
+    await apiPost(`/api/whatsapp-twilio/conversations/${active.id}/unclaim`);
+    await loadTeamState(active.id);
+    await loadConvs(q, false);
+  }
+
+  async function setPriority(priority: 'normal' | 'medium' | 'urgent') {
+    if (!active) return;
+    await apiPost(`/api/whatsapp-twilio/conversations/${active.id}/priority`, { priority });
+    await loadTeamState(active.id);
+    await loadConvs(q, false);
+  }
+
+  async function togglePin() {
+    if (!active) return;
+    await apiPost(`/api/whatsapp-twilio/conversations/${active.id}/pin`, { pinned: !team?.pinned });
+    await loadTeamState(active.id);
+    await loadConvs(q, false);
+  }
+
+  async function sendTyping(isTyping: boolean) {
+    if (!active) return;
+    await apiPost(`/api/whatsapp-twilio/conversations/${active.id}/team-typing`, { typing: isTyping }).catch(() => null);
+  }
+
+  async function quickAction(c: Conv, action: 'pin' | 'claim' | 'urgent' | 'normal') {
+    try {
+      if (action === 'pin') await apiPost(`/api/whatsapp-twilio/conversations/${c.id}/pin`, { pinned: !c.pinned });
+      if (action === 'claim') await apiPost(`/api/whatsapp-twilio/conversations/${c.id}/claim`);
+      if (action === 'urgent' || action === 'normal') await apiPost(`/api/whatsapp-twilio/conversations/${c.id}/priority`, { priority: action === 'urgent' ? 'urgent' : 'normal' });
+      await loadConvs(q, false);
+      if (active?.id === c.id) await loadTeamState(c.id);
+    } catch {
+      setErr('تعذر تنفيذ العملية');
+    }
+  }
+
   async function loadMessages(id: string) {
     try {
       const data = await whatsappTwilioApi.messages(id);
@@ -239,7 +321,24 @@ export default function WhatsappInboxPage() {
     loadSettings().catch(() => null);
   }, []);
 
+  const filteredConvs = useMemo(() => {
+    return [...convs]
+      .sort((a: any, b: any) =>
+        Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) ||
+        Number(b.unreadCount || 0) - Number(a.unreadCount || 0) ||
+        new Date(b.lastAt || 0).getTime() - new Date(a.lastAt || 0).getTime()
+      )
+      .filter((c: any) => {
+        if (filter === 'unread') return Number(c.unreadCount || 0) > 0;
+        if (filter === 'unclaimed') return !c.claimedByName && !c.claimedById;
+        if (filter === 'claimed') return Boolean(c.claimedByName || c.claimedById);
+        if (filter === 'pinned') return Boolean(c.pinned);
+        return true;
+      });
+  }, [convs, filter]);
+
   const activeWindowOpen = !!active?.windowExpiresAt && new Date(active.windowExpiresAt).getTime() > Date.now();
+  const canReply = activeWindowOpen && (!team?.claimedById || team.claimedById === team.myId);
 
   useEffect(() => {
     setSending(false);
@@ -247,6 +346,8 @@ export default function WhatsappInboxPage() {
     if (active?.id) {
       loadMessages(active.id);
       loadConversationProfile(active.id);
+      loadTeamState(active.id);
+      apiPost(`/api/whatsapp-twilio/conversations/${active.id}/team-presence`).catch(() => null);
     }
   }, [active?.id]);
 
@@ -295,6 +396,17 @@ export default function WhatsappInboxPage() {
             <label className="space-y-2">
               <span className="text-xs font-bold text-slate-600">WhatsApp From</span>
               <input className="w-full rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300" value={settings.whatsappFrom || ''} onChange={(e) => setSettings({ ...settings, whatsappFrom: e.target.value })} />
+            </label>
+
+            <label className="space-y-2">
+              <span className="text-sm font-bold">Messaging Service SID</span>
+              <input
+                className="w-full rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300"
+                value={settings.messagingServiceSid || ''}
+                onChange={(e) => setSettings({ ...settings, messagingServiceSid: e.target.value })}
+                placeholder="MGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                dir="ltr"
+              />
             </label>
 
             <label className="space-y-2">
@@ -358,8 +470,8 @@ export default function WhatsappInboxPage() {
                 }
               }}
             >
-              {convs.length === 0 && <div className="p-8 text-center text-xs text-slate-400">ماكو نتائج</div>}
-              {convs.map((c) => {
+              {filteredConvs.length === 0 && <div className="p-8 text-center text-xs text-slate-400">ماكو نتائج</div>}
+              {filteredConvs.map((c) => {
                 const title = c.subscriber?.name || c.name || c.phone;
                 return (
                   <button key={c.id} onClick={() => { activeIdRef.current = c.id; setActive(c); }} className={`mb-2 w-full rounded-2xl p-3 text-right transition ${active?.id === c.id ? 'bg-slate-900 text-white' : 'hover:bg-slate-50'}`}>
@@ -371,6 +483,38 @@ export default function WhatsappInboxPage() {
                       {c.phone}{c.subscriber?.pppoeUsername ? ` • ${c.subscriber.pppoeUsername}` : ''}
                     </div>
                     <div className={`mt-1 line-clamp-1 text-xs ${active?.id === c.id ? 'text-slate-300' : 'text-slate-500'}`}>{c.lastMessage || '—'}</div>
+
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {c.pinned && <span className="rounded-lg bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-700">مثبتة</span>}
+                      {c.claimedByName
+                        ? <span className="rounded-lg bg-emerald-100 px-2 py-0.5 text-[10px] font-black text-emerald-700">مستلمة: {c.claimedByName}</span>
+                        : <span className="rounded-lg bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">غير مستلمة</span>}
+                      {c.priority === 'urgent' && <span className="rounded-lg bg-red-100 px-2 py-0.5 text-[10px] font-black text-red-700">مستعجلة</span>}
+                    </div>
+
+                    <div className="mt-2 flex items-center gap-1.5 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        title="تثبيت"
+                        onClick={() => quickAction(c, 'pin')}
+                        className="inline-flex h-7 items-center rounded-full border border-amber-100 bg-amber-50 px-2 text-[10px] font-black text-amber-700 hover:bg-amber-100"
+                      >
+                        تثبيت
+                      </button>
+                      <button
+                        title="استلام"
+                        onClick={() => quickAction(c, 'claim')}
+                        className="inline-flex h-7 items-center rounded-full border border-emerald-100 bg-emerald-50 px-2 text-[10px] font-black text-emerald-700 hover:bg-emerald-100"
+                      >
+                        استلام
+                      </button>
+                      <button
+                        title="مستعجل"
+                        onClick={() => quickAction(c, c.priority === 'urgent' ? 'normal' : 'urgent')}
+                        className="inline-flex h-7 items-center rounded-full border border-red-100 bg-red-50 px-2 text-[10px] font-black text-red-700 hover:bg-red-100"
+                      >
+                        مستعجل
+                      </button>
+                    </div>
                   </button>
                 );
               })}
@@ -401,6 +545,14 @@ export default function WhatsappInboxPage() {
                       <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">غير مرتبط بمشترك</div>
                     )}
                   </div>
+
+                  <TeamPanel
+                    team={team}
+                    onClaim={claimActive}
+                    onUnclaim={unclaimActive}
+                    onPriority={setPriority}
+                    onTogglePin={togglePin}
+                  />
 
                   {linkedAccounts.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-gradient-to-l from-green-50 to-emerald-50 px-3 py-2 text-xs">
@@ -494,7 +646,10 @@ export default function WhatsappInboxPage() {
 
                     <textarea
                       value={reply}
-                      onChange={(e) => setReply(e.target.value)}
+                      onChange={(e) => {
+                        setReply(e.target.value);
+                        sendTyping(Boolean(e.target.value.trim())).catch(() => null);
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
                           e.preventDefault();
@@ -502,10 +657,10 @@ export default function WhatsappInboxPage() {
                         }
                       }}
                       className="max-h-28 min-h-[46px] flex-1 resize-none rounded-2xl border p-3 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-                      placeholder={activeWindowOpen ? "اكتب الرد هنا..." : "انتهت نافذة المحادثة، يجب أن يرسل المشترك رسالة جديدة أولاً"}
+                      placeholder={canReply ? "اكتب الرد هنا..." : "المحادثة مستلمة من موظف آخر أو نافذة الرد مغلقة"}
                     />
 
-                    <button disabled={sending || !activeWindowOpen || (!reply.trim() && !fileData)} onClick={sendReply} className="inline-flex h-[46px] items-center rounded-2xl bg-green-600 px-6 text-sm font-black text-white disabled:opacity-50">
+                    <button disabled={sending || !canReply || (!reply.trim() && !fileData)} onClick={sendReply} className="inline-flex h-[46px] items-center rounded-2xl bg-green-600 px-6 text-sm font-black text-white disabled:opacity-50">
                       إرسال
                     </button>
                   </div>
@@ -587,6 +742,62 @@ export default function WhatsappInboxPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+function TeamPanel({ team, onClaim, onUnclaim, onPriority, onTogglePin }: any) {
+  const mine = team?.claimedById && team.claimedById === team.myId;
+  const claimed = Boolean(team?.claimedById);
+  const typing = (team?.typing || []).filter((x: any) => x.id !== team?.myId);
+  const viewers = (team?.viewers || []).filter((x: any) => x.id !== team?.myId);
+
+  return (
+    <div className="mb-2 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-xs font-black text-slate-800">
+            <Users className="h-4 w-4 text-emerald-600" />
+            {claimed ? `مستلمة بواسطة ${team?.claimedByName}` : 'غير مستلمة'}
+          </div>
+          <div className="mt-1 flex items-center gap-1 text-[11px] font-bold text-slate-400">
+            {typing.length ? <PencilLine className="h-3 w-3 text-emerald-500" /> : <UserCheck className="h-3 w-3" />}
+            <span className="truncate">
+              {typing.length
+                ? `${typing.map((x: any) => x.name).join('، ')} يكتب الآن...`
+                : viewers.length
+                  ? `يشاهدها: ${viewers.map((x: any) => x.name).join('، ')}`
+                  : 'لا يوجد موظف آخر يشاهدها الآن'}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1">
+          <button onClick={onTogglePin} className={`rounded-xl px-3 py-2 text-[11px] font-black ${team?.pinned ? 'bg-amber-100 text-amber-700' : 'bg-white text-slate-500'}`}>
+            <Pin className="ml-1 inline h-3.5 w-3.5" />
+            تثبيت
+          </button>
+
+          {mine ? (
+            <button onClick={onUnclaim} className="rounded-xl bg-white px-3 py-2 text-[11px] font-black text-slate-600">ترك</button>
+          ) : (
+            <button onClick={onClaim} className="rounded-xl bg-emerald-600 px-3 py-2 text-[11px] font-black text-white">استلام</button>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-2 grid grid-cols-3 gap-1.5">
+        <button onClick={() => onPriority('normal')} className={`rounded-xl py-2 text-[10px] font-black ${team?.priority === 'normal' || !team?.priority ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-slate-400'}`}>
+          <Flag className="ml-1 inline h-3 w-3" />عادي
+        </button>
+        <button onClick={() => onPriority('medium')} className={`rounded-xl py-2 text-[10px] font-black ${team?.priority === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-white text-slate-400'}`}>
+          <Flag className="ml-1 inline h-3 w-3" />متوسط
+        </button>
+        <button onClick={() => onPriority('urgent')} className={`rounded-xl py-2 text-[10px] font-black ${team?.priority === 'urgent' ? 'bg-red-100 text-red-700' : 'bg-white text-slate-400'}`}>
+          <Flag className="ml-1 inline h-3 w-3" />مستعجل
+        </button>
+      </div>
     </div>
   );
 }
