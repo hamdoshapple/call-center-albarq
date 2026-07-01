@@ -5,6 +5,7 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('push', (event) => {
+  console.log('[ADMIN_SW_PUSH_DEBUG] push received', event.data ? event.data.text() : 'NO_DATA');
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch {}
 
@@ -24,6 +25,9 @@ self.addEventListener('push', (event) => {
       badge: data.badge || '/icon-192.png',
       tag: data.tag || ('admin-' + Date.now()),
       renotify: true,
+      requireInteraction: true,
+      silent: false,
+      timestamp: Date.now(),
       data: { ...data, url, conversationId, ticketId, callId },
     })
   );

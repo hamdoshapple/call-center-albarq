@@ -546,6 +546,13 @@ async function sendOne(row: any, payload: any, targetType = 'manual') {
   };
 
   try {
+    console.log('[push.sendOne] sending', {
+      id: row.id,
+      phone: row.phone,
+      endpoint: String(row.endpoint || '').slice(0, 90),
+      title: payload?.title,
+      url: payload?.url,
+    });
     await webPushClient.sendNotification(subscription as any, JSON.stringify(payload));
     return true;
   } catch (e: any) {

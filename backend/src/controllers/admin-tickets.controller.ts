@@ -5,6 +5,22 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { sendPushToPhones } from './push.controller.js';
 
 import { sendPushToEmployees } from './push.controller.js';
+
+
+async function pushAdminTicket(ticketId: string, title: string, message: string, extra: any = {}) {
+  await sendPushToEmployees(
+    title,
+    message,
+    `/admin-tickets?ticket=${encodeURIComponent(ticketId)}`,
+    {
+      ticketId,
+      type: 'admin_ticket',
+      tag: `admin-ticket-${ticketId}-${Date.now()}`,
+      ...extra,
+    }
+  ).catch((e: any) => console.log('[admin-ticket-push] failed', e?.message || e));
+}
+
 const cuid = () => 't_' + randomUUID().replace(/-/g, '');
 
 function userId(req: Request) {
@@ -437,6 +453,13 @@ export const createAdminTicket = asyncHandler(async (req: Request, res: Response
     }
   ).catch(() => null);
 
+  await pushAdminTicket(
+    createdTicket.id,
+    'تذكرة جديدة',
+    createdTicket.subject || subject || 'تم إنشاء تذكرة جديدة',
+    { type: 'ticket_new' }
+  );
+
   res.status(201).json(createdTicket);
 });
 
@@ -475,6 +498,7 @@ export const replyAdminTicket = asyncHandler(async (req: Request, res: Response)
     }
 
     await pushTicketUpdate(ticketId, 'رد جديد على التذكرة', body.slice(0, 120));
+    await pushAdminTicket(ticketId, 'رد جديد على التذكرة', body.slice(0, 120), { type: 'ticket_reply' });
     return res.status(201).json({ id: replyId, mentioned });
   }
 
@@ -514,6 +538,7 @@ export const replyAdminTicket = asyncHandler(async (req: Request, res: Response)
   await prisma.$executeRawUnsafe(`UPDATE AdminTicket SET updatedAt=NOW(3) WHERE id=?`, ticketId);
 
   await pushTicketUpdate(ticketId, 'رد جديد على التذكرة', body.slice(0, 120));
+  await pushAdminTicket(ticketId, 'رد جديد على التذكرة', body.slice(0, 120), { type: 'ticket_reply' });
   res.status(201).json({ id: replyId, mentioned });
 });
 
@@ -576,6 +601,16 @@ export const updateAdminTicket = asyncHandler(async (req: Request, res: Response
   }
 
   const rows = await prisma.$queryRawUnsafe<any[]>('SELECT * FROM AdminTicket WHERE id=? LIMIT 1', id);
+  if (req.body.status || req.body.priority || req.body.assignedUserId) {
+    const parts = [
+      req.body.status ? `الحالة: ${req.body.status}` : '',
+      req.body.priority ? `الأولوية: ${req.body.priority}` : '',
+      req.body.assignedUserId ? 'تم إسناد التذكرة' : '',
+    ].filter(Boolean).join(' • ');
+
+    await pushAdminTicket(id, 'تحديث على التذكرة', parts || 'تم تحديث التذكرة', { type: 'ticket_update_admin' });
+  }
+
   await ticketActivity(id, req, 'status', 'تم تحديث التذكرة');
   res.json(rows[0]);
 });
