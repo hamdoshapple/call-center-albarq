@@ -455,6 +455,40 @@ export async function reply(req: Request, res: Response) {
   res.json(msg);
 }
 
+
+function normAliasPhone(v: unknown) {
+  let d = String(v || '').replace(/\D/g, '');
+  if (d.startsWith('964')) d = '0' + d.slice(3);
+  if (!d.startsWith('0') && d.length === 10) d = '0' + d;
+  return d;
+}
+
+async function findSubscribersForPhoneOrAlias(phone: string): Promise<any[]> {
+  const direct: any[] = await findSubscribersForPhone(phone).catch(() => []);
+  if (direct?.length) return direct;
+
+  const phoneNorm = normAliasPhone(phone);
+  const aliasRows = await prisma.$queryRawUnsafe<any[]>(
+    `SELECT * FROM SubscriberContactAlias WHERE phoneNorm=? LIMIT 1`,
+    phoneNorm
+  ).catch(() => []);
+
+  const alias = aliasRows[0];
+  if (!alias) return [];
+
+  const key = alias.pppoeUsername || alias.externalId || alias.subscriberId || phoneNorm;
+
+  let live: any[] = [];
+  if (process.env.EXTERNAL_MSSQL_ENABLED === 'true') {
+    live = await searchExternalSubscribers(key).catch(() => []);
+  }
+
+  if (live.length) return live;
+
+  return await searchSubscriberCache(key).catch(() => []);
+}
+
+
 export async function webhook(req: Request, res: Response) {
   const from = cleanWhatsappPhone(req.body?.From);
   const to = cleanWhatsappPhone(req.body?.To);
@@ -500,8 +534,8 @@ export async function webhook(req: Request, res: Response) {
     });
   }
 
-  const pushName = await findSubscribersForPhone(from)
-    .then((rows) => rows?.[0]?.name || rows?.[0]?.fullName || '')
+  const pushName = await findSubscribersForPhoneOrAlias(from)
+    .then((rows: any[]) => rows?.[0]?.name || rows?.[0]?.pppoeUsername || '')
     .catch(() => '');
 
   const displayName = pushName || contact.name || from;
