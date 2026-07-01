@@ -267,6 +267,7 @@ router.post('/whatsapp-twilio/conversations/:id/team-typing', h(whatsappTwilio.t
 router.post('/whatsapp-twilio/conversations/:id/pin', h(whatsappTwilio.setConversationPinned));
 
 // ---------- Push Notifications ----------
+router.post('/employee/push/test', authenticate, h(push.employeeTestPush));
 router.get('/push/stats', h(push.stats));
 router.get('/push/subscribers', h(push.subscribers));
 router.get('/push/logs', h(push.logs));

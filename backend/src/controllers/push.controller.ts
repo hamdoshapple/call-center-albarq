@@ -2319,3 +2319,19 @@ export async function campaignConfirm(req: any, res: any) {
     console.error('[campaignConfirm]', e); return res.status(500).json({ ok: false, error: e?.message || 'confirm failed' });
   }
 }
+
+
+export const employeeTestPush = asyncHandler(async (req: Request, res: Response) => {
+  const user: any = (req as any).user || {};
+  const out = await sendPushToEmployees(
+    'اختبار إشعارات الأدمن',
+    'إذا وصلتك هاي الرسالة فالإشعارات شغالة ✅',
+    '/whatsapp-inbox',
+    {
+      employeeIds: user?.id ? [user.id] : [],
+      type: 'admin_test',
+      tag: 'admin-test-' + Date.now(),
+    }
+  );
+  res.json({ ok: true, ...out, userId: user?.id || null });
+});

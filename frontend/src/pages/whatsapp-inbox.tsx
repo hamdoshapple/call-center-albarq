@@ -1,21 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  RefreshCw,
-  Settings,
-  Save,
+  BadgeCheck,
+  Bell,
   CheckCircle2,
-  Search,
-  ExternalLink,
+  ChevronDown,
+  ChevronUp,
   Clock3,
-  Paperclip,
-  X,
-  Pin,
+  ExternalLink,
   Flag,
-  Users,
-  UserCheck,
+  Info,
+  Paperclip,
   PencilLine,
+  Pin,
+  RefreshCw,
+  Save,
+  Search,
+  Send,
+  Settings,
+  UserCheck,
+  Users,
+  X,
 } from 'lucide-react';
 import { whatsappTwilioApi } from '@/api/whatsappTwilio';
+import { enableAdminPush } from './adminPush';
 
 type SubscriberLite = {
   id: string;
@@ -26,6 +33,8 @@ type SubscriberLite = {
   status?: string;
   source?: string;
   debt?: number;
+  speed?: string;
+  expiration?: string;
 };
 
 type Conv = {
@@ -58,31 +67,72 @@ type Msg = {
   createdAt: string;
 };
 
+const token = () => localStorage.getItem('cc_token') || localStorage.getItem('token') || '';
+
+async function apiPost(path: string, body?: any) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error('REQUEST_FAILED');
+  return res.json().catch(() => ({}));
+}
+
+function fmtDate(v?: string) {
+  if (!v) return '—';
+  try { return new Date(v).toLocaleString('ar-IQ'); } catch { return String(v); }
+}
+
+function money(n: any) {
+  return Number(n || 0).toLocaleString('en-US');
+}
+
+function isActiveSub(s: any) {
+  return String(s?.status || '').toLowerCase().includes('active') || String(s?.status || '').includes('فعال');
+}
+
+async function imageToJpegDataUrl(file: File) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await new Promise((ok, bad) => { img.onload = ok; img.onerror = bad; });
+    const scale = Math.min(1, 1280 / Math.max(img.width, img.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.width * scale));
+    canvas.height = Math.max(1, Math.round(img.height * scale));
+    canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.82);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export default function WhatsappInboxPage() {
   const [tab, setTab] = useState<'inbox' | 'settings'>('inbox');
   const [convs, setConvs] = useState<Conv[]>([]);
-  const [convCursor, setConvCursor] = useState<string | null>(null);
-  const [convHasMore, setConvHasMore] = useState(true);
   const [active, setActive] = useState<Conv | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [team, setTeam] = useState<any>(null);
+  const [q, setQ] = useState('');
+  const [filter, setFilter] = useState<'all' | 'unread' | 'unclaimed' | 'claimed' | 'pinned'>('all');
   const [reply, setReply] = useState('');
   const [fileData, setFileData] = useState('');
   const [fileName, setFileName] = useState('');
+  const [fileType, setFileType] = useState('');
   const [fileInputKey, setFileInputKey] = useState(0);
-  const [q, setQ] = useState('');
+  const [settings, setSettings] = useState<any>({});
+  const [accountsOpen, setAccountsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState('');
-  const [settings, setSettings] = useState<any>({});
   const [saveMsg, setSaveMsg] = useState('');
-  const [accountsOpen, setAccountsOpen] = useState(false);
-  const [filter] = useState<'all' | 'unread' | 'unclaimed' | 'claimed' | 'pinned'>('all');
-  const [team, setTeam] = useState<any>(null);
+  const [pushMsg, setPushMsg] = useState('');
+  const [pushLoading, setPushLoading] = useState(false);
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const activeIdRef = useRef<string | null>(null);
-  const lastMsgCountRef = useRef(0);
-  const loadingConvsRef = useRef(false);
-  const loadingMoreConvsRef = useRef(false);
+  const typingTimerRef = useRef<number | null>(null);
 
   const linkedAccounts = useMemo(() => {
     if (!active) return [];
@@ -90,13 +140,13 @@ export default function WhatsappInboxPage() {
   }, [active]);
 
   const totalDebt = linkedAccounts.reduce((sum, x: any) => sum + Number(x.debt || 0), 0);
-  const activeCount = linkedAccounts.filter((x) =>
-    String(x.status || '').toLowerCase().includes('active') || String(x.status || '').includes('فعال')
-  ).length;
+  const activeCount = linkedAccounts.filter(isActiveSub).length;
   const expiredCount = linkedAccounts.length ? linkedAccounts.length - activeCount : 0;
-  const webhookUrl = useMemo(() => settings?.webhookUrl || '', [settings]);
 
-  const windowRemainingText = useMemo(() => {
+  const activeWindowOpen = Boolean(active?.conversationOpen) || (!!active?.windowExpiresAt && new Date(active.windowExpiresAt).getTime() > Date.now());
+  const canReply = activeWindowOpen && (!team?.claimedById || team.claimedById === team.myId);
+
+  const windowText = useMemo(() => {
     if (!active?.windowExpiresAt) return 'بانتظار أول رسالة';
     const diff = new Date(active.windowExpiresAt).getTime() - Date.now();
     if (diff <= 0) return 'مغلقة';
@@ -105,151 +155,132 @@ export default function WhatsappInboxPage() {
     return `${h}س ${m}د متبقية`;
   }, [active?.windowExpiresAt]);
 
+  const filtered = useMemo(() => {
+    return [...convs]
+      .sort((a, b) =>
+        Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) ||
+        Number(b.unreadCount || 0) - Number(a.unreadCount || 0) ||
+        new Date(b.lastAt || 0).getTime() - new Date(a.lastAt || 0).getTime()
+      )
+      .filter((c) => {
+        if (filter === 'unread') return Number(c.unreadCount || 0) > 0;
+        if (filter === 'unclaimed') return !c.claimedByName && !c.claimedById;
+        if (filter === 'claimed') return Boolean(c.claimedByName || c.claimedById);
+        if (filter === 'pinned') return Boolean(c.pinned);
+        return true;
+      });
+  }, [convs, filter]);
 
-  async function loadConvs(search = q, append = false) {
-    if (loadingConvsRef.current && !append) return;
-    if (loadingMoreConvsRef.current && append) return;
+  const pinnedConvs = filtered.filter((x) => Boolean(x.pinned));
+  const normalConvs = filtered.filter((x) => !x.pinned);
 
-    if (append) loadingMoreConvsRef.current = true;
-    else loadingConvsRef.current = true;
-
+  async function loadConvs(search = q) {
+    setLoading(true);
     setErr('');
-    setLoading(!append);
-
     try {
       const params = new URLSearchParams();
-      params.set('take', '10');
-
+      params.set('take', '80');
       if (search.trim()) params.set('q', search.trim());
-      if (append && convCursor) params.set('cursor', convCursor);
 
       const res = await fetch(`/api/whatsapp-twilio/conversations?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}` },
+        headers: { Authorization: `Bearer ${token()}` },
       });
-
-      if (!res.ok) throw new Error('LOAD_FAILED');
+      if (!res.ok) throw new Error();
 
       const data = await res.json();
-      const list: Conv[] = Array.isArray(data) ? data : (data.rows || []);
+      const rows: Conv[] = Array.isArray(data) ? data : (data.rows || []);
+      setConvs(rows);
 
-      const unreadTotal = list.reduce((n: number, x: any) => n + Number(x.unreadCount || 0), 0);
-      if (lastMsgCountRef.current && unreadTotal > lastMsgCountRef.current) {
-        try {
-          const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.frequency.value = 880;
-          gain.gain.value = 0.05;
-          osc.start();
-          setTimeout(() => { osc.stop(); ctx.close(); }, 160);
-        } catch {}
-      }
-      lastMsgCountRef.current = unreadTotal;
-
-      setConvCursor(data.nextCursor || null);
-      setConvHasMore(Boolean(data.hasMore));
-
-      setConvs((old) => {
-        const merged = append ? [...old, ...list] : list;
-        const seen = new Set<string>();
-        return merged.filter((x) => {
-          if (seen.has(x.id)) return false;
-          seen.add(x.id);
-          return true;
-        });
-      });
-
-      const currentId = activeIdRef.current;
-      if (currentId) {
-        const updated = list.find((x: Conv) => x.id === currentId);
+      if (activeIdRef.current) {
+        const updated = rows.find((x) => x.id === activeIdRef.current);
         if (updated) {
-          setActive((old) => old && old.id === updated.id ? { ...updated, subscriber: old.subscriber, subscribers: old.subscribers, conversationOpen: old.conversationOpen, windowExpiresAt: old.windowExpiresAt } : updated);
+          setActive((old) => old ? {
+            ...old,
+            ...updated,
+            conversationOpen: updated.conversationOpen ?? old.conversationOpen,
+            windowExpiresAt: updated.windowExpiresAt ?? old.windowExpiresAt,
+            conversationWindowHours: updated.conversationWindowHours ?? old.conversationWindowHours,
+          } : updated);
         }
-      } else if (!append && list[0]) {
-        activeIdRef.current = list[0].id;
-        setActive(list[0]);
+      } else if (rows[0]) {
+        activeIdRef.current = rows[0].id;
+        setActive(rows[0]);
       }
     } catch {
       setErr('فشل تحميل المحادثات');
     } finally {
-      loadingConvsRef.current = false;
-      loadingMoreConvsRef.current = false;
       setLoading(false);
     }
   }
 
-  async function loadConversationProfile(id: string) {
+  async function loadProfile(id: string) {
     try {
       const res = await fetch(`/api/whatsapp-twilio/conversations/${encodeURIComponent(id)}/profile`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}` },
+        headers: { Authorization: `Bearer ${token()}` },
       });
       if (!res.ok) return;
       const profile = await res.json();
-
       setActive((old) => old && old.id === id ? { ...old, ...profile } : old);
       setConvs((old) => old.map((x) => x.id === id ? { ...x, ...profile } : x));
     } catch {}
   }
 
-  async function apiPost(path: string, body?: any) {
-    const res = await fetch(path, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}`,
-        'Content-Type': 'application/json',
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!res.ok) throw new Error('REQUEST_FAILED');
-    return res.json().catch(() => ({}));
-  }
-
-  async function loadTeamState(id: string) {
+  async function loadTeam(id: string) {
     try {
       const res = await fetch(`/api/whatsapp-twilio/conversations/${encodeURIComponent(id)}/team-state`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}` },
+        headers: { Authorization: `Bearer ${token()}` },
       });
       if (!res.ok) return;
       const data = await res.json();
       setTeam(data);
-      setActive((old) => old && old.id === id ? { ...old, pinned: data.pinned, priority: data.priority, claimedById: data.claimedById, claimedByName: data.claimedByName } : old);
-      setConvs((old) => old.map((x) => x.id === id ? { ...x, pinned: data.pinned, priority: data.priority, claimedById: data.claimedById, claimedByName: data.claimedByName } : x));
+      setActive((old) => old && old.id === id ? { ...old, ...data } : old);
+      setConvs((old) => old.map((x) => x.id === id ? { ...x, ...data } : x));
     } catch {}
   }
 
-  async function claimActive() {
-    if (!active) return;
-    await apiPost(`/api/whatsapp-twilio/conversations/${active.id}/claim`);
-    await loadTeamState(active.id);
-    await loadConvs(q, false);
+  async function loadMessages(id: string) {
+    try {
+      const data = await whatsappTwilioApi.messages(id);
+      setMessages(Array.isArray(data) ? data : []);
+      await whatsappTwilioApi.read(id).catch(() => null);
+      setConvs((old) => old.map((x) => x.id === id ? { ...x, unreadCount: 0 } : x));
+      setTimeout(() => messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight }), 80);
+    } catch {
+      setErr('فشل تحميل الرسائل');
+    }
   }
 
-  async function unclaimActive() {
+  async function openConv(c: Conv) {
+    activeIdRef.current = c.id;
+    setActive(c);
+  }
+
+  async function claim() {
+    if (!active) return;
+    await apiPost(`/api/whatsapp-twilio/conversations/${active.id}/claim`);
+    await loadTeam(active.id);
+    await loadConvs(q);
+  }
+
+  async function unclaim() {
     if (!active) return;
     await apiPost(`/api/whatsapp-twilio/conversations/${active.id}/unclaim`);
-    await loadTeamState(active.id);
-    await loadConvs(q, false);
+    await loadTeam(active.id);
+    await loadConvs(q);
   }
 
   async function setPriority(priority: 'normal' | 'medium' | 'urgent') {
     if (!active) return;
     await apiPost(`/api/whatsapp-twilio/conversations/${active.id}/priority`, { priority });
-    await loadTeamState(active.id);
-    await loadConvs(q, false);
+    await loadTeam(active.id);
+    await loadConvs(q);
   }
 
   async function togglePin() {
     if (!active) return;
     await apiPost(`/api/whatsapp-twilio/conversations/${active.id}/pin`, { pinned: !team?.pinned });
-    await loadTeamState(active.id);
-    await loadConvs(q, false);
-  }
-
-  async function sendTyping(isTyping: boolean) {
-    if (!active) return;
-    await apiPost(`/api/whatsapp-twilio/conversations/${active.id}/team-typing`, { typing: isTyping }).catch(() => null);
+    await loadTeam(active.id);
+    await loadConvs(q);
   }
 
   async function quickAction(c: Conv, action: 'pin' | 'claim' | 'urgent' | 'normal') {
@@ -257,23 +288,23 @@ export default function WhatsappInboxPage() {
       if (action === 'pin') await apiPost(`/api/whatsapp-twilio/conversations/${c.id}/pin`, { pinned: !c.pinned });
       if (action === 'claim') await apiPost(`/api/whatsapp-twilio/conversations/${c.id}/claim`);
       if (action === 'urgent' || action === 'normal') await apiPost(`/api/whatsapp-twilio/conversations/${c.id}/priority`, { priority: action === 'urgent' ? 'urgent' : 'normal' });
-      await loadConvs(q, false);
-      if (active?.id === c.id) await loadTeamState(c.id);
+      await loadConvs(q);
+      if (active?.id === c.id) await loadTeam(c.id);
     } catch {
       setErr('تعذر تنفيذ العملية');
     }
   }
 
-  async function loadMessages(id: string) {
-    try {
-      const data = await whatsappTwilioApi.messages(id);
-      setMessages(data);
-      await whatsappTwilioApi.read(id).catch(() => null);
-      setConvs((old) => old.map((x) => (x.id === id ? { ...x, unreadCount: 0 } : x)));
-      setTimeout(() => messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight }), 80);
-    } catch {
-      setErr('فشل تحميل الرسائل');
-    }
+  async function sendTyping(v: boolean) {
+    if (!active) return;
+    await apiPost(`/api/whatsapp-twilio/conversations/${active.id}/team-typing`, { typing: v }).catch(() => null);
+  }
+
+  function onReply(v: string) {
+    setReply(v);
+    sendTyping(Boolean(v.trim())).catch(() => null);
+    if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = window.setTimeout(() => sendTyping(false).catch(() => null), 3000);
   }
 
   async function sendReply() {
@@ -283,25 +314,67 @@ export default function WhatsappInboxPage() {
     setSending(true);
     setErr('');
     try {
-      console.log('WA_SEND_DEBUG', { hasFile: !!fileData, fileLen: fileData.length, text });
-      const msg = await whatsappTwilioApi.reply(active.id, text, fileData || undefined);
+      const msg = await (whatsappTwilioApi.reply as any)(active.id, text || '.', fileData || undefined, fileName || undefined, fileType || undefined);
       setMessages((old) => [...old, msg]);
       setReply('');
       setFileData('');
       setFileName('');
+      setFileType('');
       setFileInputKey((x) => x + 1);
-      await loadConvs(q, false);
+      await sendTyping(false);
+      await loadConvs(q);
+      if (active?.id) {
+        await loadProfile(active.id);
+        await loadTeam(active.id);
+      }
       setTimeout(() => messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight }), 80);
     } catch {
-      setErr('فشل الإرسال. إذا كانت نافذة المحادثة مغلقة، يجب أن يرسل المشترك رسالة جديدة أولاً.');
+      setErr('فشل الإرسال. إذا نافذة المحادثة مغلقة، يجب أن يرسل المشترك رسالة جديدة أولاً.');
     } finally {
       setSending(false);
     }
   }
 
+  async function handleFile(f?: File) {
+    if (!f) return;
+    if (f.size > 12 * 1024 * 1024) {
+      setErr('حجم الملف كبير جداً');
+      return;
+    }
+
+    if (f.type.startsWith('image/')) {
+      setFileData(await imageToJpegDataUrl(f));
+      setFileName((f.name || 'image').replace(/\.[^.]+$/, '') + '.jpg');
+      setFileType('image/jpeg');
+      return;
+    }
+
+    const r = new FileReader();
+    r.onload = () => {
+      setFileData(String(r.result || ''));
+      setFileName(f.name);
+      setFileType(f.type || 'application/octet-stream');
+    };
+    r.readAsDataURL(f);
+  }
+
   async function loadSettings() {
     const data = await whatsappTwilioApi.settings();
     setSettings({ ...data, authToken: '' });
+  }
+
+  async function activateAdminPush() {
+    setPushLoading(true);
+    setPushMsg('');
+    try {
+      const r = await enableAdminPush();
+      setPushMsg(r.message || (r.ok ? 'تم تفعيل الإشعارات' : 'تعذر التفعيل'));
+    } catch {
+      setPushMsg('تعذر تفعيل الإشعارات');
+    } finally {
+      setPushLoading(false);
+      setTimeout(() => setPushMsg(''), 2500);
+    }
   }
 
   async function saveSettings() {
@@ -317,136 +390,89 @@ export default function WhatsappInboxPage() {
   }
 
   useEffect(() => {
-    loadConvs(q, false);
+    loadConvs('');
     loadSettings().catch(() => null);
+
+    if ('Notification' in window && Notification.permission === 'granted' && localStorage.getItem('admin_push_enabled') === '1') {
+      enableAdminPush().catch(() => null);
+    }
   }, []);
 
-  const filteredConvs = useMemo(() => {
-    return [...convs]
-      .sort((a: any, b: any) =>
-        Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) ||
-        Number(b.unreadCount || 0) - Number(a.unreadCount || 0) ||
-        new Date(b.lastAt || 0).getTime() - new Date(a.lastAt || 0).getTime()
-      )
-      .filter((c: any) => {
-        if (filter === 'unread') return Number(c.unreadCount || 0) > 0;
-        if (filter === 'unclaimed') return !c.claimedByName && !c.claimedById;
-        if (filter === 'claimed') return Boolean(c.claimedByName || c.claimedById);
-        if (filter === 'pinned') return Boolean(c.pinned);
-        return true;
-      });
-  }, [convs, filter]);
-
-  const activeWindowOpen = !!active?.windowExpiresAt && new Date(active.windowExpiresAt).getTime() > Date.now();
-  const canReply = activeWindowOpen && (!team?.claimedById || team.claimedById === team.myId);
-
   useEffect(() => {
-    setSending(false);
-    setErr('');
-    if (active?.id) {
-      loadMessages(active.id);
-      loadConversationProfile(active.id);
-      loadTeamState(active.id);
+    if (!active?.id) return;
+    loadMessages(active.id);
+    loadProfile(active.id);
+    loadTeam(active.id);
+    apiPost(`/api/whatsapp-twilio/conversations/${active.id}/team-presence`).catch(() => null);
+    const t = window.setInterval(() => {
+      loadTeam(active.id);
       apiPost(`/api/whatsapp-twilio/conversations/${active.id}/team-presence`).catch(() => null);
-    }
+    }, 12000);
+    return () => window.clearInterval(t);
   }, [active?.id]);
 
   useEffect(() => {
-    const t = setInterval(() => {
-      loadConvs(q, false);
+    const t = window.setInterval(() => {
+      loadConvs(q);
       if (active?.id) loadMessages(active.id);
     }, 20000);
-    return () => clearInterval(t);
-  }, [active?.id, q]);
+    return () => window.clearInterval(t);
+  }, [q, active?.id]);
+
+  useEffect(() => {
+    const chat = new URLSearchParams(window.location.search).get('chat') || '';
+    if (!chat || !(convs || []).length) return;
+    const found = convs.find((x) => x.id === chat);
+    if (found) {
+      activeIdRef.current = found.id;
+      setActive(found);
+      window.history.replaceState({}, '', '/whatsapp-inbox');
+    }
+  }, [convs.length]);
 
   return (
-    <div className="h-[calc(100vh-105px)] overflow-hidden space-y-3" dir="rtl">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-black text-slate-900">صندوق واتساب Twilio</h1>
-          <p className="text-xs text-slate-500">محادثات واتساب مربوطة بمشتركي البرق Live/Cache</p>
+    <div dir="rtl" className="h-[calc(100vh-92px)] overflow-hidden rounded-2xl border bg-white shadow-sm">
+      <div className="flex h-16 items-center justify-between border-b px-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+            <BadgeCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-lg font-black text-slate-950">Twilio واتساب</h1>
+            <p className="text-xs font-bold text-slate-400">Live/Cache متصل • صندوق رسائل العملاء</p>
+          </div>
         </div>
-        <div className="flex gap-1 rounded-2xl bg-white p-1 shadow-sm">
-          <button onClick={() => setTab('inbox')} className={`rounded-xl px-4 py-2 text-xs font-bold ${tab === 'inbox' ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>المحادثات</button>
-          <button onClick={() => setTab('settings')} className={`rounded-xl px-4 py-2 text-xs font-bold ${tab === 'settings' ? 'bg-slate-900 text-white' : 'text-slate-600'}`}>الإعدادات</button>
+
+        <div className="flex items-center gap-2">
+          {pushMsg ? <span className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">{pushMsg}</span> : null}
+
+          <button
+            onClick={activateAdminPush}
+            disabled={pushLoading}
+            className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2 text-xs font-black text-white shadow-sm disabled:opacity-50"
+          >
+            <Bell className="h-4 w-4" />
+            {pushLoading ? 'تفعيل...' : 'تفعيل الإشعارات'}
+          </button>
+
+          <div className="flex gap-1 rounded-2xl bg-slate-100 p-1">
+          <button onClick={() => setTab('inbox')} className={`rounded-xl px-4 py-2 text-xs font-black ${tab === 'inbox' ? 'bg-slate-950 text-white' : 'text-slate-500'}`}>المحادثات</button>
+          <button onClick={() => setTab('settings')} className={`rounded-xl px-4 py-2 text-xs font-black ${tab === 'settings' ? 'bg-slate-950 text-white' : 'text-slate-500'}`}>الإعدادات</button>
+          </div>
         </div>
       </div>
 
-      {err && <div className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">{err}</div>}
+      {err ? <div className="m-3 rounded-2xl bg-red-50 p-3 text-xs font-black text-red-600">{err}</div> : null}
 
       {tab === 'settings' ? (
-        <div className="h-[calc(100vh-175px)] overflow-y-auto rounded-2xl bg-white p-5 shadow-sm">
-          <div className="mb-5 flex items-center gap-2">
-            <Settings className="h-5 w-5" />
-            <h2 className="text-lg font-black">إعدادات Twilio WhatsApp</h2>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="space-y-2">
-              <span className="text-xs font-bold text-slate-600">Account SID</span>
-              <input className="w-full rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300" value={settings.accountSid || ''} onChange={(e) => setSettings({ ...settings, accountSid: e.target.value })} />
-            </label>
-
-            <label className="space-y-2">
-              <span className="text-xs font-bold text-slate-600">Auth Token</span>
-              <input className="w-full rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300" value={settings.authToken || ''} onChange={(e) => setSettings({ ...settings, authToken: e.target.value })} placeholder={settings.authTokenMasked || 'ضع التوكن هنا'} />
-              <p className="text-xs text-slate-400">اتركه فارغ إذا ما تريد تغييره.</p>
-            </label>
-
-            <label className="space-y-2">
-              <span className="text-xs font-bold text-slate-600">WhatsApp From</span>
-              <input className="w-full rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300" value={settings.whatsappFrom || ''} onChange={(e) => setSettings({ ...settings, whatsappFrom: e.target.value })} />
-            </label>
-
-            <label className="space-y-2">
-              <span className="text-sm font-bold">Messaging Service SID</span>
-              <input
-                className="w-full rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300"
-                value={settings.messagingServiceSid || ''}
-                onChange={(e) => setSettings({ ...settings, messagingServiceSid: e.target.value })}
-                placeholder="MGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                dir="ltr"
-              />
-            </label>
-
-            <label className="space-y-2">
-              <span className="text-xs font-bold text-slate-600">مدة نافذة المحادثة / ساعة</span>
-              <input
-                type="number"
-                min={1}
-                max={720}
-                className="w-full rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300"
-                value={settings.conversationWindowHours || 24}
-                onChange={(e) => setSettings({ ...settings, conversationWindowHours: Number(e.target.value || 24) })}
-              />
-              <p className="text-xs text-slate-400">الافتراضي 24 ساعة من آخر رسالة يرسلها المشترك.</p>
-            </label>
-
-            <label className="flex items-center gap-3 rounded-2xl border p-4">
-              <input type="checkbox" checked={!!settings.enabled} onChange={(e) => setSettings({ ...settings, enabled: e.target.checked })} />
-              <span className="font-bold">تفعيل الإرسال عبر Twilio</span>
-            </label>
-          </div>
-
-          <div className="mt-5 rounded-2xl bg-slate-50 p-4">
-            <div className="text-xs font-bold text-slate-600">Webhook URL داخل Twilio</div>
-            <code className="mt-2 block break-all rounded-xl bg-white p-3 text-left text-xs">{webhookUrl}</code>
-          </div>
-
-          <div className="mt-5 flex items-center gap-3">
-            <button onClick={saveSettings} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-xs font-black text-white">
-              <Save className="h-4 w-4" /> حفظ
-            </button>
-            {saveMsg && <span className="inline-flex items-center gap-1 text-xs font-bold text-green-700"><CheckCircle2 className="h-4 w-4" /> {saveMsg}</span>}
-          </div>
-        </div>
+        <SettingsPanel settings={settings} setSettings={setSettings} saveSettings={saveSettings} saveMsg={saveMsg} webhookUrl={settings?.webhookUrl || ''} />
       ) : (
-        <div className="grid h-[calc(100vh-170px)] min-h-[520px] gap-3 lg:grid-cols-[330px_1fr]">
-          <aside className="flex min-h-0 flex-col overflow-hidden rounded-2xl bg-white shadow-sm">
-            <div className="shrink-0 border-b p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <div className="font-black">المحادثات</div>
-                <button onClick={() => { setConvCursor(null); setConvHasMore(true); loadConvs(q, false); }} className="rounded-xl p-2 hover:bg-slate-100">
+        <div className="grid h-[calc(100%-4rem)] grid-cols-[330px_1fr_320px] overflow-hidden">
+          <aside className="min-h-0 border-l bg-white">
+            <div className="border-b p-3">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="font-black text-slate-950">المحادثات</h2>
+                <button onClick={() => loadConvs(q)} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100">
                   <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                 </button>
               </div>
@@ -454,213 +480,97 @@ export default function WhatsappInboxPage() {
                 <Search className="absolute right-3 top-2.5 h-4 w-4 text-slate-400" />
                 <input
                   value={q}
-                  onChange={(e) => { setQ(e.target.value); setConvCursor(null); setConvHasMore(true); loadConvs(e.target.value, false); }}
+                  onChange={(e) => { setQ(e.target.value); loadConvs(e.target.value); }}
                   placeholder="بحث: اسم، رقم، يوزر..."
-                  className="w-full rounded-2xl border py-2.5 pr-10 pl-3 text-xs outline-none focus:ring-2 focus:ring-slate-300"
+                  className="w-full rounded-2xl border bg-white py-2.5 pr-10 pl-3 text-xs font-bold outline-none focus:ring-2 focus:ring-emerald-100"
                 />
+              </div>
+
+              <div className="mt-3 flex gap-1 overflow-x-auto pb-1">
+                <Chip active={filter === 'all'} label="الكل" onClick={() => setFilter('all')} />
+                <Chip active={filter === 'unread'} label="غير المقروءة" onClick={() => setFilter('unread')} />
+                <Chip active={filter === 'unclaimed'} label="غير مستلمة" onClick={() => setFilter('unclaimed')} />
+                <Chip active={filter === 'claimed'} label="مستلمة" onClick={() => setFilter('claimed')} />
+                <Chip active={filter === 'pinned'} label="مثبتة" onClick={() => setFilter('pinned')} />
               </div>
             </div>
 
-            <div
-              className="min-h-0 flex-1 overflow-y-auto p-2"
-              onScroll={(e) => {
-                const el = e.currentTarget;
-                if (convHasMore && el.scrollTop + el.clientHeight >= el.scrollHeight - 350) {
-                  loadConvs(q, true);
-                }
-              }}
-            >
-              {filteredConvs.length === 0 && <div className="p-8 text-center text-xs text-slate-400">ماكو نتائج</div>}
-              {filteredConvs.map((c) => {
-                const title = c.subscriber?.name || c.name || c.phone;
-                return (
-                  <button key={c.id} onClick={() => { activeIdRef.current = c.id; setActive(c); }} className={`mb-2 w-full rounded-2xl p-3 text-right transition ${active?.id === c.id ? 'bg-slate-900 text-white' : 'hover:bg-slate-50'}`}>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="line-clamp-1 text-sm font-black">{title}</div>
-                      {c.unreadCount > 0 && <span className="rounded-full bg-green-500 px-2 py-0.5 text-xs font-black text-white">{c.unreadCount}</span>}
-                    </div>
-                    <div className={`mt-1 text-xs ${active?.id === c.id ? 'text-slate-200' : 'text-slate-500'}`}>
-                      {c.phone}{c.subscriber?.pppoeUsername ? ` • ${c.subscriber.pppoeUsername}` : ''}
-                    </div>
-                    <div className={`mt-1 line-clamp-1 text-xs ${active?.id === c.id ? 'text-slate-300' : 'text-slate-500'}`}>{c.lastMessage || '—'}</div>
+            <div className="h-full overflow-y-auto pb-16">
+              {pinnedConvs.length ? (
+                <ConversationSection title={`المثبتة (${pinnedConvs.length})`} pinned>
+                  {pinnedConvs.map((c) => (
+                    <ConvCard key={c.id} conv={c} active={active?.id === c.id} onOpen={() => openConv(c)} onAction={quickAction} />
+                  ))}
+                </ConversationSection>
+              ) : null}
 
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {c.pinned && <span className="rounded-lg bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-700">مثبتة</span>}
-                      {c.claimedByName
-                        ? <span className="rounded-lg bg-emerald-100 px-2 py-0.5 text-[10px] font-black text-emerald-700">مستلمة: {c.claimedByName}</span>
-                        : <span className="rounded-lg bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">غير مستلمة</span>}
-                      {c.priority === 'urgent' && <span className="rounded-lg bg-red-100 px-2 py-0.5 text-[10px] font-black text-red-700">مستعجلة</span>}
-                    </div>
+              {normalConvs.length ? (
+                <ConversationSection title={pinnedConvs.length ? 'باقي المحادثات' : 'المحادثات'}>
+                  {normalConvs.map((c) => (
+                    <ConvCard key={c.id} conv={c} active={active?.id === c.id} onOpen={() => openConv(c)} onAction={quickAction} />
+                  ))}
+                </ConversationSection>
+              ) : null}
 
-                    <div className="mt-2 flex items-center gap-1.5 overflow-hidden" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        title="تثبيت"
-                        onClick={() => quickAction(c, 'pin')}
-                        className="inline-flex h-7 items-center rounded-full border border-amber-100 bg-amber-50 px-2 text-[10px] font-black text-amber-700 hover:bg-amber-100"
-                      >
-                        تثبيت
-                      </button>
-                      <button
-                        title="استلام"
-                        onClick={() => quickAction(c, 'claim')}
-                        className="inline-flex h-7 items-center rounded-full border border-emerald-100 bg-emerald-50 px-2 text-[10px] font-black text-emerald-700 hover:bg-emerald-100"
-                      >
-                        استلام
-                      </button>
-                      <button
-                        title="مستعجل"
-                        onClick={() => quickAction(c, c.priority === 'urgent' ? 'normal' : 'urgent')}
-                        className="inline-flex h-7 items-center rounded-full border border-red-100 bg-red-50 px-2 text-[10px] font-black text-red-700 hover:bg-red-100"
-                      >
-                        مستعجل
-                      </button>
-                    </div>
-                  </button>
-                );
-              })}
-              {convHasMore && <div className="py-3 text-center text-xs font-bold text-slate-400">جاري تحميل المزيد...</div>}
+              {!filtered.length ? <div className="p-8 text-center text-xs font-bold text-slate-400">ماكو نتائج</div> : null}
             </div>
           </aside>
 
-          <main className="flex min-h-0 flex-col overflow-hidden rounded-2xl bg-white shadow-sm">
+          <main className="flex min-h-0 flex-col bg-slate-50">
             {!active ? (
-              <div className="m-auto text-center text-slate-400">
-                <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-3xl bg-slate-100 text-2xl font-black">WA</div>
-                اختر محادثة
-              </div>
+              <div className="m-auto text-center text-slate-400">اختر محادثة</div>
             ) : (
               <>
-                <header className="shrink-0 border-b bg-white p-3">
-                  <div className="mb-2 flex items-center justify-between gap-3">
+                <header className="border-b bg-white p-4">
+                  <div className="mb-3 flex items-start justify-between">
                     <div>
-                      <div className="text-base font-black">{active.subscriber?.name || active.name || active.phone}</div>
-                      <div className="text-xs text-slate-400">{active.phone}</div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-black text-slate-950">{active.subscriber?.name || active.name || active.phone}</h2>
+                        <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                      </div>
+                      <p className="mt-1 text-xs font-bold text-slate-400">{active.phone}</p>
                     </div>
 
-                    <div className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-black ${activeWindowOpen ? 'bg-slate-100 text-slate-700' : 'bg-red-50 text-red-700'}`}>
-                      <Clock3 className="h-3.5 w-3.5" />
-                      {activeWindowOpen ? `نافذة مفتوحة • ${windowRemainingText}` : 'انتهت نافذة المراسلة'}
+                    <div className={`rounded-2xl px-3 py-2 text-xs font-black ${activeWindowOpen ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+                      <Clock3 className="ml-1 inline h-3.5 w-3.5" />
+                      {activeWindowOpen ? `نافذة مفتوحة • ${windowText}` : 'نافذة الرد مغلقة'}
                     </div>
-                    {linkedAccounts.length === 0 && (
-                      <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">غير مرتبط بمشترك</div>
-                    )}
                   </div>
 
-                  <TeamPanel
-                    team={team}
-                    onClaim={claimActive}
-                    onUnclaim={unclaimActive}
-                    onPriority={setPriority}
-                    onTogglePin={togglePin}
-                  />
-
-                  {linkedAccounts.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-gradient-to-l from-green-50 to-emerald-50 px-3 py-2 text-xs">
-                      <div className="flex min-w-[180px] items-center gap-2 font-black text-green-900">
-                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-green-600 text-[10px] font-black text-white">م</span>
-                        <span className="line-clamp-1">{linkedAccounts[0]?.name || 'مشترك'}</span>
-                      </div>
-
-                      <button onClick={() => setAccountsOpen(true)} className="rounded-xl bg-white px-3 py-1.5 font-black text-slate-900 hover:bg-green-100">
-                        {linkedAccounts.length} حساب
-                      </button>
-
-                      <span className="rounded-xl bg-white px-3 py-1.5 font-black text-green-700">{activeCount} فعال</span>
-                      <span className="rounded-xl bg-white px-3 py-1.5 font-black text-red-600">{expiredCount} منتهي</span>
-                      <span className={`rounded-xl bg-white px-3 py-1.5 font-black ${totalDebt > 0 ? 'text-red-600' : 'text-green-700'}`}>
-                        ديون: {totalDebt.toLocaleString('en-US')} د.ع
-                      </span>
-
-                      <button onClick={() => setAccountsOpen(true)} className="mr-auto rounded-xl bg-slate-900 px-4 py-1.5 font-black text-white">
-                        عرض الحسابات
-                      </button>
-                    </div>
-                  )}
+                  <div className="grid grid-cols-[1.2fr_1fr] gap-3">
+                    <TeamPanel team={team} onClaim={claim} onUnclaim={unclaim} onPriority={setPriority} onTogglePin={togglePin} />
+                    <QuickStats linkedAccounts={linkedAccounts} activeCount={activeCount} expiredCount={expiredCount} totalDebt={totalDebt} />
+                  </div>
                 </header>
 
-                <div ref={messagesRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50 p-4">
-                  {messages.map((m) => {
-                    const out = m.direction === 'outbound';
-                    return (
-                      <div key={m.id} className={`flex ${out ? 'justify-start' : 'justify-end'}`}>
-                        <div className={`max-w-[82%] rounded-2xl px-4 py-3 text-xs shadow-sm ${out ? 'bg-slate-900 text-white' : 'bg-white text-slate-900'}`}>
-                          {out && m.agentName && (
-                            <div className="mb-1 text-[10px] font-black text-slate-300">
-                              رد بواسطة: {m.agentName}
-                            </div>
-                          )}
-                          {m.mediaUrl && (
-                            m.mediaType?.startsWith('image/') ? (
-                              <a href={m.mediaUrl} target="_blank" rel="noreferrer">
-                                <img src={m.mediaUrl} className="mb-2 max-h-72 max-w-full rounded-2xl object-contain" />
-                              </a>
-                            ) : (
-                              <a href={m.mediaUrl} target="_blank" rel="noreferrer" className="mb-2 inline-flex rounded-xl bg-white/20 px-3 py-2 font-black underline">
-                                فتح الملف المرفق
-                              </a>
-                            )
-                          )}
-                          {m.body && !(m.mediaUrl && m.body === '.') && <div className="whitespace-pre-wrap">{m.body}</div>}
-                          <div className={`mt-2 text-[10px] ${out ? 'text-slate-300' : 'text-slate-400'}`}>
-                            {new Date(m.createdAt).toLocaleString('ar-IQ')} • {m.status}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div ref={messagesRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-[#f8fafc] p-5">
+                  {messages.map((m) => <MessageBubble key={m.id} msg={m} />)}
                 </div>
 
-                <footer className="shrink-0 border-t bg-white p-3">
-                  {fileName && (
-                    <div className="mb-2 inline-flex items-center gap-2 rounded-2xl bg-green-50 px-3 py-2 text-xs font-black text-green-700">
+                <footer className="border-t bg-white p-3">
+                  {fileName ? (
+                    <div className="mb-2 inline-flex items-center gap-2 rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">
                       {fileName}
-                      <button onClick={() => { setFileData(''); setFileName(''); setFileInputKey((x) => x + 1); }}><X className="h-4 w-4" /></button>
+                      <button onClick={() => { setFileData(''); setFileName(''); setFileType(''); setFileInputKey((x) => x + 1); }}><X className="h-4 w-4" /></button>
                     </div>
-                  )}
+                  ) : null}
 
                   <div className="flex items-end gap-2">
-                    <label className="inline-flex h-[46px] min-w-[46px] cursor-pointer items-center justify-center rounded-2xl bg-slate-100 hover:bg-slate-200">
-                      <Paperclip className="h-4 w-4 text-slate-600" />
-                      <input
-                        key={fileInputKey}
-                        type="file"
-                        accept="image/*,application/pdf"
-                        className="hidden"
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (!f) return;
-                          if (f.size > 4 * 1024 * 1024) {
-                            setErr('حجم الملف كبير، اختار أقل من 4MB');
-                            return;
-                          }
-                          const r = new FileReader();
-                          r.onload = () => {
-                            setFileData(String(r.result || ''));
-                            setFileName(f.name);
-                            e.currentTarget.value = '';
-                          };
-                          r.readAsDataURL(f);
-                        }}
-                      />
+                    <label className="flex h-12 w-12 cursor-pointer items-center justify-center rounded-2xl bg-slate-100 text-slate-600 hover:bg-slate-200">
+                      <Paperclip className="h-5 w-5" />
+                      <input key={fileInputKey} type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
                     </label>
 
                     <textarea
                       value={reply}
-                      onChange={(e) => {
-                        setReply(e.target.value);
-                        sendTyping(Boolean(e.target.value.trim())).catch(() => null);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          sendReply();
-                        }
-                      }}
-                      className="max-h-28 min-h-[46px] flex-1 resize-none rounded-2xl border p-3 text-sm outline-none focus:ring-2 focus:ring-slate-300"
-                      placeholder={canReply ? "اكتب الرد هنا..." : "المحادثة مستلمة من موظف آخر أو نافذة الرد مغلقة"}
+                      onChange={(e) => onReply(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
+                      className="max-h-28 min-h-12 flex-1 resize-none rounded-2xl border bg-slate-50 p-3 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-100"
+                      placeholder={canReply ? 'اكتب الرد هنا...' : 'المحادثة مستلمة من موظف آخر أو نافذة الرد مغلقة'}
                     />
 
-                    <button disabled={sending || !canReply || (!reply.trim() && !fileData)} onClick={sendReply} className="inline-flex h-[46px] items-center rounded-2xl bg-green-600 px-6 text-sm font-black text-white disabled:opacity-50">
+                    <button disabled={sending || !canReply || (!reply.trim() && !fileData)} onClick={sendReply} className="flex h-12 items-center gap-2 rounded-2xl bg-emerald-600 px-5 text-sm font-black text-white shadow-lg shadow-emerald-100 disabled:opacity-50">
+                      <Send className="h-4 w-4" />
                       إرسال
                     </button>
                   </div>
@@ -668,135 +578,357 @@ export default function WhatsappInboxPage() {
               </>
             )}
           </main>
+
+          <aside className="min-h-0 border-r bg-white p-4">
+            <CustomerPanel
+              active={active}
+              linkedAccounts={linkedAccounts}
+              activeCount={activeCount}
+              expiredCount={expiredCount}
+              totalDebt={totalDebt}
+              team={team}
+              onClaim={claim}
+              onPin={togglePin}
+              onUrgent={() => setPriority('urgent')}
+              onOpenAccounts={() => setAccountsOpen(true)}
+            />
+          </aside>
         </div>
       )}
 
-      {accountsOpen && (
-        <div className="fixed inset-0 z-[999] bg-black/30 backdrop-blur-sm" onClick={() => setAccountsOpen(false)}>
-          <div className="absolute left-0 top-0 h-full w-full max-w-md overflow-auto bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()} dir="rtl">
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-black text-slate-900">الحسابات المرتبطة</h2>
-                <p className="text-xs text-slate-500">{active?.phone}</p>
-              </div>
-              <button onClick={() => setAccountsOpen(false)} className="rounded-2xl bg-slate-100 px-4 py-2 text-xs font-black">إغلاق</button>
-            </div>
-
-            <div className="mb-4 grid grid-cols-3 gap-2">
-              <div className="rounded-2xl bg-slate-100 p-3 text-center">
-                <div className="text-2xl font-black">{linkedAccounts.length}</div>
-                <div className="text-xs text-slate-500">حسابات</div>
-              </div>
-              <div className="rounded-2xl bg-green-50 p-3 text-center">
-                <div className="text-2xl font-black text-green-700">{activeCount}</div>
-                <div className="text-xs text-green-700">فعال</div>
-              </div>
-              <div className="rounded-2xl bg-red-50 p-3 text-center">
-                <div className="text-2xl font-black text-red-600">{expiredCount}</div>
-                <div className="text-xs text-red-600">منتهي</div>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              {linkedAccounts.map((sub: any) => {
-                const isActive = String(sub.status || '').toLowerCase().includes('active') || String(sub.status || '').includes('فعال');
-                const debt = Number(sub.debt || 0);
-                return (
-                  <div key={sub.id} className="rounded-2xl border bg-white p-4 shadow-sm">
-                    <div className="mb-2 flex items-start justify-between gap-2">
-                      <div>
-                        <div className="font-black text-slate-900">{sub.name || '—'}</div>
-                        <div className="text-xs text-slate-500">{sub.phone || active?.phone}</div>
-                      </div>
-                      <span className={`rounded-full px-3 py-1 text-xs font-black ${isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                        {sub.status || (isActive ? 'فعال' : 'غير فعال')}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="rounded-2xl bg-slate-50 p-3">
-                        <div className="text-xs text-slate-400">اليوزر</div>
-                        <div className="font-black">{sub.pppoeUsername || '—'}</div>
-                      </div>
-                      <div className="rounded-2xl bg-slate-50 p-3">
-                        <div className="text-xs text-slate-400">الباقة</div>
-                        <div className="font-black">{sub.package || '—'}</div>
-                      </div>
-                      <div className="rounded-2xl bg-slate-50 p-3">
-                        <div className="text-xs text-slate-400">الدين</div>
-                        <div className={`font-black ${debt > 0 ? 'text-red-600' : 'text-green-700'}`}>{debt.toLocaleString('en-US')} د.ع</div>
-                      </div>
-                      <div className="rounded-2xl bg-slate-50 p-3">
-                        <div className="text-xs text-slate-400">المصدر</div>
-                        <div className="font-black">{sub.source || 'auto'}</div>
-                      </div>
-                    </div>
-
-                    <a href={`/subscribers/${sub.id}`} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-xs font-black text-white">
-                      فتح الحساب <ExternalLink className="h-4 w-4" />
-                    </a>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
+      {accountsOpen ? (
+        <AccountsDrawer
+          active={active}
+          linkedAccounts={linkedAccounts}
+          activeCount={activeCount}
+          expiredCount={expiredCount}
+          totalDebt={totalDebt}
+          onClose={() => setAccountsOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
 
+function Chip({ active, label, onClick }: any) {
+  return <button onClick={onClick} className={`shrink-0 rounded-xl px-3 py-1.5 text-[11px] font-black ${active ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-500'}`}>{label}</button>;
+}
+
+
+
+function ConversationSection({ title, pinned, children }: { title: string; pinned?: boolean; children: React.ReactNode }) {
+  const key = pinned ? 'waPinnedCollapsed' : 'waNormalCollapsed';
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(key) === '1');
+
+  function toggle() {
+    const next = !collapsed;
+    setCollapsed(next);
+    localStorage.setItem(key, next ? '1' : '0');
+  }
+
+  return (
+    <section className="mb-3">
+      <button
+        onClick={toggle}
+        className={`sticky top-0 z-20 mx-2 mb-2 flex w-[calc(100%-1rem)] items-center justify-between rounded-2xl border px-4 py-3 text-right backdrop-blur transition ${
+          pinned
+            ? 'border-amber-200 bg-amber-50/95 text-amber-900'
+            : 'border-slate-200 bg-slate-50/95 text-slate-700'
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          {pinned ? <Pin className="h-4 w-4" /> : <Users className="h-4 w-4 text-slate-400" />}
+          <span className="text-sm font-black">{title}</span>
+        </div>
+
+        {collapsed ? <ChevronDown className="h-5 w-5" /> : <ChevronUp className="h-5 w-5" />}
+      </button>
+
+      {!collapsed ? (
+        <div className="space-y-1">
+          {children}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+
+function ConvCard({ conv, active, onOpen, onAction }: any) {
+  const title = conv.subscriber?.name || conv.name || conv.phone;
+  return (
+    <button onClick={onOpen} className={`w-full border-b p-3 text-right transition ${
+        active
+          ? 'bg-emerald-50'
+          : conv.pinned
+            ? 'bg-amber-50/55 hover:bg-amber-50'
+            : 'bg-white hover:bg-slate-50'
+      }`}>
+      <div className="flex items-start gap-3">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-sm font-black text-slate-700">
+          {(title || 'م').slice(0, 1)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex justify-between gap-2">
+            <h3 className="truncate text-sm font-black text-slate-950">{title}</h3>
+            <span className="shrink-0 text-[10px] font-bold text-slate-400">{conv.lastAt ? new Date(conv.lastAt).toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+          </div>
+          <p className="mt-0.5 truncate text-xs font-bold text-slate-400">{conv.phone}</p>
+          <p className="mt-1 truncate text-xs font-bold text-slate-500">{conv.lastMessage || '—'}</p>
+
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {conv.unreadCount > 0 && <Badge color="green">{conv.unreadCount}</Badge>}
+            {conv.pinned && <Badge color="amber">مثبتة</Badge>}
+            {conv.claimedByName ? <Badge color="emerald">مستلمة: {conv.claimedByName}</Badge> : <Badge color="slate">غير مستلمة</Badge>}
+            {conv.priority === 'urgent' && <Badge color="red">مستعجلة</Badge>}
+          </div>
+
+          <div className="mt-2 flex gap-1" onClick={(e) => e.stopPropagation()}>
+            <IconBtn title="تثبيت" onClick={() => onAction(conv, 'pin')}><Pin className="h-3.5 w-3.5" /></IconBtn>
+            <IconBtn title="استلام" onClick={() => onAction(conv, 'claim')}><UserCheck className="h-3.5 w-3.5" /></IconBtn>
+            <IconBtn title="مستعجل" onClick={() => onAction(conv, conv.priority === 'urgent' ? 'normal' : 'urgent')}><Flag className="h-3.5 w-3.5" /></IconBtn>
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function IconBtn({ children, onClick, title }: any) {
+  return <button title={title} onClick={onClick} className="flex h-7 w-9 items-center justify-center rounded-xl border bg-white text-slate-600 hover:bg-slate-100">{children}</button>;
+}
+
+function Badge({ color, children }: any) {
+  const cls =
+    color === 'green' ? 'bg-emerald-600 text-white' :
+    color === 'emerald' ? 'bg-emerald-50 text-emerald-700' :
+    color === 'amber' ? 'bg-amber-50 text-amber-700' :
+    color === 'red' ? 'bg-red-50 text-red-700' :
+    'bg-slate-100 text-slate-500';
+  return <span className={`rounded-lg px-2 py-0.5 text-[10px] font-black ${cls}`}>{children}</span>;
+}
 
 function TeamPanel({ team, onClaim, onUnclaim, onPriority, onTogglePin }: any) {
   const mine = team?.claimedById && team.claimedById === team.myId;
-  const claimed = Boolean(team?.claimedById);
   const typing = (team?.typing || []).filter((x: any) => x.id !== team?.myId);
   const viewers = (team?.viewers || []).filter((x: any) => x.id !== team?.myId);
 
   return (
-    <div className="mb-2 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+    <div className="rounded-2xl border bg-white p-3 shadow-sm">
       <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-xs font-black text-slate-800">
-            <Users className="h-4 w-4 text-emerald-600" />
-            {claimed ? `مستلمة بواسطة ${team?.claimedByName}` : 'غير مستلمة'}
-          </div>
-          <div className="mt-1 flex items-center gap-1 text-[11px] font-bold text-slate-400">
-            {typing.length ? <PencilLine className="h-3 w-3 text-emerald-500" /> : <UserCheck className="h-3 w-3" />}
-            <span className="truncate">
-              {typing.length
-                ? `${typing.map((x: any) => x.name).join('، ')} يكتب الآن...`
-                : viewers.length
-                  ? `يشاهدها: ${viewers.map((x: any) => x.name).join('، ')}`
-                  : 'لا يوجد موظف آخر يشاهدها الآن'}
-            </span>
-          </div>
+        <div>
+          <p className="text-xs font-black text-slate-700">
+            <Users className="ml-1 inline h-4 w-4 text-emerald-600" />
+            {team?.claimedByName ? `مستلمة بواسطة ${team.claimedByName}` : 'غير مستلمة'}
+          </p>
+          <p className="mt-1 text-[11px] font-bold text-slate-400">
+            {typing.length ? <PencilLine className="ml-1 inline h-3 w-3 text-emerald-500" /> : null}
+            {typing.length ? `${typing.map((x: any) => x.name).join('، ')} يكتب الآن...` : viewers.length ? `يشاهدها: ${viewers.map((x: any) => x.name).join('، ')}` : 'لا يوجد موظف آخر يشاهدها الآن'}
+          </p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
-          <button onClick={onTogglePin} className={`rounded-xl px-3 py-2 text-[11px] font-black ${team?.pinned ? 'bg-amber-100 text-amber-700' : 'bg-white text-slate-500'}`}>
-            <Pin className="ml-1 inline h-3.5 w-3.5" />
-            تثبيت
-          </button>
-
+        <div className="flex gap-1">
+          <button onClick={onTogglePin} className={`rounded-xl px-3 py-2 text-[11px] font-black ${team?.pinned ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>تثبيت</button>
           {mine ? (
-            <button onClick={onUnclaim} className="rounded-xl bg-white px-3 py-2 text-[11px] font-black text-slate-600">ترك</button>
+            <button onClick={onUnclaim} className="rounded-xl bg-slate-100 px-3 py-2 text-[11px] font-black text-slate-600">ترك</button>
           ) : (
             <button onClick={onClaim} className="rounded-xl bg-emerald-600 px-3 py-2 text-[11px] font-black text-white">استلام</button>
           )}
         </div>
       </div>
 
-      <div className="mt-2 grid grid-cols-3 gap-1.5">
-        <button onClick={() => onPriority('normal')} className={`rounded-xl py-2 text-[10px] font-black ${team?.priority === 'normal' || !team?.priority ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-slate-400'}`}>
-          <Flag className="ml-1 inline h-3 w-3" />عادي
+      <div className="mt-3 grid grid-cols-3 overflow-hidden rounded-xl border">
+        {(['normal', 'medium', 'urgent'] as const).map((p) => (
+          <button key={p} onClick={() => onPriority(p)} className={`py-2 text-xs font-black ${
+            team?.priority === p || (!team?.priority && p === 'normal')
+              ? p === 'urgent' ? 'bg-red-50 text-red-700' : p === 'medium' ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'
+              : 'bg-white text-slate-400'
+          }`}>
+            {p === 'normal' ? 'عادي' : p === 'medium' ? 'متوسط' : 'مستعجل'}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function QuickStats({ linkedAccounts, activeCount, expiredCount, totalDebt }: any) {
+  return (
+    <div className="rounded-2xl border bg-white p-3 shadow-sm">
+      <div className="mb-2 text-xs font-black text-slate-700">
+        <Info className="ml-1 inline h-4 w-4 text-slate-500" />
+        معلومات سريعة
+      </div>
+      <div className="grid grid-cols-4 gap-2">
+        <Stat label="حساب" value={linkedAccounts.length} color="sky" />
+        <Stat label="فعال" value={activeCount} color="green" />
+        <Stat label="منتهي" value={expiredCount} color="red" />
+        <Stat label="إجمالي الديون" value={money(totalDebt)} color="orange" />
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, color }: any) {
+  const cls = color === 'green' ? 'bg-emerald-50 text-emerald-700' : color === 'red' ? 'bg-red-50 text-red-700' : color === 'orange' ? 'bg-orange-50 text-orange-700' : 'bg-sky-50 text-sky-700';
+  return <div className={`rounded-xl p-2 text-center ${cls}`}><div className="font-black">{value}</div><div className="text-[10px] font-bold">{label}</div></div>;
+}
+
+function MessageBubble({ msg }: { msg: Msg }) {
+  const out = msg.direction === 'outbound';
+  return (
+    <div className={`flex ${out ? 'justify-start' : 'justify-end'}`}>
+      <div className={`max-w-[70%] rounded-2xl px-4 py-3 text-sm shadow-sm ${out ? 'bg-emerald-100 text-emerald-950 rounded-br-md' : 'bg-white text-slate-900 rounded-bl-md'}`}>
+        {out && msg.agentName ? <div className="mb-1 text-[10px] font-black text-emerald-700">{msg.agentName}</div> : null}
+        {msg.mediaUrl ? msg.mediaType?.startsWith('image/') ? (
+          <a href={msg.mediaUrl} target="_blank" rel="noreferrer"><img src={msg.mediaUrl} className="mb-2 max-h-72 rounded-2xl object-contain" /></a>
+        ) : (
+          <a href={msg.mediaUrl} target="_blank" rel="noreferrer" className="mb-2 inline-flex rounded-xl bg-white/50 px-3 py-2 text-xs font-black underline">فتح المرفق</a>
+        ) : null}
+        {msg.body && !(msg.mediaUrl && msg.body === '.') ? <div className="whitespace-pre-wrap font-bold leading-6">{msg.body}</div> : null}
+        <div className="mt-2 text-[10px] font-bold opacity-60">{fmtDate(msg.createdAt)} • {msg.status}</div>
+      </div>
+    </div>
+  );
+}
+
+function CustomerPanel({ active, linkedAccounts, activeCount, expiredCount, totalDebt, team, onClaim, onPin, onUrgent, onOpenAccounts }: any) {
+  if (!active) return <div className="text-center text-sm font-bold text-slate-400">اختر محادثة</div>;
+  const name = active.subscriber?.name || active.name || active.phone;
+
+  return (
+    <div className="space-y-3">
+      <h2 className="font-black text-slate-950">تفاصيل المشترك</h2>
+
+      <div className="rounded-2xl border p-4 text-center shadow-sm">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-600 text-2xl font-black text-white">{name.slice(0, 1)}</div>
+        <h3 className="mt-3 text-lg font-black text-slate-950">{name}</h3>
+        <p className="text-xs font-bold text-slate-400">{active.phone}</p>
+        {team?.claimedByName ? <div className="mx-auto mt-3 w-fit rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-black text-emerald-700">مستلمة بواسطة {team.claimedByName}</div> : null}
+
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          <button onClick={onClaim} className="rounded-xl border bg-white py-2 text-xs font-black text-emerald-700">استلام</button>
+          <button onClick={onUrgent} className="rounded-xl border bg-white py-2 text-xs font-black text-red-700">مستعجلة</button>
+          <button onClick={onPin} className="rounded-xl border bg-white py-2 text-xs font-black text-amber-700">مثبتة</button>
+        </div>
+      </div>
+
+      <QuickStats linkedAccounts={linkedAccounts} activeCount={activeCount} expiredCount={expiredCount} totalDebt={totalDebt} />
+
+      <div className="space-y-2">
+        {linkedAccounts.slice(0, 3).map((s: any) => (
+          <div key={s.id} className="rounded-2xl border bg-white p-3 shadow-sm">
+            <div className="flex justify-between gap-2">
+              <div>
+                <p className="text-sm font-black text-slate-950">{s.name || 'مشترك'}</p>
+                <p className="text-xs font-bold text-slate-400">{s.pppoeUsername || '—'}</p>
+              </div>
+              <Badge color={isActiveSub(s) ? 'emerald' : 'red'}>{s.status || '—'}</Badge>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-xs font-bold text-slate-500">
+              <div>الباقة: <b>{s.package || '—'}</b></div>
+              <div>الدين: <b className={Number(s.debt || 0) > 0 ? 'text-red-600' : 'text-emerald-600'}>{money(s.debt)} د.ع</b></div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={onOpenAccounts} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-xs font-black text-white">
+        فتح الحسابات <ExternalLink className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+function AccountsDrawer({ active, linkedAccounts, activeCount, expiredCount, totalDebt, onClose }: any) {
+  return (
+    <div className="fixed inset-0 z-[999] bg-black/30 backdrop-blur-sm" onClick={onClose}>
+      <div className="absolute left-0 top-0 h-full w-full max-w-md overflow-auto bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()} dir="rtl">
+        <div className="mb-5 flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-black text-slate-900">الحسابات المرتبطة</h2>
+            <p className="text-xs text-slate-500">{active?.phone}</p>
+          </div>
+          <button onClick={onClose} className="rounded-2xl bg-slate-100 px-4 py-2 text-xs font-black">إغلاق</button>
+        </div>
+
+        <QuickStats linkedAccounts={linkedAccounts} activeCount={activeCount} expiredCount={expiredCount} totalDebt={totalDebt} />
+
+        <div className="mt-4 space-y-3">
+          {linkedAccounts.map((sub: any) => (
+            <div key={sub.id} className="rounded-2xl border bg-white p-4 shadow-sm">
+              <div className="mb-2 flex items-start justify-between gap-2">
+                <div>
+                  <div className="font-black text-slate-900">{sub.name || '—'}</div>
+                  <div className="text-xs text-slate-500">{sub.phone || active?.phone}</div>
+                </div>
+                <Badge color={isActiveSub(sub) ? 'emerald' : 'red'}>{sub.status || '—'}</Badge>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <Mini label="اليوزر" value={sub.pppoeUsername || '—'} />
+                <Mini label="الباقة" value={sub.package || '—'} />
+                <Mini label="الدين" value={`${money(sub.debt)} د.ع`} />
+                <Mini label="المصدر" value={sub.source || 'auto'} />
+              </div>
+
+              <a href={`/subscribers/${sub.id}`} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-xs font-black text-white">
+                فتح الحساب <ExternalLink className="h-4 w-4" />
+              </a>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Mini({ label, value }: any) {
+  return <div className="rounded-2xl bg-slate-50 p-3"><div className="text-xs text-slate-400">{label}</div><div className="font-black">{value}</div></div>;
+}
+
+function SettingsPanel({ settings, setSettings, saveSettings, saveMsg, webhookUrl }: any) {
+  return (
+    <div className="h-[calc(100%-4rem)] overflow-y-auto p-6">
+      <div className="mb-5 flex items-center gap-2">
+        <Settings className="h-5 w-5" />
+        <h2 className="text-lg font-black">إعدادات Twilio WhatsApp</h2>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {[
+          ['accountSid', 'Account SID'],
+          ['authToken', 'Auth Token'],
+          ['whatsappFrom', 'WhatsApp From'],
+          ['messagingServiceSid', 'Messaging Service SID'],
+        ].map(([k, label]) => (
+          <label key={k} className="space-y-2">
+            <span className="text-xs font-bold text-slate-600">{label}</span>
+            <input className="w-full rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300" value={settings[k] || ''} onChange={(e) => setSettings({ ...settings, [k]: e.target.value })} dir="ltr" />
+          </label>
+        ))}
+
+        <label className="space-y-2">
+          <span className="text-xs font-bold text-slate-600">مدة نافذة المحادثة / ساعة</span>
+          <input type="number" min={1} max={720} className="w-full rounded-2xl border p-3 outline-none focus:ring-2 focus:ring-slate-300" value={settings.conversationWindowHours || 24} onChange={(e) => setSettings({ ...settings, conversationWindowHours: Number(e.target.value || 24) })} />
+        </label>
+
+        <label className="flex items-center gap-3 rounded-2xl border p-4">
+          <input type="checkbox" checked={!!settings.enabled} onChange={(e) => setSettings({ ...settings, enabled: e.target.checked })} />
+          <span className="font-bold">تفعيل الإرسال عبر Twilio</span>
+        </label>
+      </div>
+
+      <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+        <div className="text-xs font-bold text-slate-600">Webhook URL داخل Twilio</div>
+        <code className="mt-2 block break-all rounded-xl bg-white p-3 text-left text-xs">{webhookUrl}</code>
+      </div>
+
+      <div className="mt-5 flex items-center gap-3">
+        <button onClick={saveSettings} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-xs font-black text-white">
+          <Save className="h-4 w-4" /> حفظ
         </button>
-        <button onClick={() => onPriority('medium')} className={`rounded-xl py-2 text-[10px] font-black ${team?.priority === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-white text-slate-400'}`}>
-          <Flag className="ml-1 inline h-3 w-3" />متوسط
-        </button>
-        <button onClick={() => onPriority('urgent')} className={`rounded-xl py-2 text-[10px] font-black ${team?.priority === 'urgent' ? 'bg-red-100 text-red-700' : 'bg-white text-slate-400'}`}>
-          <Flag className="ml-1 inline h-3 w-3" />مستعجل
-        </button>
+        {saveMsg && <span className="inline-flex items-center gap-1 text-xs font-bold text-green-700"><CheckCircle2 className="h-4 w-4" /> {saveMsg}</span>}
       </div>
     </div>
   );
