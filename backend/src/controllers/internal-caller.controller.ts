@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../config/prisma.js';
 import { searchSubscriberCache } from '../services/subscriber-cache.service.js';
+import { searchExternalSubscribers } from '../services/external-subscriber.service.js';
 import { sendPushToEmployees } from './push.controller.js';
 
 function norm(v: unknown) {
@@ -76,19 +77,48 @@ export async function callerName(req: Request, res: Response) {
   const phone = norm(req.query.phone || req.query.caller);
   if (!phone) return res.type('text/plain').send('');
 
-  const locals = await prisma.subscriber.findMany({
-    where: {
-      OR: variants(phone).map((v) => ({ phone: { contains: v } })),
-    },
-    select: { name: true, pppoeUsername: true, debt: true },
-  });
+  const aliasRows = await prisma.$queryRawUnsafe<any[]>(
+    `SELECT * FROM SubscriberContactAlias WHERE phoneNorm=? LIMIT 1`,
+    phone
+  ).catch(() => []);
 
-  let name = clean(locals[0]?.name || locals[0]?.pppoeUsername || '');
-  let debt = locals.reduce((sum, s) => sum + Number(s.debt || 0), 0);
+  const alias = aliasRows[0] || null;
+
+  let name = '';
+  let debt = 0;
+
+  if (alias) {
+    const key = alias.pppoeUsername || alias.externalId || alias.subscriberId || phone;
+
+    let rows: any[] = [];
+    if (process.env.EXTERNAL_MSSQL_ENABLED === 'true') {
+      rows = await searchExternalSubscribers(key).catch(() => []);
+    }
+    if (!rows.length) rows = await searchSubscriberCache(key).catch(() => []);
+
+    const sub = rows[0];
+    if (sub) {
+      name = clean(sub.name || sub.pppoeUsername || key);
+      debt = Number(sub.debt || 0);
+    }
+  }
+
+  if (!name) {
+    const locals = await prisma.subscriber.findMany({
+      where: {
+        OR: variants(phone).map((v) => ({ phone: { contains: v } })),
+      },
+      select: { name: true, pppoeUsername: true, debt: true },
+    });
+
+    name = clean(locals[0]?.name || locals[0]?.pppoeUsername || '');
+    debt = locals.reduce((sum, s) => sum + Number(s.debt || 0), 0);
+  }
 
   if (!name && process.env.EXTERNAL_MSSQL_ENABLED === 'true') {
-    const cached = await searchSubscriberCache(phone);
-    const sub = cached[0];
+    const live = await searchExternalSubscribers(phone).catch(() => []);
+    const cached = live.length ? [] : await searchSubscriberCache(phone).catch(() => []);
+    const sub = live[0] || cached[0];
     if (sub) {
       name = clean(sub.name || sub.pppoeUsername || '');
       debt = Number(sub.debt || 0);

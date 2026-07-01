@@ -912,3 +912,22 @@ model AdminTicketWorkSession {
   @@index([userId])
   @@map("AdminTicketWorkSession")
 }
+
+model SubscriberContactAlias {
+  id            String   @id
+  phoneNorm     String   @unique
+  label         String?
+  pppoeUsername String?
+  externalId    String?
+  subscriberId  String?
+  verified      Boolean  @default(false)
+  isPrimary     Boolean  @default(false)
+  source        String   @default("manual")
+  createdById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([pppoeUsername])
+  @@index([externalId])
+  @@index([subscriberId])
+}

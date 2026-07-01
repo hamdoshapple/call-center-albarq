@@ -24,6 +24,7 @@ import * as dataSource from '../controllers/data-source.controller.js';
 import * as subscriberApp from '../controllers/subscriber-app.controller.js';
 import * as push from '../controllers/push.controller.js';
 import * as whatsapp from '../controllers/whatsapp.controller.js';
+import * as subscriberIdentity from '../controllers/subscriber-identity.controller.js';
 import * as whatsappTwilio from '../controllers/whatsapp-twilio.controller.js';
 import * as telegram from '../controllers/telegram.controller.js';
 
@@ -45,6 +46,10 @@ router.get('/subscriber-portal/accounts/:id/tickets', h(subscriberPortal.listAcc
 router.post('/subscriber-portal/accounts/:id/tickets', h(subscriberPortal.createAccountTicket));
 router.get('/subscriber-portal/accounts/:id/tickets/:ticketId', h(subscriberPortal.getAccountTicket));
 router.post('/subscriber-portal/accounts/:id/tickets/:ticketId/comments', h(subscriberPortal.addAccountTicketComment));
+
+router.get('/subscriber-identity/resolve', authenticate, h(subscriberIdentity.resolve));
+router.post('/subscriber-identity/link', authenticate, h(subscriberIdentity.link));
+router.get('/subscriber-identity/aliases', authenticate, h(subscriberIdentity.aliases));
 
 router.get('/internal/caller-name', h(internalCaller.callerName));
 router.get('/auth/me', authenticate, h(auth.me));
