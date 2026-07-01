@@ -1367,7 +1367,6 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
                 from: asTwilioWhatsapp(setting.whatsappFrom),
                 to: asTwilioWhatsapp(phone),
                 contentSid: twilioTemplateId,
-                contentLanguage: 'ar',
                 contentVariables: (() => {
                   const pkey = String(phone || '').replace(/\D/g, '').slice(-10);
                   const pv = req.body?.previewContentVariablesByPhone?.[pkey];
@@ -1932,7 +1931,6 @@ export const sendTwilioTemplate = asyncHandler(async (req: Request, res: Respons
         from: asTwilioWhatsapp(setting.whatsappFrom),
         to: asTwilioWhatsapp(phone),
         contentSid,
-        contentLanguage: 'ar',
         contentVariables: (() => {
                   const pkey = String(phone || '').replace(/\D/g, '').slice(-10);
                   const pv = req.body?.previewContentVariablesByPhone?.[pkey];
