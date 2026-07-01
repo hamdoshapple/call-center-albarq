@@ -207,6 +207,9 @@ export function LiveCallsPage() {
                     <StatusBadge status={incomingCall.status} pulse />
                   </div>
                   <p className="font-mono text-sm text-muted-foreground">{incomingCall.callerNumber}</p>
+                  <LinkSubscriberModalButton phone={incomingCall.callerNumber} onDone={() => location.reload()} />
+                  <LinkSubscriberModalButton phone={incomingCall.callerNumber} />
+                  {!incomingSubscriber?.name && !incomingCall.callerName ? <LinkSubscriberModalButton phone={incomingCall.callerNumber} /> : null}
                   {incomingCall.subscriberMatches && incomingCall.subscriberMatches.length > 1 && (
                     <div className="mt-3 space-y-2">
                       <div className="flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
@@ -395,6 +398,9 @@ export function LiveCallsPage() {
                       <TableCell>
                         <div className="font-medium tabular-nums">{call.callerNumber}</div>
                         {call.callerName && <div className="text-xs text-muted-foreground">{call.callerName}</div>}
+                        <LinkSubscriberModalButton phone={call.callerNumber} onDone={() => location.reload()} />
+                        <LinkSubscriberModalButton phone={call.callerNumber} />
+                        {!call.callerName ? <LinkSubscriberModalButton phone={call.callerNumber} /> : null}
                       </TableCell>
                       <TableCell className="tabular-nums text-sm">{lineNumber(call.simLineId)}</TableCell>
                       <TableCell className="text-sm">{queueName(call.queueId)}</TableCell>
@@ -718,3 +724,163 @@ function TransferDialog({
     </Dialog>
   );
 }
+
+
+
+
+function LinkSubscriberModalButton({ phone, onDone }: { phone?: string; onDone?: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [rows, setRows] = useState<any[]>([]);
+  const [selected, setSelected] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [modalMsg, setModalMsg] = useState('');
+
+  async function search() {
+    if (!q.trim()) { setModalMsg('اكتب اسم أو رقم أو PPPoE للبحث'); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/subscriber-identity/search?q=${encodeURIComponent(q.trim())}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}` },
+      });
+      const data = await res.json();
+      setRows(Array.isArray(data) ? data : []);
+      setSelected(null);
+      setModalMsg(Array.isArray(data) && data.length ? '' : 'ماكو نتائج مطابقة');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function confirm() {
+    if (!phone || !selected?.pppoeUsername) { setModalMsg('اختار مشترك يحتوي PPPoE'); return; }
+
+    setSaving(true);
+    try {
+      const res = await fetch('/api/subscriber-identity/link', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}`,
+        },
+        body: JSON.stringify({
+          phone,
+          pppoeUsername: selected.pppoeUsername,
+          externalId: selected.id || null,
+          label: 'رقم إضافي',
+          verified: false,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setModalMsg(data.error || data.message || 'فشل ربط الرقم');
+        return;
+      }
+
+      setOpen(false);
+      setQ('');
+      setRows([]);
+      setSelected(null);
+      setModalMsg(Array.isArray(data) && data.length ? '' : 'ماكو نتائج مطابقة');
+      setModalMsg('تم ربط الرقم بنجاح');
+      setTimeout(() => onDone?.(), 600);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      <button onClick={() => setOpen(true)} className="mt-3 w-full rounded-2xl bg-sky-600 px-4 py-3 text-xs font-black text-white shadow-sm hover:bg-sky-700">
+        ربط / تغيير ربط الرقم
+      </button>
+
+      {open ? (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" dir="rtl">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b p-5">
+              <div>
+                <h2 className="text-xl font-black text-slate-950">ربط الرقم بمشترك</h2>
+                <p className="mt-1 text-xs font-bold text-slate-500">ابحث بالاسم أو الرقم أو PPPoE ثم اختر المشترك</p>
+              </div>
+              <button onClick={() => setOpen(false)} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-black">إغلاق</button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <div className="rounded-2xl border bg-sky-50 p-4 text-sm font-black text-slate-700">
+                الرقم المراد ربطه: <span dir="ltr" className="text-sky-700">{phone || '—'}</span>
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') search(); }}
+                  placeholder="بحث بالاسم أو الرقم أو PPPoE..."
+                  className="h-12 flex-1 rounded-2xl border px-4 text-sm font-bold outline-none focus:ring-2 focus:ring-sky-100"
+                />
+                <button onClick={search} disabled={loading} className="h-12 rounded-2xl bg-slate-950 px-6 text-sm font-black text-white disabled:opacity-50">
+                  {loading ? 'بحث...' : 'بحث'}
+                </button>
+              </div>
+
+              <div className="max-h-[360px] overflow-auto rounded-2xl border">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-slate-50 text-xs text-slate-500">
+                    <tr>
+                      <th className="p-3 text-right">اختيار</th>
+                      <th className="p-3 text-right">الاسم</th>
+                      <th className="p-3 text-right">PPPoE</th>
+                      <th className="p-3 text-right">الهاتف</th>
+                      <th className="p-3 text-right">الباقة</th>
+                      <th className="p-3 text-right">الدين</th>
+                      <th className="p-3 text-right">الحالة</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.length === 0 ? (
+                      <tr><td colSpan={7} className="p-8 text-center text-xs font-bold text-slate-400">ابحث لعرض النتائج</td></tr>
+                    ) : rows.map((x: any, i: number) => (
+                      <tr
+                        key={`${x.id || x.pppoeUsername || i}`}
+                        onClick={() => setSelected(x)}
+                        className={`cursor-pointer border-t hover:bg-sky-50 ${selected?.pppoeUsername === x.pppoeUsername ? 'bg-sky-100' : 'bg-white'}`}
+                      >
+                        <td className="p-3"><input type="radio" checked={selected?.pppoeUsername === x.pppoeUsername} readOnly /></td>
+                        <td className="p-3 font-black">{x.name || '—'}<div className="text-[11px] text-slate-400">ID: {x.id || '—'}</div></td>
+                        <td className="p-3 font-mono font-bold">{x.pppoeUsername || '—'}</td>
+                        <td className="p-3 font-mono">{x.phone || '—'}</td>
+                        <td className="p-3">{x.package || '—'}</td>
+                        <td className="p-3 font-black">{Number(x.debt || 0).toLocaleString('en-US')} د.ع</td>
+                        <td className="p-3"><span className="rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-black text-emerald-700">{x.status || '—'}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="rounded-2xl border bg-slate-50 p-4">
+                <div className="mb-2 text-sm font-black">تفاصيل الربط</div>
+                <div className="grid gap-2 text-xs font-bold text-slate-600 md:grid-cols-3">
+                  <div>الرقم: <span dir="ltr" className="text-sky-700">{phone || '—'}</span></div>
+                  <div>المشترك: {selected?.name || '—'}</div>
+                  <div>PPPoE: <span className="font-mono">{selected?.pppoeUsername || '—'}</span></div>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button onClick={confirm} disabled={saving || !selected} className="h-12 flex-1 rounded-2xl bg-sky-600 text-sm font-black text-white disabled:opacity-50">
+                  {saving ? 'جاري الربط...' : 'تأكيد الربط'}
+                </button>
+                <button onClick={() => setOpen(false)} className="h-12 rounded-2xl border px-6 text-sm font-black">إلغاء</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+

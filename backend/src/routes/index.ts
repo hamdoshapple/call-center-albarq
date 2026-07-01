@@ -47,6 +47,7 @@ router.post('/subscriber-portal/accounts/:id/tickets', h(subscriberPortal.create
 router.get('/subscriber-portal/accounts/:id/tickets/:ticketId', h(subscriberPortal.getAccountTicket));
 router.post('/subscriber-portal/accounts/:id/tickets/:ticketId/comments', h(subscriberPortal.addAccountTicketComment));
 
+router.get('/subscriber-identity/search', authenticate, h(subscriberIdentity.searchSubscribers));
 router.get('/subscriber-identity/resolve', authenticate, h(subscriberIdentity.resolve));
 router.post('/subscriber-identity/link', authenticate, h(subscriberIdentity.link));
 router.get('/subscriber-identity/aliases', authenticate, h(subscriberIdentity.aliases));

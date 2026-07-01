@@ -80,8 +80,8 @@ export async function link(req: Request, res: Response) {
   await prisma.$executeRawUnsafe(
     `
     INSERT INTO SubscriberContactAlias
-      (id, phoneNorm, label, pppoeUsername, externalId, subscriberId, verified, source, createdById)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', ?)
+      (id, phoneNorm, label, pppoeUsername, externalId, subscriberId, verified, source, createdById, createdAt, updatedAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', ?, NOW(3), NOW(3))
     ON DUPLICATE KEY UPDATE
       label=VALUES(label),
       pppoeUsername=VALUES(pppoeUsername),
@@ -118,4 +118,24 @@ export async function aliases(req: Request, res: Response) {
   ).catch(() => []);
 
   res.json(rows);
+}
+
+
+export async function searchSubscribers(req: Request, res: Response) {
+  const q = String(req.query.q || '').trim();
+  if (q.length < 2) return res.json([]);
+
+  const live = await searchExternalSubscribers(q).catch(() => []);
+  const cached = live.length ? [] : await searchSubscriberCache(q).catch(() => []);
+
+  res.json((live.length ? live : cached).slice(0, 20).map((x: any) => ({
+    id: x.id,
+    name: x.name || x.fullName || '',
+    phone: x.phone || '',
+    pppoeUsername: x.pppoeUsername || '',
+    package: x.package || x.packageName || '',
+    status: x.status || '',
+    debt: Number(x.debt || 0),
+    source: live.length ? 'live_sql' : 'cache',
+  })));
 }
