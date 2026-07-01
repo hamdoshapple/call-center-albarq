@@ -39,20 +39,20 @@ model Permission {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  username     String    @unique
-  email        String?   @unique
+  id           String     @id @default(cuid())
+  username     String     @unique
+  email        String?    @unique
   passwordHash String
   fullName     String
   roleId       String
-  role         Role      @relation(fields: [roleId], references: [id])
-  active       Boolean   @default(true)
+  role         Role       @relation(fields: [roleId], references: [id])
+  active       Boolean    @default(true)
   agent        Agent?
   lastLogin    DateTime?
   notes        Note[]
   auditLogs    AuditLog[]
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 
   @@index([roleId])
 }
@@ -113,36 +113,36 @@ model Extension {
 
 // ===================== Queues =====================
 model Queue {
-  id            String        @id @default(cuid())
-  name          String
-  number        String        @unique
-  strategy      String        @default("ringall") // ringall, linear, leastrecent, roundrobin
-  maxWaitTime   Int           @default(120)
-  musicOnHold   String        @default("default")
-  announcement  String?
-  missedBehavior String       @default("voicemail") // voicemail, callback, overflow, hangup
-  departmentId  String?
-  department    Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  members       QueueMember[]
-  calls         Call[]
-  waiting       Int           @default(0)
-  answered      Int           @default(0)
-  abandoned     Int           @default(0)
-  avgWait       Int           @default(0)
-  serviceLevel  Int           @default(0)
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id             String        @id @default(cuid())
+  name           String
+  number         String        @unique
+  strategy       String        @default("ringall") // ringall, linear, leastrecent, roundrobin
+  maxWaitTime    Int           @default(120)
+  musicOnHold    String        @default("default")
+  announcement   String?
+  missedBehavior String        @default("voicemail") // voicemail, callback, overflow, hangup
+  departmentId   String?
+  department     Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  members        QueueMember[]
+  calls          Call[]
+  waiting        Int           @default(0)
+  answered       Int           @default(0)
+  abandoned      Int           @default(0)
+  avgWait        Int           @default(0)
+  serviceLevel   Int           @default(0)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
   @@index([departmentId])
 }
 
 model QueueMember {
-  id       String @id @default(cuid())
-  queueId  String
-  agentId  String
-  penalty  Int    @default(0)
-  queue    Queue  @relation(fields: [queueId], references: [id], onDelete: Cascade)
-  agent    Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  id      String @id @default(cuid())
+  queueId String
+  agentId String
+  penalty Int    @default(0)
+  queue   Queue  @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@unique([queueId, agentId])
   @@index([agentId])
@@ -150,20 +150,20 @@ model QueueMember {
 
 // ===================== IVR =====================
 model IvrMenu {
-  id                 String      @id @default(cuid())
+  id                 String       @id @default(cuid())
   name               String
-  description        String?     @db.Text
+  description        String?      @db.Text
   greetingPromptId   String?
   greetingPrompt     VoicePrompt? @relation(fields: [greetingPromptId], references: [id], onDelete: SetNull)
-  timeout            Int         @default(10)
-  timeoutDestination String      @default("hangup")
-  invalidDestination String      @default("repeat")
-  repeatOnInvalid    Boolean     @default(true)
-  maxRepeats         Int         @default(3)
-  active             Boolean     @default(true)
+  timeout            Int          @default(10)
+  timeoutDestination String       @default("hangup")
+  invalidDestination String       @default("repeat")
+  repeatOnInvalid    Boolean      @default(true)
+  maxRepeats         Int          @default(3)
+  active             Boolean      @default(true)
   options            IvrOption[]
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
   @@index([greetingPromptId])
 }
@@ -184,17 +184,17 @@ model IvrOption {
 
 // ===================== Voice Prompts =====================
 model VoicePrompt {
-  id         String    @id @default(cuid())
-  name       String
-  category   String // welcome, waiting, closed_hours, busy, ivr, announcement, other
-  fileName   String
-  url        String
-  duration   Int       @default(0)
-  language   String    @default("ar")
-  sizeKb     Int       @default(0)
-  ivrMenus   IvrMenu[]
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id        String    @id @default(cuid())
+  name      String
+  category  String // welcome, waiting, closed_hours, busy, ivr, announcement, other
+  fileName  String
+  url       String
+  duration  Int       @default(0)
+  language  String    @default("ar")
+  sizeKb    Int       @default(0)
+  ivrMenus  IvrMenu[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }
 
 // ===================== TG400 / GSM Lines =====================
@@ -219,31 +219,31 @@ model Tg400Line {
 
 // ===================== Calls / CDR =====================
 model Call {
-  id               String      @id @default(cuid())
-  uniqueId         String?     @unique // Asterisk channel uniqueid
-  callerNumber     String
+  id                String      @id @default(cuid())
+  uniqueId          String?     @unique // Asterisk channel uniqueid
+  callerNumber      String
   destinationNumber String
-  direction        String // inbound, outbound, internal
-  status           String      @default("ringing") // ringing, waiting, active, ended, missed, failed
-  disposition      String? // answered, missed, busy, failed, no_answer, abandoned
-  agentId          String?
-  agent            Agent?      @relation(fields: [agentId], references: [id], onDelete: SetNull)
-  queueId          String?
-  queue            Queue?      @relation(fields: [queueId], references: [id], onDelete: SetNull)
-  lineId           String?
-  line             Tg400Line?  @relation(fields: [lineId], references: [id], onDelete: SetNull)
-  subscriberId     String?
-  subscriber       Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
-  startedAt        DateTime    @default(now())
-  answeredAt       DateTime?
-  endedAt          DateTime?
-  durationSec      Int         @default(0)
-  talkTimeSec      Int         @default(0)
-  waitTimeSec      Int         @default(0)
-  note             String?     @db.Text
-  events           CallEvent[]
-  recording        Recording?
-  createdAt        DateTime    @default(now())
+  direction         String // inbound, outbound, internal
+  status            String      @default("ringing") // ringing, waiting, active, ended, missed, failed
+  disposition       String? // answered, missed, busy, failed, no_answer, abandoned
+  agentId           String?
+  agent             Agent?      @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  queueId           String?
+  queue             Queue?      @relation(fields: [queueId], references: [id], onDelete: SetNull)
+  lineId            String?
+  line              Tg400Line?  @relation(fields: [lineId], references: [id], onDelete: SetNull)
+  subscriberId      String?
+  subscriber        Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+  startedAt         DateTime    @default(now())
+  answeredAt        DateTime?
+  endedAt           DateTime?
+  durationSec       Int         @default(0)
+  talkTimeSec       Int         @default(0)
+  waitTimeSec       Int         @default(0)
+  note              String?     @db.Text
+  events            CallEvent[]
+  recording         Recording?
+  createdAt         DateTime    @default(now())
 
   @@index([agentId])
   @@index([queueId])
@@ -264,47 +264,47 @@ model CallEvent {
 }
 
 model Recording {
-  id          String   @id @default(cuid())
-  callId      String   @unique
-  call        Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+  id           String   @id @default(cuid())
+  callId       String   @unique
+  call         Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
   callerNumber String
-  agentId     String?
-  agent       Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
-  fileName    String
-  url         String
-  durationSec Int      @default(0)
-  sizeKb      Int      @default(0)
-  recordedAt  DateTime @default(now())
+  agentId      String?
+  agent        Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  fileName     String
+  url          String
+  durationSec  Int      @default(0)
+  sizeKb       Int      @default(0)
+  recordedAt   DateTime @default(now())
 
   @@index([agentId])
 }
 
 // ===================== Subscribers / Tickets / Callbacks =====================
 model Subscriber {
-  id             String   @id @default(cuid())
+  id             String     @id @default(cuid())
   name           String
   phone          String
   pppoeUsername  String?
-  status         String   @default("active") // active, expired, suspended, disabled
+  status         String     @default("active") // active, expired, suspended, disabled
   package        String?
   speed          String?
   expiration     DateTime?
-  debt           Float    @default(0)
+  debt           Float      @default(0)
   lastActivation DateTime?
   address        String?
-  notes          String?  @db.Text
+  notes          String?    @db.Text
   tickets        Ticket[]
   calls          Call[]
   callbacks      Callback[]
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 }
 
 model Ticket {
-  id             String      @id @default(cuid())
+  id String @id @default(cuid())
 
-  subscriberId   String?
-  subscriber     Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+  subscriberId String?
+  subscriber   Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
 
   externalId     String?
   externalName   String?
@@ -312,13 +312,13 @@ model Ticket {
   externalPppoe  String?
   externalSource String?
 
-  subject        String
-  status         String      @default("open") // open, pending, resolved, closed
-  priority       String      @default("medium") // low, medium, high, urgent
-  agentId        String?
+  subject  String
+  status   String  @default("open") // open, pending, resolved, closed
+  priority String  @default("medium") // low, medium, high, urgent
+  agentId  String?
 
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([subscriberId])
   @@index([externalId])
@@ -326,16 +326,16 @@ model Ticket {
 }
 
 model Callback {
-  id           String     @id @default(cuid())
+  id           String      @id @default(cuid())
   callerNumber String
   subscriberId String?
   subscriber   Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
-  requestedAt  DateTime   @default(now())
+  requestedAt  DateTime    @default(now())
   scheduledFor DateTime
-  status       String     @default("pending") // pending, completed, failed
+  status       String      @default("pending") // pending, completed, failed
   agentId      String?
-  agent        Agent?     @relation(fields: [agentId], references: [id], onDelete: SetNull)
-  reason       String?    @db.Text
+  agent        Agent?      @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  reason       String?     @db.Text
 
   @@index([agentId])
 }
@@ -354,9 +354,9 @@ model Note {
 
 // ===================== Settings / Audit / Notifications =====================
 model Setting {
-  id    String @id @default(cuid())
-  key   String @unique
-  value Json
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
   updatedAt DateTime @updatedAt
 }
 
@@ -388,23 +388,22 @@ model Notification {
   @@index([read])
 }
 
-
 // ===================== VPN / L2TP Management =====================
 model VpnUser {
-  id           String   @id @default(cuid())
-  username     String   @unique
+  id           String    @id @default(cuid())
+  username     String    @unique
   password     String
-  service      String   @default("l2tp")
-  remoteIp     String?  @db.VarChar(60)
-  localIp      String?  @db.VarChar(60)
-  routedRanges String?  @db.Text
+  service      String    @default("l2tp")
+  remoteIp     String?   @db.VarChar(60)
+  localIp      String?   @db.VarChar(60)
+  routedRanges String?   @db.Text
   expiresAt    DateTime?
-  enabled      Boolean  @default(true)
-  notes        String?  @db.Text
+  enabled      Boolean   @default(true)
+  notes        String?   @db.Text
   createdBy    String?
   logs         VpnLog[]
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }
 
 model VpnLog {
@@ -420,24 +419,24 @@ model VpnLog {
 }
 
 model SubscriberCache {
-  id             String   @id @default(cuid())
-  externalId     String   @unique
-  name           String
-  phone          String
+  id              String    @id @default(cuid())
+  externalId      String    @unique
+  name            String
+  phone           String
   normalizedPhone String
-  pppoeUsername  String?
-  status         String   @default("active")
-  package        String?
-  speed          String?
-  expiration     DateTime?
-  debt           Float    @default(0)
-  lastActivation DateTime?
-  address        String?
-  notes          String?  @db.Text
-  source         String   @default("mynet")
-  raw            Json?
-  cachedAt       DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  pppoeUsername   String?
+  status          String    @default("active")
+  package         String?
+  speed           String?
+  expiration      DateTime?
+  debt            Float     @default(0)
+  lastActivation  DateTime?
+  address         String?
+  notes           String?   @db.Text
+  source          String    @default("mynet")
+  raw             Json?
+  cachedAt        DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@index([normalizedPhone])
   @@index([phone])
@@ -446,37 +445,37 @@ model SubscriberCache {
 }
 
 model DataSourceSetting {
-  id                String   @id @default(cuid())
-  sourceName        String   @unique
-  enabled           Boolean  @default(true)
-  cacheTtlMinutes   Int      @default(30)
-  fallbackToCache   Boolean  @default(true)
-  manualCacheOnly   Boolean  @default(false)
-  lastSyncAt        DateTime?
-  lastError         String?  @db.Text
-  lastStatus        String   @default("unknown")
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id              String    @id @default(cuid())
+  sourceName      String    @unique
+  enabled         Boolean   @default(true)
+  cacheTtlMinutes Int       @default(30)
+  fallbackToCache Boolean   @default(true)
+  manualCacheOnly Boolean   @default(false)
+  lastSyncAt      DateTime?
+  lastError       String?   @db.Text
+  lastStatus      String    @default("unknown")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }
 
 model ExternalSubscriberCache {
-  id             String   @id @default(cuid())
-  externalId     String   @unique
+  id             String    @id @default(cuid())
+  externalId     String    @unique
   name           String
   phone          String
   phoneNorm      String
   pppoeUsername  String?
-  status         String   @default("active")
+  status         String    @default("active")
   package        String?
   speed          String?
   expiration     DateTime?
-  debt           Float    @default(0)
+  debt           Float     @default(0)
   lastActivation DateTime?
   address        String?
-  notes          String?  @db.Text
-  externalSource String   @default("mynet")
-  cachedAt       DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  notes          String?   @db.Text
+  externalSource String    @default("mynet")
+  cachedAt       DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([phoneNorm])
   @@index([name])
@@ -487,95 +486,95 @@ model ExternalSubscriberCache {
 // ===================== Subscriber Portal =====================
 
 model SubscriberAppConfig {
-  id                   String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  appName              String   @default("Albarq")
-  logoUrl              String?
-  splashLogoUrl        String?
+  appName       String  @default("Albarq")
+  logoUrl       String?
+  splashLogoUrl String?
 
-  primaryColor         String   @default("#4f46e5")
-  secondaryColor       String   @default("#06b6d4")
+  primaryColor   String @default("#4f46e5")
+  secondaryColor String @default("#06b6d4")
 
-  expiredColor         String   @default("#dc2626")
-  warningColor         String   @default("#f59e0b")
+  expiredColor String @default("#dc2626")
+  warningColor String @default("#f59e0b")
 
-  supportPhone         String?
-  supportWhatsapp      String?
-  supportTelegram      String?
+  supportPhone    String?
+  supportWhatsapp String?
+  supportTelegram String?
 
-  welcomeMessage       String?  @db.Text
-  expiredMessage       String?  @db.Text
+  welcomeMessage String? @db.Text
+  expiredMessage String? @db.Text
 
-  bannerTitle          String?
-  bannerText           String?  @db.Text
-  bannerImage          String?
-  bannerLink           String?
+  bannerTitle String?
+  bannerText  String? @db.Text
+  bannerImage String?
+  bannerLink  String?
 
-  popupEnabled         Boolean  @default(false)
-  popupTitle           String?
-  popupMessage         String?  @db.Text
+  popupEnabled Boolean @default(false)
+  popupTitle   String?
+  popupMessage String? @db.Text
 
-  enablePayments       Boolean  @default(false)
-  enableTickets        Boolean  @default(true)
-  enableNotifications  Boolean  @default(true)
+  enablePayments      Boolean @default(false)
+  enableTickets       Boolean @default(true)
+  enableNotifications Boolean @default(true)
 
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model SubscriberAppBanner {
-  id          String   @id @default(cuid())
+  id String @id @default(cuid())
 
   title       String
-  description String?  @db.Text
+  description String? @db.Text
 
-  imageUrl    String?
-  linkUrl     String?
+  imageUrl String?
+  linkUrl  String?
 
-  active      Boolean  @default(true)
-  sortOrder   Int      @default(0)
+  active    Boolean @default(true)
+  sortOrder Int     @default(0)
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model SubscriberPayment {
-  id                     String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  externalSubscriberId   String
+  externalSubscriberId String
 
-  amount                 Float
+  amount Float
 
-  paymentMethod          String
+  paymentMethod String
 
-  referenceNumber        String?
+  referenceNumber String?
 
-  status                 String   @default("pending")
+  status String @default("pending")
 
-  paidAt                 DateTime?
+  paidAt DateTime?
 
-  createdAt              DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([externalSubscriberId])
   @@index([status])
 }
 
 model ExternalSubscriberPaymentCache {
-  id             String   @id @default(cuid())
-  externalId     String
-  sandId         Int
-  date           DateTime?
-  amount         Float    @default(0)
-  type           String   @default("other")
-  title          String
-  notes          String?  @db.Text
-  package        String?
-  dateFrom       DateTime?
-  dateTo         DateTime?
-  moneyIn        Float    @default(0)
-  moneyOut       Float    @default(0)
-  cachedAt       DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id         String    @id @default(cuid())
+  externalId String
+  sandId     Int
+  date       DateTime?
+  amount     Float     @default(0)
+  type       String    @default("other")
+  title      String
+  notes      String?   @db.Text
+  package    String?
+  dateFrom   DateTime?
+  dateTo     DateTime?
+  moneyIn    Float     @default(0)
+  moneyOut   Float     @default(0)
+  cachedAt   DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@unique([externalId, sandId])
   @@index([externalId])
@@ -747,7 +746,6 @@ model WhatsappMessageLog {
   @@index([createdAt])
 }
 
-
 model TelegramSession {
   id          String    @id @default(cuid())
   sessionId   String    @unique
@@ -784,36 +782,36 @@ model TelegramMessageLog {
 }
 
 model TwilioWhatsappSetting {
-  id             String   @id @default(cuid())
-  accountSid     String?
-  authToken      String?  @db.Text
-  whatsappFrom   String?
-  messagingServiceSid String?
-  enabled        Boolean  @default(false)
-  conversationWindowHours Int @default(24)
-  lastError      String?  @db.Text
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                      String   @id @default(cuid())
+  accountSid              String?
+  authToken               String?  @db.Text
+  whatsappFrom            String?
+  messagingServiceSid     String?
+  enabled                 Boolean  @default(false)
+  conversationWindowHours Int      @default(24)
+  lastError               String?  @db.Text
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 }
 
 model TwilioWhatsappContact {
-  id          String   @id @default(cuid())
-  phone       String   @unique
-  name        String?
-  lastMessage String?  @db.Text
-  lastAt      DateTime?
+  id            String    @id @default(cuid())
+  phone         String    @unique
+  name          String?
+  lastMessage   String?   @db.Text
+  lastAt        DateTime?
   lastInboundAt DateTime?
-  unreadCount Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  unreadCount   Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   messages TwilioWhatsappMessage[]
 }
 
 model TwilioWhatsappMessage {
   id         String   @id @default(cuid())
-  contactId String
-  direction String
+  contactId  String
+  direction  String
   body       String?  @db.Text
   mediaUrl   String?  @db.Text
   mediaType  String?
@@ -846,7 +844,6 @@ model AdminTicketTeam {
   @@map("AdminTicketTeam")
 }
 
-
 model AdminTicketActivity {
   id        String   @id
   ticketId  String
@@ -876,13 +873,13 @@ model AdminTicketPresence {
 }
 
 model AdminTicketChecklist {
-  id        String   @id
+  id        String    @id
   ticketId  String
   title     String
-  done      Boolean  @default(false)
+  done      Boolean   @default(false)
   doneById  String?
   doneAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([ticketId])
   @@map("AdminTicketChecklist")
@@ -900,13 +897,13 @@ model AdminTicketTag {
 }
 
 model AdminTicketWorkSession {
-  id        String   @id
+  id        String    @id
   ticketId  String
   userId    String
   userName  String?
-  startedAt DateTime @default(now())
+  startedAt DateTime  @default(now())
   endedAt   DateTime?
-  seconds   Int      @default(0)
+  seconds   Int       @default(0)
 
   @@index([ticketId])
   @@index([userId])
@@ -930,4 +927,143 @@ model SubscriberContactAlias {
   @@index([pppoeUsername])
   @@index([externalId])
   @@index([subscriberId])
+}
+
+model AiSetting {
+  id          Int      @id @default(1)
+  enabled     Boolean  @default(false)
+  provider    String   @default("ollama")
+  model       String   @default("gemma3:4b")
+  temperature Float    @default(0.2)
+  topP        Float    @default(0.9)
+  topK        Int      @default(40)
+  contextSize Int      @default(4096)
+  maxTokens   Int      @default(512)
+  timeoutMs   Int      @default(60000)
+  streaming   Boolean  @default(false)
+  threads     Int      @default(4)
+  gpuLayers   Int      @default(0)
+  memoryMb    Int      @default(4096)
+  keepAlive   String   @default("10m")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AiProvider {
+  id         Int      @id @default(autoincrement())
+  key        String   @unique
+  name       String
+  type       String   @default("local")
+  baseUrl    String?
+  enabled    Boolean  @default(true)
+  configJson Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model AiModel {
+  id          Int      @id @default(autoincrement())
+  providerKey String
+  name        String
+  displayName String?
+  sizeBytes   BigInt?
+  status      String   @default("available")
+  isDefault   Boolean  @default(false)
+  metaJson    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([providerKey, name])
+}
+
+model AiPrompt {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  title     String
+  content   String   @db.LongText
+  enabled   Boolean  @default(true)
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AiSkill {
+  id         Int      @id @default(autoincrement())
+  key        String   @unique
+  title      String
+  enabled    Boolean  @default(false)
+  promptKey  String?
+  modelName  String?
+  toolsJson  Json?
+  configJson Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model AiTool {
+  id         Int      @id @default(autoincrement())
+  key        String   @unique
+  title      String
+  enabled    Boolean  @default(false)
+  riskLevel  String   @default("read_only")
+  configJson Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model AiRule {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  title     String
+  content   String   @db.LongText
+  enabled   Boolean  @default(true)
+  severity  String   @default("medium")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AiLog {
+  id         Int      @id @default(autoincrement())
+  source     String
+  skillKey   String?
+  provider   String?
+  model      String?
+  prompt     String?  @db.LongText
+  response   String?  @db.LongText
+  confidence Float?
+  latencyMs  Int?
+  tokensIn   Int?
+  tokensOut  Int?
+  success    Boolean  @default(true)
+  error      String?  @db.LongText
+  metaJson   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([source])
+  @@index([skillKey])
+}
+
+model AiPlaygroundRun {
+  id         Int      @id @default(autoincrement())
+  prompt     String   @db.LongText
+  response   String?  @db.LongText
+  provider   String?
+  model      String?
+  confidence Float?
+  latencyMs  Int?
+  rawJson    Json?
+  createdAt  DateTime @default(now())
+}
+
+model AiKnowledgeFile {
+  id           Int      @id @default(autoincrement())
+  originalName String
+  storedName   String
+  mimeType     String?
+  sizeBytes    Int?
+  status       String   @default("uploaded")
+  path         String
+  metaJson     Json?
+  createdAt    DateTime @default(now())
 }

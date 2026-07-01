@@ -21,6 +21,7 @@ import {
   MessageCircle,
   type LucideIcon,
   Link2,
+  BrainCircuit,
 } from 'lucide-react';
 
 export type NavGroup = 'operations' | 'telephony' | 'management' | 'system';
@@ -58,6 +59,7 @@ export const NAV_ITEMS: NavItem[] = [
   { module: 'vpn', path: '/vpn', icon: ShieldCheck, group: 'system' },
   { module: 'permissions', path: '/permissions', icon: ShieldCheck, group: 'system' },
   { module: 'company_settings', path: '/company-settings', icon: Settings, group: 'system' },
+  { module: 'company_settings', path: '/ai-center', icon: BrainCircuit, group: 'system' },
 ];
 
 export const NAV_GROUP_ORDER: NavGroup[] = ['operations', 'telephony', 'management', 'system'];

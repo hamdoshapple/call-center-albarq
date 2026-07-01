@@ -27,6 +27,7 @@ import * as whatsapp from '../controllers/whatsapp.controller.js';
 import * as subscriberIdentity from '../controllers/subscriber-identity.controller.js';
 import * as whatsappTwilio from '../controllers/whatsapp-twilio.controller.js';
 import * as telegram from '../controllers/telegram.controller.js';
+import * as aiController from '../controllers/ai.controller.js';
 
 export const router = Router();
 
@@ -201,6 +202,22 @@ router.get('/reports/callbacks', perm('reports'), h(reports.callbacks));
 // ---------- Permissions ----------
 router.get('/permissions', perm('permissions'), h(misc.getPermissions));
 router.put('/permissions', perm('permissions', 'edit'), h(misc.setPermission));
+
+
+// ---------- Albarq AI ----------
+router.post('/ai/bootstrap', perm('company_settings', 'edit'), h(aiController.aiBootstrap));
+router.get('/ai/status', perm('company_settings'), h(aiController.aiStatus));
+router.get('/ai/settings', perm('company_settings'), h(aiController.aiSettings));
+router.put('/ai/settings', perm('company_settings', 'edit'), h(aiController.aiUpdateSettings));
+router.get('/ai/providers', perm('company_settings'), h(aiController.aiProviders));
+router.get('/ai/models', perm('company_settings'), h(aiController.aiModels));
+router.post('/ai/models/sync-ollama', perm('company_settings', 'edit'), h(aiController.aiSyncOllamaModels));
+router.get('/ai/prompts', perm('company_settings'), h(aiController.aiPrompts));
+router.get('/ai/skills', perm('company_settings'), h(aiController.aiSkills));
+router.get('/ai/tools', perm('company_settings'), h(aiController.aiTools));
+router.get('/ai/rules', perm('company_settings'), h(aiController.aiRules));
+router.post('/ai/playground/run', perm('company_settings', 'edit'), h(aiController.aiPlaygroundRun));
+router.get('/ai/logs', perm('company_settings'), h(aiController.aiLogs));
 
 // ---------- Company settings ----------
 router.get('/company', perm('company_settings'), h(misc.getCompany));

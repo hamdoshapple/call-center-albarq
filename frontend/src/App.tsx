@@ -33,6 +33,7 @@ import EmployeeProfilePage from '@/pages/employee-app/profile';
 import EmployeeWhatsappPage from '@/pages/employee-app/whatsapp';
 import EmployeeLoginPage from '@/pages/employee-app/login';
 import SubscriberAliasesPage from './pages/subscriber-aliases';
+import AiCenter from '@/pages/AiCenter';
 
 if (window.location.hostname === 'staff.albarq.app' && window.location.pathname === '/') {
   window.location.replace('/employee/');
@@ -96,6 +97,7 @@ export function App() {
         <Route path="/vpn" element={<ProtectedRoute module="vpn"><VpnPage /></ProtectedRoute>} />
         <Route path="/permissions" element={<ProtectedRoute module="permissions"><PermissionsPage /></ProtectedRoute>} />
         <Route path="/company-settings" element={<ProtectedRoute module="company_settings"><CompanySettingsPage /></ProtectedRoute>} />
+        <Route path="/ai-center" element={<ProtectedRoute><AiCenter /></ProtectedRoute>} />
       </Route>
 
       <Route path="/" element={<RootRedirect />} />

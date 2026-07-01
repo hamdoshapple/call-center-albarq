@@ -22,6 +22,7 @@ function itemLabel(item: any, t: any) {
   if (item.path === '/subscriber-aliases') return 'ارتباطات الأرقام';
   if (item.path === '/whatsapp-inbox') return 'صندوق الوارد';
   if (item.path === '/whatsapp') return 'واتساب';
+  if (item.path === '/ai-center') return 'Albarq AI';
   return t(`nav.${item.module}`, item.module);
 }
 
