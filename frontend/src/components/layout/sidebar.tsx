@@ -72,7 +72,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                         }
                       >
                         <Icon className="h-[18px] w-[18px] shrink-0" />
-                        <span className="truncate">{item.path === '/admin-tickets' ? 'التكتات' : t(`nav.${item.module}`, item.module)}</span>
+                        <span className="truncate">{item.path === '/admin-tickets' ? 'التكتات' : item.path === '/subscriber-aliases' ? 'ارتباطات الأرقام' : t(`nav.${item.module}`, item.module)}</span>
                       </NavLink>
                     );
                   })}

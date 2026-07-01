@@ -32,6 +32,7 @@ import EmployeeTicketsPage from '@/pages/employee-app/tickets';
 import EmployeeProfilePage from '@/pages/employee-app/profile';
 import EmployeeWhatsappPage from '@/pages/employee-app/whatsapp';
 import EmployeeLoginPage from '@/pages/employee-app/login';
+import SubscriberAliasesPage from './pages/subscriber-aliases';
 
 if (window.location.hostname === 'staff.albarq.app' && window.location.pathname === '/') {
   window.location.replace('/employee/');
@@ -77,6 +78,7 @@ export function App() {
         <Route path="/call-transfer" element={<ProtectedRoute module="call_transfer"><CallTransferPage /></ProtectedRoute>} />
         <Route path="/subscribers" element={<ProtectedRoute module="subscribers"><SubscribersPage /></ProtectedRoute>} />
         <Route path="/subscribers/:id" element={<ProtectedRoute module="subscribers"><SubscribersPage /></ProtectedRoute>} />
+        <Route path="/subscriber-aliases" element={<ProtectedRoute module="subscribers"><SubscriberAliasesPage /></ProtectedRoute>} />
         <Route path="/admin-tickets" element={<ProtectedRoute><AdminTicketsPage /></ProtectedRoute>} />
         <Route path="/push-notifications" element={<ProtectedRoute><PushNotificationsPage /></ProtectedRoute>} />
         <Route path="/whatsapp" element={<ProtectedRoute><WhatsappPage /></ProtectedRoute>} />
@@ -98,6 +100,6 @@ export function App() {
 
       <Route path="/" element={<RootRedirect />} />
       <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+</Routes>
   );
 }

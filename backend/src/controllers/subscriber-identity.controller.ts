@@ -139,3 +139,38 @@ export async function searchSubscribers(req: Request, res: Response) {
     source: live.length ? 'live_sql' : 'cache',
   })));
 }
+
+export async function listLinks(req: Request, res: Response) {
+  const q = String(req.query.q || '').trim();
+
+  const where = q
+    ? `WHERE phoneNorm LIKE ? OR pppoeUsername LIKE ? OR externalId LIKE ? OR label LIKE ?`
+    : '';
+
+  const params = q ? [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`] : [];
+
+  const rows = await prisma.$queryRawUnsafe<any[]>(
+    `
+    SELECT *
+    FROM SubscriberContactAlias
+    ${where}
+    ORDER BY updatedAt DESC
+    LIMIT 300
+    `,
+    ...params
+  ).catch(() => []);
+
+  res.json(rows);
+}
+
+export async function deleteLink(req: Request, res: Response) {
+  const id = String(req.params.id || '').trim();
+  if (!id) return res.status(400).json({ message: 'id required' });
+
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM SubscriberContactAlias WHERE id=?`,
+    id
+  );
+
+  res.json({ ok: true });
+}

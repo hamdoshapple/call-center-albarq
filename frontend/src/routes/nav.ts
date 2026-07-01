@@ -20,6 +20,7 @@ import {
   BellRing,
   MessageCircle,
   type LucideIcon,
+  Link2,
 } from 'lucide-react';
 
 export type NavGroup = 'operations' | 'telephony' | 'management' | 'system';
@@ -36,6 +37,7 @@ export const NAV_ITEMS: NavItem[] = [
   { module: 'live_calls', path: '/live-calls', icon: PhoneCall, group: 'operations' },
   { module: 'call_transfer', path: '/call-transfer', icon: ArrowRightLeft, group: 'operations' },
   { module: 'subscribers', path: '/subscribers', icon: UserSearch, group: 'operations' },
+  { module: 'subscribers', path: '/subscriber-aliases', icon: Link2, group: 'operations' },
   { module: 'admin_tickets' as ModuleKey, path: '/admin-tickets', icon: MessageSquare, group: 'operations' },
   { module: 'push_notifications' as ModuleKey, path: '/push-notifications', icon: BellRing, group: 'operations' },
   { module: 'whatsapp' as ModuleKey, path: '/whatsapp', icon: MessageCircle, group: 'operations' },
