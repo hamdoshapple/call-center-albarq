@@ -788,6 +788,7 @@ model TwilioWhatsappSetting {
   accountSid     String?
   authToken      String?  @db.Text
   whatsappFrom   String?
+  messagingServiceSid String?
   enabled        Boolean  @default(false)
   conversationWindowHours Int @default(24)
   lastError      String?  @db.Text

@@ -1364,7 +1364,7 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
             try {
               console.log('[twilio send to]', asTwilioWhatsapp(phone));
               const msg = await client.messages.create({
-                from: asTwilioWhatsapp(setting.whatsappFrom),
+                ...(setting.messagingServiceSid ? { messagingServiceSid: setting.messagingServiceSid } : { from: asTwilioWhatsapp(setting.whatsappFrom) }),
                 to: asTwilioWhatsapp(phone),
                 contentSid: twilioTemplateId,
                 contentVariables: (() => {
@@ -1928,7 +1928,7 @@ export const sendTwilioTemplate = asyncHandler(async (req: Request, res: Respons
       );
 
       const msg = await client.messages.create({
-        from: asTwilioWhatsapp(setting.whatsappFrom),
+        ...(setting.messagingServiceSid ? { messagingServiceSid: setting.messagingServiceSid } : { from: asTwilioWhatsapp(setting.whatsappFrom) }),
         to: asTwilioWhatsapp(phone),
         contentSid,
         contentVariables: (() => {
