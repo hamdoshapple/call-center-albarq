@@ -6,7 +6,13 @@
         <meta name="description" content="Call Center Albarq - منصة إدارة مركز الاتصال" />
     <title>Call Center Albarq | مركز اتصال البرق</title>
                   <script>
-      document.write('<link rel="manifest" href="' + (location.pathname.startsWith("/employee") ? "/employee-manifest.json" : "/manifest.json") + '">');
+      document.write('<link rel="manifest" href="' + (
+  location.hostname === "staff.albarq.app" || location.pathname.startsWith("/employee")
+    ? "/employee-manifest.json"
+    : location.hostname === "dashboard.albarq.app"
+      ? "/dashboard-manifest.json"
+      : "/manifest.json"
+) + '">');
     </script>
     <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
