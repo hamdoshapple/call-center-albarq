@@ -332,8 +332,20 @@ export async function conversationProfile(req: Request, res: Response) {
   const setting = await getSettingRow();
   const hours = Number(setting.conversationWindowHours || 24);
 
-  const subscribers = await findSubscribersForPhone(row.phone).catch(() => []);
+  const subscribers = await findSubscribersForPhoneOrAlias(row.phone).catch(() => []);
   const subscriber = subscribers[0] || null;
+  const resolvedName = String(subscriber?.name || row.name || '')
+    .replace(/NULL/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (resolvedName && resolvedName !== row.name) {
+    await prisma.twilioWhatsappContact.update({
+      where: { id: row.id },
+      data: { name: resolvedName },
+    }).catch(() => null);
+  }
+
 
   const lastInboundAt = row.lastInboundAt ? new Date(row.lastInboundAt).getTime() : 0;
   const windowExpiresAt = lastInboundAt ? new Date(lastInboundAt + hours * 60 * 60 * 1000) : null;
@@ -464,30 +476,38 @@ function normAliasPhone(v: unknown) {
 }
 
 async function findSubscribersForPhoneOrAlias(phone: string): Promise<any[]> {
-  const direct: any[] = await findSubscribersForPhone(phone).catch(() => []);
-  if (direct?.length) return direct;
-
   const phoneNorm = normAliasPhone(phone);
+
   const aliasRows = await prisma.$queryRawUnsafe<any[]>(
     `SELECT * FROM SubscriberContactAlias WHERE phoneNorm=? LIMIT 1`,
     phoneNorm
   ).catch(() => []);
 
-  const alias = aliasRows[0];
-  if (!alias) return [];
+  const alias = aliasRows[0] || null;
 
-  const key = alias.pppoeUsername || alias.externalId || alias.subscriberId || phoneNorm;
+  if (alias) {
+    const key = alias.pppoeUsername || alias.externalId || alias.subscriberId || phoneNorm;
 
-  let live: any[] = [];
-  if (process.env.EXTERNAL_MSSQL_ENABLED === 'true') {
-    live = await searchExternalSubscribers(key).catch(() => []);
+    let live: any[] = [];
+    if (process.env.EXTERNAL_MSSQL_ENABLED === 'true') {
+      live = await searchExternalSubscribers(key).catch(() => []);
+    }
+    if (live.length) return live;
+
+    const cached: any[] = await searchSubscriberCache(key).catch(() => []);
+    if (cached.length) return cached;
   }
 
-  if (live.length) return live;
+  const directLive: any[] = process.env.EXTERNAL_MSSQL_ENABLED === 'true'
+    ? await searchExternalSubscribers(phone).catch(() => [])
+    : [];
+  if (directLive.length) return directLive;
 
-  return await searchSubscriberCache(key).catch(() => []);
+  const directCache: any[] = await searchSubscriberCache(phone).catch(() => []);
+  if (directCache.length) return directCache;
+
+  return await findSubscribersForPhone(phone).catch(() => []);
 }
-
 
 export async function webhook(req: Request, res: Response) {
   const from = cleanWhatsappPhone(req.body?.From);
