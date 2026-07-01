@@ -35,17 +35,67 @@ async function findCachedSubscriberForCall(phone?: string | null) {
   const normalized = normalizeLogPhone(phone);
   if (!normalized || normalized.length < 10) return null;
 
+  const phoneNorm = '0' + normalized;
+
+  const aliasRows = await prisma.$queryRawUnsafe<any[]>(
+    `SELECT * FROM SubscriberContactAlias WHERE phoneNorm=? LIMIT 1`,
+    phoneNorm
+  ).catch(() => []);
+
+  const alias = aliasRows[0] || null;
+
+  if (alias) {
+    const key = alias.pppoeUsername || alias.externalId || alias.subscriberId || phoneNorm;
+
+    if (process.env.EXTERNAL_MSSQL_ENABLED === 'true') {
+      const live = await searchExternalSubscribers(key).catch(() => []);
+      if (live.length) {
+        await upsertExternalSubscriberCache(live).catch(() => null);
+        return live[0];
+      }
+    }
+
+    const cached = await searchSubscriberCache(key).catch(() => []);
+    if (cached.length) return cached[0];
+  }
+
+  if (process.env.EXTERNAL_MSSQL_ENABLED === 'true') {
+    for (const q of phoneVariants(phone)) {
+      const live = await searchExternalSubscribers(q).catch(() => []);
+      if (live.length) {
+        await upsertExternalSubscriberCache(live).catch(() => null);
+        return live[0];
+      }
+    }
+  }
+
   const allRows: any[] = [];
   for (const q of phoneVariants(phone)) {
-    const rows = await searchSubscriberCache(q);
+    const rows = await searchSubscriberCache(q).catch(() => []);
     allRows.push(...rows);
   }
 
-  return allRows.find((x: any) => {
+  const cachedMatch = allRows.find((x: any) => {
     const p = normalizeLogPhone(x.phone);
     const u = normalizeLogPhone(x.pppoeUsername);
     return (p.length >= 10 && p === normalized) || (u.length >= 10 && u === normalized);
-  }) || null;
+  });
+  if (cachedMatch) return cachedMatch;
+
+  const localRows = await prisma.subscriber.findMany({
+    where: {
+      OR: phoneVariants(phone).map((q) => ({
+        OR: [
+          { phone: { contains: q } },
+          { pppoeUsername: { contains: q } },
+          { name: { contains: q } },
+        ],
+      })),
+    },
+    take: 10,
+  }).catch(() => []);
+
+  return localRows[0] || null;
 }
 
 export async function listLogs(req: Request, res: Response) {
@@ -175,19 +225,35 @@ export async function getLive(req: Request, res: Response) {
 
   const externalResults = process.env.EXTERNAL_MSSQL_ENABLED === 'true'
     ? await Promise.all(phones.map(async (phone) => {
-        const liveRows = await searchExternalSubscribers(phone);
+
+        const aliasRows = await prisma.$queryRawUnsafe<any[]>(
+          'SELECT pppoeUsername, externalId, subscriberId FROM SubscriberContactAlias WHERE phoneNorm=? LIMIT 1',
+          phone
+        ).catch(() => []);
+
+        const alias = aliasRows?.[0] || null;
+        const lookupKey = alias?.pppoeUsername || alias?.externalId || alias?.subscriberId || phone;
+
+        let liveRows = await searchExternalSubscribers(lookupKey);
+
+        if (alias?.externalId && liveRows.length) {
+          const exact = liveRows.find((x: any) => String(x.id) === String(alias.externalId));
+          if (exact) liveRows = [exact];
+        }
 
         if (liveRows.length) {
           await upsertExternalSubscriberCache(liveRows);
           return {
+            phone,
             rows: liveRows,
             source: 'live',
             warning: null,
           };
         }
 
-        const cachedRows = await searchSubscriberCache(phone);
+        const cachedRows = await searchSubscriberCache(lookupKey);
         return {
+          phone,
           rows: cachedRows,
           source: cachedRows.length ? 'cache' : 'none',
           warning: cachedRows.length ? 'using_subscriber_cache' : 'not_found',
@@ -197,17 +263,30 @@ export async function getLive(req: Request, res: Response) {
 
   const externalSubscribers = externalResults.flatMap((x) => x.rows);
   const sourceByPhone = new Map(
-    externalResults.flatMap((x) => x.rows.map((s) => [normalizePhone(s.phone), {
-      source: x.source,
-      warning: x.warning,
-      cachedAt: s.cache?.cachedAt ?? null,
-      ageSec: s.cache?.ageSec ?? null,
-    }]))
+    externalResults.flatMap((x: any) => (x.rows || []).flatMap((s: any) => [
+      [normalizePhone(s.phone), {
+        source: x.source,
+        warning: x.warning,
+        cachedAt: s.cache?.cachedAt ?? null,
+        ageSec: s.cache?.ageSec ?? null,
+      }],
+      [normalizePhone(x.phone), {
+        source: x.source,
+        warning: x.warning,
+        cachedAt: s.cache?.cachedAt ?? null,
+        ageSec: s.cache?.ageSec ?? null,
+      }],
+    ]))
   );
 
-  const externalByPhone = new Map(
-    externalSubscribers.map((s) => [normalizePhone(s.phone), s])
-  );
+  const externalByPhone = new Map<string, any>();
+
+  for (const result of externalResults as any[]) {
+    for (const sub of result.rows || []) {
+      externalByPhone.set(normalizePhone(sub.phone), sub);
+      if (result.phone) externalByPhone.set(normalizePhone(result.phone), sub);
+    }
+  }
 
   const variants = [...new Set(
     phones.flatMap((p) => [

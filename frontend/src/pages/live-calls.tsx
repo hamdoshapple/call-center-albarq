@@ -208,8 +208,6 @@ export function LiveCallsPage() {
                   </div>
                   <p className="font-mono text-sm text-muted-foreground">{incomingCall.callerNumber}</p>
                   <LinkSubscriberModalButton phone={incomingCall.callerNumber} onDone={() => location.reload()} />
-                  <LinkSubscriberModalButton phone={incomingCall.callerNumber} />
-                  {!incomingSubscriber?.name && !incomingCall.callerName ? <LinkSubscriberModalButton phone={incomingCall.callerNumber} /> : null}
                   {incomingCall.subscriberMatches && incomingCall.subscriberMatches.length > 1 && (
                     <div className="mt-3 space-y-2">
                       <div className="flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
@@ -399,8 +397,6 @@ export function LiveCallsPage() {
                         <div className="font-medium tabular-nums">{call.callerNumber}</div>
                         {call.callerName && <div className="text-xs text-muted-foreground">{call.callerName}</div>}
                         <LinkSubscriberModalButton phone={call.callerNumber} onDone={() => location.reload()} />
-                        <LinkSubscriberModalButton phone={call.callerNumber} />
-                        {!call.callerName ? <LinkSubscriberModalButton phone={call.callerNumber} /> : null}
                       </TableCell>
                       <TableCell className="tabular-nums text-sm">{lineNumber(call.simLineId)}</TableCell>
                       <TableCell className="text-sm">{queueName(call.queueId)}</TableCell>
@@ -735,10 +731,9 @@ function LinkSubscriberModalButton({ phone, onDone }: { phone?: string; onDone?:
   const [selected, setSelected] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [modalMsg, setModalMsg] = useState('');
 
   async function search() {
-    if (!q.trim()) { setModalMsg('اكتب اسم أو رقم أو PPPoE للبحث'); return; }
+    if (!q.trim()) return;
     setLoading(true);
     try {
       const res = await fetch(`/api/subscriber-identity/search?q=${encodeURIComponent(q.trim())}`, {
@@ -747,14 +742,13 @@ function LinkSubscriberModalButton({ phone, onDone }: { phone?: string; onDone?:
       const data = await res.json();
       setRows(Array.isArray(data) ? data : []);
       setSelected(null);
-      setModalMsg(Array.isArray(data) && data.length ? '' : 'ماكو نتائج مطابقة');
     } finally {
       setLoading(false);
     }
   }
 
   async function confirm() {
-    if (!phone || !selected?.pppoeUsername) { setModalMsg('اختار مشترك يحتوي PPPoE'); return; }
+    if (!phone || !selected?.pppoeUsername) return;
 
     setSaving(true);
     try {
@@ -775,7 +769,7 @@ function LinkSubscriberModalButton({ phone, onDone }: { phone?: string; onDone?:
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setModalMsg(data.error || data.message || 'فشل ربط الرقم');
+        alert(data.error || data.message || 'فشل ربط الرقم');
         return;
       }
 
@@ -783,8 +777,7 @@ function LinkSubscriberModalButton({ phone, onDone }: { phone?: string; onDone?:
       setQ('');
       setRows([]);
       setSelected(null);
-      setModalMsg(Array.isArray(data) && data.length ? '' : 'ماكو نتائج مطابقة');
-      setModalMsg('تم ربط الرقم بنجاح');
+      alert('تم ربط الرقم بنجاح');
       setTimeout(() => onDone?.(), 600);
     } finally {
       setSaving(false);
