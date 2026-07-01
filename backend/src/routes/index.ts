@@ -214,6 +214,7 @@ router.get('/ai/models', perm('company_settings'), h(aiController.aiModels));
 router.post('/ai/models/sync-ollama', perm('company_settings', 'edit'), h(aiController.aiSyncOllamaModels));
 router.get('/ai/prompts', perm('company_settings'), h(aiController.aiPrompts));
 router.get('/ai/skills', perm('company_settings'), h(aiController.aiSkills));
+router.post('/ai/skills/:key/run', perm('company_settings', 'edit'), h(aiController.aiRunSkill));
 router.get('/ai/tools', perm('company_settings'), h(aiController.aiTools));
 router.get('/ai/rules', perm('company_settings'), h(aiController.aiRules));
 router.post('/ai/playground/run', perm('company_settings', 'edit'), h(aiController.aiPlaygroundRun));

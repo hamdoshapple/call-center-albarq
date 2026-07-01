@@ -5,7 +5,7 @@ const DEFAULT_OLLAMA_URL = process.env.OLLAMA_BASE_URL || 'http://host.docker.in
 async function ollamaFetch(path: string, init?: RequestInit) {
   const url = `${DEFAULT_OLLAMA_URL}${path}`;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000);
+  const timeout = setTimeout(() => controller.abort(), 180000);
 
   try {
     const res = await fetch(url, { ...init, signal: controller.signal });
@@ -40,6 +40,13 @@ export async function runOllama(input: AiRunInput): Promise<AiRunResult> {
       model: input.model || 'gemma3:4b',
       prompt,
       stream: false,
+      options: {
+        num_predict: 220,
+        temperature: 0.2,
+        top_p: 0.9,
+        num_ctx: 2048
+      },
+      keep_alive: '10m'
     }),
   });
 

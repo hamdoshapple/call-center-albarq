@@ -1,5 +1,4 @@
 import {
-  Activity,
   BrainCircuit,
   Cpu,
   Database,

@@ -1,4 +1,29 @@
-import { api } from './client';
+const API_BASE = '/api';
+
+function authHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}`,
+  };
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      ...authHeaders(),
+      ...(options.headers || {}),
+    },
+  });
+
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok || data?.ok === false) {
+    throw new Error(data?.error || `Request failed: ${res.status}`);
+  }
+
+  return data.data as T;
+}
 
 export type AiSettings = {
   id: number;
@@ -30,31 +55,25 @@ export type AiStatusResponse = {
 };
 
 export async function getAiStatus(): Promise<AiStatusResponse> {
-  const res = await api.get('/ai/status');
-  return res.data.data;
+  return request<AiStatusResponse>('/ai/status');
 }
 
 export async function bootstrapAi(): Promise<{ message: string }> {
-  const res = await api.post('/ai/bootstrap');
-  return res.data.data;
+  return request<{ message: string }>('/ai/bootstrap', { method: 'POST' });
 }
 
 export async function syncOllamaModels(): Promise<any[]> {
-  const res = await api.post('/ai/models/sync-ollama');
-  return res.data.data;
+  return request<any[]>('/ai/models/sync-ollama', { method: 'POST' });
 }
 
 export async function getAiPrompts(): Promise<any[]> {
-  const res = await api.get('/ai/prompts');
-  return res.data.data;
+  return request<any[]>('/ai/prompts');
 }
 
 export async function getAiSkills(): Promise<any[]> {
-  const res = await api.get('/ai/skills');
-  return res.data.data;
+  return request<any[]>('/ai/skills');
 }
 
 export async function getAiTools(): Promise<any[]> {
-  const res = await api.get('/ai/tools');
-  return res.data.data;
+  return request<any[]>('/ai/tools');
 }

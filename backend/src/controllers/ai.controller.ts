@@ -7,6 +7,7 @@ import {
   syncOllamaModels,
   updateAiSettings,
 } from '../services/ai.service.js';
+import { runAiSkill } from '../services/ai-engine.service.js';
 
 function ok(res: Response, data: unknown) {
   return res.json({ ok: true, data });
@@ -127,6 +128,22 @@ export async function aiPlaygroundRun(req: Request, res: Response) {
     if (!prompt) return res.status(400).json({ ok: false, error: 'Prompt is required' });
 
     return ok(res, await runPlayground(prompt));
+  } catch (err) {
+    return fail(res, err);
+  }
+}
+
+
+export async function aiRunSkill(req: Request, res: Response) {
+  try {
+    const skillKey = String(req.params.key || '').trim();
+    const input = String(req.body?.input || '').trim();
+    const context = req.body?.context;
+
+    if (!skillKey) return res.status(400).json({ ok: false, error: 'Skill key is required' });
+    if (!input) return res.status(400).json({ ok: false, error: 'Input is required' });
+
+    return ok(res, await runAiSkill({ skillKey, input, context }));
   } catch (err) {
     return fail(res, err);
   }
