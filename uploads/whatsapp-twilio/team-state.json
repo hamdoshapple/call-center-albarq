@@ -44,10 +44,10 @@
   },
   "cmqnn6jjc054jxrhzmh1qfx8d": {
     "viewers": {
-      "cmqmi15jms92hpz813yjti7rd": {
-        "id": "cmqmi15jms92hpz813yjti7rd",
-        "name": "8192",
-        "at": 1782989667536
+      "cmpzn633t002vw8t26cmm1udu": {
+        "id": "cmpzn633t002vw8t26cmm1udu",
+        "name": "admin",
+        "at": 1782990177856
       }
     },
     "pinned": true,
@@ -172,12 +172,25 @@
       "cmpzn633t002vw8t26cmm1udu": {
         "id": "cmpzn633t002vw8t26cmm1udu",
         "name": "admin",
-        "at": 1782989964465
+        "at": 1782991793014
       }
     },
     "claimedById": "cmpzn633t002vw8t26cmm1udu",
     "claimedByName": "admin",
     "claimedAt": "2026-07-02T09:33:23.341Z",
     "typing": {}
+  },
+  "cmr3ebv3e202q13510041gszy": {
+    "viewers": {
+      "cmqmi15jms92hpz813yjti7rd": {
+        "id": "cmqmi15jms92hpz813yjti7rd",
+        "name": "8192",
+        "at": 1782990671948
+      }
+    },
+    "typing": {},
+    "claimedById": "cmpzn633t002vw8t26cmm1udu",
+    "claimedByName": "admin",
+    "claimedAt": "2026-07-02T11:03:47.163Z"
   }
 }
