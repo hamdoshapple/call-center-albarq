@@ -532,8 +532,15 @@ function AiRuntimeCard() {
         </div>
 
         <div className="rounded-2xl border border-dashed border-slate-300 p-4 text-xs leading-6 text-slate-500 dark:border-slate-700">
-          الحالة الحالية: {settings.whatsappAutoReplyEnabled ? 'Auto Reply ON' : 'Auto Reply OFF'} ·
-          {settings.whatsappDryRunEnabled !== false ? ' Dry Run ON' : ' Dry Run OFF'}
+          <div className="font-black text-slate-700 dark:text-slate-200">Policy Engine</div>
+          <div className="mt-2">
+            الحالة الحالية: {settings.whatsappAutoReplyEnabled ? 'Auto Reply ON' : 'Auto Reply OFF'} ·
+            {settings.whatsappDryRunEnabled !== false ? ' Dry Run ON' : ' Dry Run OFF'}
+          </div>
+          <div>
+            الحد الأدنى للثقة: {Math.round(Number(settings.whatsappMinConfidence ?? 0.9) * 100)}% ·
+            شرط التعرف على المشترك: {settings.whatsappRequireSubscriber !== false ? 'مفعل' : 'غير مفعل'}
+          </div>
         </div>
       </div>
     </div>
@@ -759,6 +766,32 @@ function AiConversationsTab() {
                         <div className="mb-1 text-xs font-black opacity-70">Reason</div>
                         {m.metaJson?.reason || '—'}
                       </div>
+
+                      {m.metaJson?.policy ? (
+                        <div className={m.metaJson.policy.allowed ? "rounded-2xl border border-emerald-200 bg-emerald-100/80 p-4 leading-7 dark:border-emerald-800 dark:bg-emerald-900/40" : "rounded-2xl border border-red-200 bg-red-100/80 p-4 leading-7 dark:border-red-800 dark:bg-red-900/40"}>
+                          <div className="mb-2 text-xs font-black opacity-70">Policy Engine</div>
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <div>
+                              <div className="text-xs opacity-70">Status</div>
+                              <div className="font-black">{m.metaJson.policy.allowed ? 'Allowed' : 'Blocked / Review'}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs opacity-70">Action</div>
+                              <div className="font-black">{m.metaJson.policy.action || '—'}</div>
+                            </div>
+                            <div>
+                              <div className="text-xs opacity-70">Confidence</div>
+                              <div className="font-black">{Math.round(Number(m.metaJson.policy.confidence || 0) * 100)}%</div>
+                            </div>
+                          </div>
+                          <div className="mt-3">
+                            <div className="text-xs font-black opacity-70">Reasons</div>
+                            <ul className="mt-1 list-inside list-disc text-sm">
+                              {(m.metaJson.policy.reasons || []).map((r: string, i: number) => <li key={i}>{r}</li>)}
+                            </ul>
+                          </div>
+                        </div>
+                      ) : null}
 
                       <div className="rounded-2xl bg-white/70 p-4 leading-7 dark:bg-black/20">
                         <div className="mb-1 text-xs font-black opacity-70">Draft Reply</div>
