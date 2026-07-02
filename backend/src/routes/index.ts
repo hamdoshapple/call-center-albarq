@@ -212,8 +212,11 @@ router.put('/ai/settings', perm('company_settings', 'edit'), h(aiController.aiUp
 router.get('/ai/providers', perm('company_settings'), h(aiController.aiProviders));
 router.get('/ai/models', perm('company_settings'), h(aiController.aiModels));
 router.post('/ai/models/sync-ollama', perm('company_settings', 'edit'), h(aiController.aiSyncOllamaModels));
+router.post('/ai/models/:id/default', perm('company_settings', 'edit'), h(aiController.aiSetDefaultModel));
 router.get('/ai/prompts', perm('company_settings'), h(aiController.aiPrompts));
+router.put('/ai/prompts/:id', perm('company_settings', 'edit'), h(aiController.aiUpdatePrompt));
 router.get('/ai/skills', perm('company_settings'), h(aiController.aiSkills));
+router.put('/ai/skills/:id', perm('company_settings', 'edit'), h(aiController.aiUpdateSkill));
 router.post('/ai/skills/:key/run', perm('company_settings', 'edit'), h(aiController.aiRunSkill));
 router.get('/ai/tools', perm('company_settings'), h(aiController.aiTools));
 router.get('/ai/rules', perm('company_settings'), h(aiController.aiRules));

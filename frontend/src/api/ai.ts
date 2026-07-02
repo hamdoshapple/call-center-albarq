@@ -84,3 +84,36 @@ export async function runAiSkill(skillKey: string, input: string, context?: unkn
     body: JSON.stringify({ input, context }),
   });
 }
+
+export async function getAiModels(): Promise<any[]> {
+  return request<any[]>('/ai/models');
+}
+
+export async function getAiLogs(): Promise<any[]> {
+  return request<any[]>('/ai/logs');
+}
+
+export async function setDefaultAiModel(id: number): Promise<any> {
+  return request<any>(`/ai/models/${id}/default`, { method: 'POST' });
+}
+
+export async function updateAiSettings(payload: Partial<AiSettings>): Promise<AiSettings> {
+  return request<AiSettings>('/ai/settings', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAiPrompt(id: number, payload: any): Promise<any> {
+  return request<any>(`/ai/prompts/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAiSkill(id: number, payload: any): Promise<any> {
+  return request<any>(`/ai/skills/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}

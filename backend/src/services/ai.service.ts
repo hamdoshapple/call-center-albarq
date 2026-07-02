@@ -245,3 +245,72 @@ export const aiRepo = {
   rules: () => prisma.aiRule.findMany({ orderBy: { id: 'asc' } }),
   logs: () => prisma.aiLog.findMany({ orderBy: { createdAt: 'desc' }, take: 100 }),
 };
+
+
+export async function setDefaultAiModel(id: number) {
+  await ensureAiDefaults();
+
+  const model = await prisma.aiModel.findUnique({ where: { id } });
+  if (!model) {
+    throw new Error('AI model not found');
+  }
+
+  await prisma.aiModel.updateMany({
+    where: { providerKey: model.providerKey },
+    data: { isDefault: false },
+  });
+
+  const updated = await prisma.aiModel.update({
+    where: { id },
+    data: { isDefault: true },
+  });
+
+  await prisma.aiSetting.update({
+    where: { id: 1 },
+    data: {
+      provider: model.providerKey,
+      model: model.name,
+    },
+  });
+
+  return {
+    ...updated,
+    sizeBytes: updated.sizeBytes ? updated.sizeBytes.toString() : null,
+  };
+}
+
+export async function updateAiPrompt(id: number, data: any) {
+  await ensureAiDefaults();
+
+  const prompt = await prisma.aiPrompt.findUnique({ where: { id } });
+  if (!prompt) throw new Error('AI prompt not found');
+
+  return prisma.aiPrompt.update({
+    where: { id },
+    data: {
+      title: String(data.title || prompt.title),
+      content: String(data.content || prompt.content),
+      enabled: typeof data.enabled === 'boolean' ? data.enabled : prompt.enabled,
+      version: Number(prompt.version || 1) + 1,
+    },
+  });
+}
+
+export async function updateAiSkill(id: number, data: any) {
+  await ensureAiDefaults();
+
+  const skill = await prisma.aiSkill.findUnique({ where: { id } });
+  if (!skill) throw new Error('AI skill not found');
+
+  return prisma.aiSkill.update({
+    where: { id },
+    data: {
+      title: String(data.title || skill.title),
+      enabled: typeof data.enabled === 'boolean' ? data.enabled : skill.enabled,
+      promptKey: typeof data.promptKey === 'string' ? data.promptKey : skill.promptKey,
+      modelName: typeof data.modelName === 'string' ? data.modelName : skill.modelName,
+      toolsJson: data.toolsJson ?? skill.toolsJson,
+      configJson: data.configJson ?? skill.configJson,
+    },
+  });
+}

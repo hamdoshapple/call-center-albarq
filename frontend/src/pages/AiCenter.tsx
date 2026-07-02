@@ -20,11 +20,18 @@ import {
   getAiSkills,
   getAiStatus,
   getAiTools,
+  getAiModels,
+  getAiLogs,
   syncOllamaModels,
   runAiSkill,
+  setDefaultAiModel,
+  updateAiSettings,
+  updateAiPrompt,
+  updateAiSkill,
 } from '@/api/ai';
 
 const tabs = [
+  'Dashboard',
   'General',
   'Providers',
   'Models',
@@ -131,6 +138,633 @@ function PlaceholderTab({ name }: { name: string }) {
           هذا القسم جاهز للربط التفصيلي بالمرحلة القادمة.
         </div>
       )}
+    </div>
+  );
+}
+
+
+
+
+function AiGeneralSettingsTab({ statusData }: { statusData: any }) {
+  const qc = useQueryClient();
+  const settings = statusData?.settings;
+
+  const [form, setForm] = useState<any>(() => settings || {});
+
+  useMemo(() => {
+    if (settings) setForm(settings);
+  }, [settings]);
+
+  const saveMutation = useMutation({
+    mutationFn: () => updateAiSettings(form),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-status'] });
+    },
+  });
+
+  const setValue = (key: string, value: any) => {
+    setForm((prev: any) => ({ ...prev, [key]: value }));
+  };
+
+  if (!settings) {
+    return (
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950">
+        جاري تحميل إعدادات AI...
+      </div>
+    );
+  }
+
+  const numberFields = [
+    ['temperature', 'Temperature'],
+    ['topP', 'Top P'],
+    ['topK', 'Top K'],
+    ['contextSize', 'Context Size'],
+    ['maxTokens', 'Max Tokens'],
+    ['timeoutMs', 'Timeout ms'],
+    ['threads', 'Threads'],
+    ['gpuLayers', 'GPU Layers'],
+    ['memoryMb', 'Memory MB'],
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-xl font-black">General Settings</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              كل هذه الإعدادات محفوظة في قاعدة البيانات وليست ثابتة داخل الكود.
+            </p>
+          </div>
+
+          <button
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending}
+            className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white disabled:opacity-60 dark:bg-white dark:text-slate-950"
+          >
+            {saveMutation.isPending ? 'جاري الحفظ...' : 'Save Settings'}
+          </button>
+        </div>
+      </div>
+
+      {saveMutation.isSuccess ? (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700">
+          تم حفظ إعدادات AI بنجاح.
+        </div>
+      ) : null}
+
+      {saveMutation.isError ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+          فشل حفظ الإعدادات.
+        </div>
+      ) : null}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="mb-5 text-lg font-black">Runtime</div>
+
+          <label className="flex items-center justify-between rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+            <span className="font-bold">AI Enabled</span>
+            <input
+              type="checkbox"
+              checked={Boolean(form.enabled)}
+              onChange={(e) => setValue('enabled', e.target.checked)}
+              className="h-5 w-5"
+            />
+          </label>
+
+          <div className="mt-4 grid gap-4">
+            <div>
+              <label className="mb-2 block text-sm font-bold text-slate-500">Provider</label>
+              <input
+                value={form.provider || ''}
+                onChange={(e) => setValue('provider', e.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-bold text-slate-500">Model</label>
+              <input
+                value={form.model || ''}
+                onChange={(e) => setValue('model', e.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+              />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-bold text-slate-500">Keep Alive</label>
+              <input
+                value={form.keepAlive || ''}
+                onChange={(e) => setValue('keepAlive', e.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+              />
+            </div>
+
+            <label className="flex items-center justify-between rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+              <span className="font-bold">Streaming</span>
+              <input
+                type="checkbox"
+                checked={Boolean(form.streaming)}
+                onChange={(e) => setValue('streaming', e.target.checked)}
+                className="h-5 w-5"
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="mb-5 text-lg font-black">Generation Parameters</div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            {numberFields.map(([key, label]) => (
+              <div key={key}>
+                <label className="mb-2 block text-sm font-bold text-slate-500">{label}</label>
+                <input
+                  type="number"
+                  value={form[key] ?? ''}
+                  onChange={(e) => setValue(key, Number(e.target.value))}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function AiDashboardHome({ statusData }: { statusData: any }) {
+  const logsQuery = useQuery({
+    queryKey: ['ai-logs'],
+    queryFn: getAiLogs,
+    refetchInterval: 5000,
+  });
+
+  const modelsQuery = useQuery({
+    queryKey: ['ai-models'],
+    queryFn: getAiModels,
+    refetchInterval: 10000,
+  });
+
+  const logs = logsQuery.data || [];
+  const models = modelsQuery.data || [];
+  const settings = statusData?.settings;
+  const summary = statusData?.summary;
+
+  const successfulLogs = logs.filter((x: any) => x.success);
+  const avgLatency = successfulLogs.length
+    ? Math.round(successfulLogs.reduce((sum: number, x: any) => sum + Number(x.latencyMs || 0), 0) / successfulLogs.length)
+    : 0;
+
+  const latest = logs.slice(0, 8);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="text-sm font-bold text-slate-500">AI Engine</div>
+          <div className="mt-2 text-3xl font-black">{settings?.enabled ? 'Running' : 'Disabled'}</div>
+          <div className="mt-2 text-xs text-slate-400">Safe mode controlled from General</div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="text-sm font-bold text-slate-500">Active Model</div>
+          <div className="mt-2 truncate text-3xl font-black">{settings?.model || '—'}</div>
+          <div className="mt-2 text-xs text-slate-400">Provider: {settings?.provider || '—'}</div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="text-sm font-bold text-slate-500">Average Latency</div>
+          <div className="mt-2 text-3xl font-black">{avgLatency ? `${avgLatency} ms` : '—'}</div>
+          <div className="mt-2 text-xs text-slate-400">Based on recent AI logs</div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="text-sm font-bold text-slate-500">Installed Models</div>
+          <div className="mt-2 text-3xl font-black">{models.length}</div>
+          <div className="mt-2 text-xs text-slate-400">Synced from database</div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="text-sm font-bold text-slate-500">Prompts</div>
+          <div className="mt-2 text-4xl font-black">{summary?.prompts ?? 0}</div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="text-sm font-bold text-slate-500">Skills</div>
+          <div className="mt-2 text-4xl font-black">{summary?.skills ?? 0}</div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="text-sm font-bold text-slate-500">Tools</div>
+          <div className="mt-2 text-4xl font-black">{summary?.tools ?? 0}</div>
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-black">Live AI Activity</h2>
+            <p className="text-sm text-slate-500">آخر عمليات الذكاء الاصطناعي، تتحدث كل 5 ثوانٍ.</p>
+          </div>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500 dark:bg-slate-900">
+            {logsQuery.isFetching ? 'Refreshing' : 'Live'}
+          </span>
+        </div>
+
+        <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
+          <div className="hidden grid-cols-6 gap-3 bg-slate-50 px-4 py-3 text-xs font-black text-slate-500 dark:bg-slate-900 md:grid">
+            <div>Time</div>
+            <div>Source</div>
+            <div>Skill</div>
+            <div>Model</div>
+            <div>Latency</div>
+            <div>Status</div>
+          </div>
+
+          {latest.length ? latest.map((log: any) => (
+            <div
+              key={log.id}
+              className="grid gap-2 border-t border-slate-100 px-4 py-4 text-sm dark:border-slate-800 md:grid-cols-6"
+            >
+              <div className="text-slate-500">{new Date(log.createdAt).toLocaleTimeString('ar-IQ')}</div>
+              <div className="font-bold">{log.source || '—'}</div>
+              <div>{log.skillKey || '—'}</div>
+              <div className="truncate">{log.model || '—'}</div>
+              <div>{log.latencyMs ? `${log.latencyMs} ms` : '—'}</div>
+              <div>
+                <span className={log.success ? 'text-emerald-600 font-black' : 'text-red-600 font-black'}>
+                  {log.success ? 'Success' : 'Failed'}
+                </span>
+              </div>
+            </div>
+          )) : (
+            <div className="p-6 text-center text-sm text-slate-500">
+              لا توجد عمليات AI مسجلة بعد.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+
+function formatBytes(value?: number | string | null) {
+  if (!value) return '—';
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes)) return '—';
+  const gb = bytes / 1024 / 1024 / 1024;
+  if (gb >= 1) return `${gb.toFixed(2)} GB`;
+  const mb = bytes / 1024 / 1024;
+  return `${mb.toFixed(1)} MB`;
+}
+
+
+
+function AiSkillsManagerTab() {
+  const qc = useQueryClient();
+
+  const skillsQuery = useQuery({
+    queryKey: ['ai-skills'],
+    queryFn: getAiSkills,
+  });
+
+  const promptsQuery = useQuery({
+    queryKey: ['ai-prompts'],
+    queryFn: getAiPrompts,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: any }) => updateAiSkill(id, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-skills'] });
+      qc.invalidateQueries({ queryKey: ['ai-status'] });
+    },
+  });
+
+  const skills = skillsQuery.data || [];
+  const prompts = promptsQuery.data || [];
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <h2 className="text-xl font-black">Skills Manager</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          تشغيل وإيقاف مهارات الذكاء الاصطناعي وربط كل Skill بالـ Prompt المناسب.
+        </p>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        {skills.map((skill: any) => (
+          <div
+            key={skill.id}
+            className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-xl font-black">{skill.title}</div>
+                <div className="mt-1 text-xs text-slate-500">{skill.key}</div>
+              </div>
+
+              <label className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-xs font-black dark:bg-slate-900">
+                <span>{skill.enabled ? 'Enabled' : 'Disabled'}</span>
+                <input
+                  type="checkbox"
+                  checked={Boolean(skill.enabled)}
+                  onChange={(e) =>
+                    updateMutation.mutate({
+                      id: skill.id,
+                      payload: { enabled: e.target.checked },
+                    })
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-500">Prompt</label>
+                <select
+                  value={skill.promptKey || ''}
+                  onChange={(e) =>
+                    updateMutation.mutate({
+                      id: skill.id,
+                      payload: { promptKey: e.target.value },
+                    })
+                  }
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+                >
+                  <option value="">No Prompt</option>
+                  {prompts.map((p: any) => (
+                    <option key={p.key} value={p.key}>
+                      {p.title} / {p.key}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-500">Model Override</label>
+                <input
+                  defaultValue={skill.modelName || ''}
+                  onBlur={(e) =>
+                    updateMutation.mutate({
+                      id: skill.id,
+                      payload: { modelName: e.target.value },
+                    })
+                  }
+                  placeholder="فارغ = الموديل الافتراضي"
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-slate-900">
+              Tools: {Array.isArray(skill.toolsJson) ? skill.toolsJson.length : 0} · Model: {skill.modelName || 'Default'}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+function AiPromptsStudioTab() {
+  const qc = useQueryClient();
+  const promptsQuery = useQuery({
+    queryKey: ['ai-prompts'],
+    queryFn: getAiPrompts,
+  });
+
+  const prompts = promptsQuery.data || [];
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const selected = prompts.find((p: any) => p.id === selectedId) || prompts[0];
+
+  const [form, setForm] = useState<any>({});
+
+  useMemo(() => {
+    if (selected) setForm(selected);
+  }, [selected?.id]);
+
+  const saveMutation = useMutation({
+    mutationFn: () => updateAiPrompt(form.id, {
+      title: form.title,
+      content: form.content,
+      enabled: form.enabled,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-prompts'] });
+      qc.invalidateQueries({ queryKey: ['ai-status'] });
+    },
+  });
+
+  if (promptsQuery.isLoading) {
+    return <div className="rounded-3xl bg-white p-6 dark:bg-slate-950">جاري تحميل البرومبتات...</div>;
+  }
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[340px_1fr]">
+      <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="mb-4 px-2">
+          <h2 className="text-xl font-black">Prompt Studio</h2>
+          <p className="mt-1 text-sm text-slate-500">إدارة جميع برومبتات Albarq AI من قاعدة البيانات.</p>
+        </div>
+
+        <div className="space-y-2">
+          {prompts.map((prompt: any) => (
+            <button
+              key={prompt.id}
+              onClick={() => setSelectedId(prompt.id)}
+              className={[
+                'w-full rounded-2xl p-4 text-right transition',
+                selected?.id === prompt.id
+                  ? 'bg-slate-950 text-white dark:bg-white dark:text-slate-950'
+                  : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800',
+              ].join(' ')}
+            >
+              <div className="font-black">{prompt.title}</div>
+              <div className="mt-1 text-xs opacity-70">{prompt.key} · v{prompt.version}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {selected ? (
+        <div className="space-y-4">
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-xl font-black">{form.title}</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Key: {form.key} · Version: {form.version}
+                </p>
+              </div>
+
+              <button
+                onClick={() => saveMutation.mutate()}
+                disabled={saveMutation.isPending}
+                className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white disabled:opacity-60 dark:bg-white dark:text-slate-950"
+              >
+                {saveMutation.isPending ? 'جاري الحفظ...' : 'Save Prompt'}
+              </button>
+            </div>
+          </div>
+
+          {saveMutation.isSuccess ? (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700">
+              تم حفظ البرومبت ورفع رقم الإصدار.
+            </div>
+          ) : null}
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-500">Title</label>
+                <input
+                  value={form.title || ''}
+                  onChange={(e) => setForm((x: any) => ({ ...x, title: e.target.value }))}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+                />
+              </div>
+
+              <label className="flex items-center justify-between rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+                <span className="font-bold">Enabled</span>
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.enabled)}
+                  onChange={(e) => setForm((x: any) => ({ ...x, enabled: e.target.checked }))}
+                  className="h-5 w-5"
+                />
+              </label>
+            </div>
+
+            <div className="mt-5">
+              <label className="mb-2 block text-sm font-bold text-slate-500">Prompt Content</label>
+              <textarea
+                value={form.content || ''}
+                onChange={(e) => setForm((x: any) => ({ ...x, content: e.target.value }))}
+                className="min-h-[420px] w-full rounded-2xl border border-slate-200 bg-slate-950 p-4 font-mono text-sm leading-7 text-slate-100 outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800"
+                spellCheck={false}
+              />
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-dashed border-slate-300 p-4 text-sm leading-7 text-slate-500 dark:border-slate-700">
+              المتغيرات المستقبلية المقترحة:
+              <div className="mt-2 flex flex-wrap gap-2">
+                {['{{ticket_text}}', '{{subscriber_status}}', '{{debt}}', '{{onu_power}}', '{{pppoe_status}}', '{{call_summary}}'].map((v) => (
+                  <span key={v} className="rounded-full bg-slate-100 px-3 py-1 font-mono text-xs dark:bg-slate-900">{v}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950">
+          لا توجد برومبتات.
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function AiModelsTab() {
+  const qc = useQueryClient();
+
+  const modelsQuery = useQuery({
+    queryKey: ['ai-models'],
+    queryFn: getAiModels,
+    refetchInterval: 10000,
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: syncOllamaModels,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-models'] });
+      qc.invalidateQueries({ queryKey: ['ai-status'] });
+    },
+  });
+
+  const defaultMutation = useMutation({
+    mutationFn: setDefaultAiModel,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-models'] });
+      qc.invalidateQueries({ queryKey: ['ai-status'] });
+    },
+  });
+
+  const models = modelsQuery.data || [];
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-xl font-black">Models</h2>
+            <p className="mt-1 text-sm text-slate-500">إدارة موديلات Ollama المخزنة في قاعدة البيانات.</p>
+          </div>
+
+          <button
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+            className="rounded-2xl bg-sky-600 px-5 py-3 text-sm font-black text-white disabled:opacity-60"
+          >
+            {syncMutation.isPending ? 'جاري المزامنة...' : 'Sync Ollama Models'}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {models.length ? models.map((model: any) => (
+          <div
+            key={model.id}
+            className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="truncate text-xl font-black">{model.displayName || model.name}</div>
+                <div className="mt-1 text-sm text-slate-500">{model.providerKey}</div>
+              </div>
+
+              <span className={model.isDefault ? 'rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700' : 'rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-500'}>
+                {model.isDefault ? 'Default' : model.status}
+              </span>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
+              <div className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-900">
+                <div className="text-xs text-slate-500">Size</div>
+                <div className="mt-1 font-black">{formatBytes(model.sizeBytes)}</div>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-900">
+                <div className="text-xs text-slate-500">Status</div>
+                <div className="mt-1 font-black">{model.status}</div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => defaultMutation.mutate(model.id)}
+              disabled={model.isDefault || defaultMutation.isPending}
+              className="mt-5 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white disabled:opacity-50 dark:bg-white dark:text-slate-950"
+            >
+              {model.isDefault ? 'الموديل الافتراضي حالياً' : 'Set as Default'}
+            </button>
+          </div>
+        )) : (
+          <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-950">
+            لا توجد موديلات بعد. اضغط Sync Ollama Models.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -377,7 +1011,21 @@ export default function AiCenter() {
         </div>
 
         <div className="space-y-6">
-          {activeTab === 'Playground' ? <TicketAnalyzerTest /> : <PlaceholderTab name={activeTab} />}
+          {activeTab === 'Dashboard' ? (
+            <AiDashboardHome statusData={statusQuery.data} />
+          ) : activeTab === 'General' ? (
+            <AiGeneralSettingsTab statusData={statusQuery.data} />
+          ) : activeTab === 'Models' ? (
+            <AiModelsTab />
+          ) : activeTab === 'Prompts' ? (
+            <AiPromptsStudioTab />
+          ) : activeTab === 'Skills' ? (
+            <AiSkillsManagerTab />
+          ) : activeTab === 'Playground' ? (
+            <TicketAnalyzerTest />
+          ) : (
+            <PlaceholderTab name={activeTab} />
+          )}
 
           <div className="grid gap-4 md:grid-cols-3">
             <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">

@@ -148,3 +148,40 @@ export async function aiRunSkill(req: Request, res: Response) {
     return fail(res, err);
   }
 }
+
+
+export async function aiSetDefaultModel(req: Request, res: Response) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: 'Invalid model id' });
+
+    const { setDefaultAiModel } = await import('../services/ai.service.js');
+    return ok(res, await setDefaultAiModel(id));
+  } catch (err) {
+    return fail(res, err);
+  }
+}
+
+export async function aiUpdatePrompt(req: Request, res: Response) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: 'Invalid prompt id' });
+
+    const { updateAiPrompt } = await import('../services/ai.service.js');
+    return ok(res, await updateAiPrompt(id, req.body || {}));
+  } catch (err) {
+    return fail(res, err);
+  }
+}
+
+export async function aiUpdateSkill(req: Request, res: Response) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: 'Invalid skill id' });
+
+    const { updateAiSkill } = await import('../services/ai.service.js');
+    return ok(res, await updateAiSkill(id, req.body || {}));
+  } catch (err) {
+    return fail(res, err);
+  }
+}
