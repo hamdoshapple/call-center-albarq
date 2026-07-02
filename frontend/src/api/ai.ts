@@ -77,3 +77,10 @@ export async function getAiSkills(): Promise<any[]> {
 export async function getAiTools(): Promise<any[]> {
   return request<any[]>('/ai/tools');
 }
+
+export async function runAiSkill(skillKey: string, input: string, context?: unknown): Promise<any> {
+  return request<any>(`/ai/skills/${skillKey}/run`, {
+    method: 'POST',
+    body: JSON.stringify({ input, context }),
+  });
+}

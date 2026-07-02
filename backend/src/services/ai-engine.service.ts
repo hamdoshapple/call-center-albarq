@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { runProvider } from '../lib/ai/providers/provider-registry.js';
-import { buildJsonContractPrompt, safeParseAiResponse } from '../lib/ai/core/ai-response-contract.js';
+import { buildJsonContractPrompt, enforceAiSafety, safeParseAiResponse } from '../lib/ai/core/ai-response-contract.js';
 import { ensureAiDefaults } from './ai.service.js';
 
 const prisma = new PrismaClient();
@@ -74,7 +74,7 @@ export async function runAiSkill({ skillKey, input, context }: RunSkillInput) {
       systemPrompt,
     });
 
-    const structured = safeParseAiResponse(result.text);
+    const structured = enforceAiSafety(safeParseAiResponse(result.text));
 
     await prisma.aiLog.create({
       data: {

@@ -21,6 +21,7 @@ import {
   getAiStatus,
   getAiTools,
   syncOllamaModels,
+  runAiSkill,
 } from '@/api/ai';
 
 const tabs = [
@@ -133,6 +134,94 @@ function PlaceholderTab({ name }: { name: string }) {
     </div>
   );
 }
+
+
+function TicketAnalyzerTest() {
+  const [input, setInput] = useState('الانترنت ضعيف والاشتراك فعال.');
+  const [result, setResult] = useState<any>(null);
+
+  const runMutation = useMutation({
+    mutationFn: () =>
+      runAiSkill('ticket_analyzer', input, {
+        source: 'ai-center',
+        subscriberStatus: 'active',
+      }),
+    onSuccess: (data) => setResult(data),
+  });
+
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <div className="mb-4">
+        <h2 className="text-xl font-black">Ticket Analyzer Test</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          تجربة حقيقية على AI Skill Engine. لا يتم إرسال أي شيء للزبون.
+        </p>
+      </div>
+
+      <textarea
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        className="min-h-32 w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+        placeholder="اكتب وصف التكت هنا..."
+      />
+
+      <button
+        onClick={() => runMutation.mutate()}
+        disabled={runMutation.isPending || !input.trim()}
+        className="mt-4 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white disabled:opacity-60 dark:bg-white dark:text-slate-950"
+      >
+        {runMutation.isPending ? 'جاري التحليل...' : 'Analyze Ticket'}
+      </button>
+
+      {runMutation.isError ? (
+        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+          فشل التحليل. تأكد أن AI Enabled وأن Skill مفعلة وأن Ollama يعمل.
+        </div>
+      ) : null}
+
+      {result?.result ? (
+        <div className="mt-6 space-y-4">
+          <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+            <div className="text-xs font-bold text-slate-500">Answer</div>
+            <div className="mt-2 font-black">{result.result.answer}</div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+              <div className="text-xs font-bold text-slate-500">Confidence</div>
+              <div className="mt-2 text-2xl font-black">{Math.round((result.result.confidence || 0) * 100)}%</div>
+            </div>
+
+            <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+              <div className="text-xs font-bold text-slate-500">Latency</div>
+              <div className="mt-2 text-2xl font-black">{result.latencyMs} ms</div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+            <div className="text-xs font-bold text-slate-500">Reason</div>
+            <div className="mt-2 leading-7">{result.result.reason}</div>
+          </div>
+
+          <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+            <div className="text-xs font-bold text-slate-500">Proposed Actions</div>
+            <ul className="mt-2 list-inside list-disc space-y-1 leading-7">
+              {(result.result.proposedActions || []).map((x: string, i: number) => (
+                <li key={i}>{x}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
+            <div className="text-xs font-black text-emerald-700">Suggested Reply فقط، ليس إرسال تلقائي</div>
+            <div className="mt-2 leading-7">{result.result.suggestedReply}</div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 
 export default function AiCenter() {
   const [activeTab, setActiveTab] = useState('General');
@@ -288,7 +377,7 @@ export default function AiCenter() {
         </div>
 
         <div className="space-y-6">
-          <PlaceholderTab name={activeTab} />
+          {activeTab === 'Playground' ? <TicketAnalyzerTest /> : <PlaceholderTab name={activeTab} />}
 
           <div className="grid gap-4 md:grid-cols-3">
             <div className="rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
