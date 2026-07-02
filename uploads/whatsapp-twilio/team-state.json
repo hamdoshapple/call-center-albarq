@@ -33,20 +33,21 @@
       "cmpzn633t002vw8t26cmm1udu": {
         "id": "cmpzn633t002vw8t26cmm1udu",
         "name": "admin",
-        "at": 1782984850051
+        "at": 1782989198753
       }
     },
     "pinned": false,
-    "claimedById": "user101_1780697434",
-    "claimedByName": "101",
-    "claimedAt": "2026-06-30T07:36:55.645Z"
+    "claimedById": "cmpzn633t002vw8t26cmm1udu",
+    "claimedByName": "admin",
+    "claimedAt": "2026-07-02T10:45:41.032Z",
+    "typing": {}
   },
   "cmqnn6jjc054jxrhzmh1qfx8d": {
     "viewers": {
-      "cmpzn633t002vw8t26cmm1udu": {
-        "id": "cmpzn633t002vw8t26cmm1udu",
-        "name": "admin",
-        "at": 1782984694593
+      "cmqmi15jms92hpz813yjti7rd": {
+        "id": "cmqmi15jms92hpz813yjti7rd",
+        "name": "8192",
+        "at": 1782989667536
       }
     },
     "pinned": true,
@@ -171,7 +172,7 @@
       "cmpzn633t002vw8t26cmm1udu": {
         "id": "cmpzn633t002vw8t26cmm1udu",
         "name": "admin",
-        "at": 1782988164462
+        "at": 1782989964465
       }
     },
     "claimedById": "cmpzn633t002vw8t26cmm1udu",
