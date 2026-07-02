@@ -554,6 +554,35 @@ export async function webhook(req: Request, res: Response) {
     });
   }
 
+  // AI WhatsApp Runtime Dry Run:
+  // يستقبل الرسالة، يبني Conversation، يولد قرار AI، لكن لا يرسل للزبون حالياً.
+  if (body || mediaUrl) {
+    try {
+      const { ingestAiConversationMessage, decideAiConversationReply } = await import('../services/ai-conversation.service.js');
+
+      const ingest = await ingestAiConversationMessage({
+        channel: 'whatsapp',
+        externalKey: `whatsapp:${from}`,
+        customerPhone: from,
+        message: body || '[media]',
+        source: 'twilio-webhook-dryrun',
+        metaJson: {
+          contactId: contact.id,
+          twilioSid: sid || null,
+          mediaUrl: mediaUrl || null,
+          mediaType: mediaType || null,
+          dryRun: true,
+        },
+      });
+
+      await decideAiConversationReply(ingest.conversation.id).catch((e: any) => {
+        console.log('[wa-ai-decision-dryrun] failed', e?.message || e);
+      });
+    } catch (e: any) {
+      console.log('[wa-ai-dryrun] failed', e?.message || e);
+    }
+  }
+
   const pushName = await findSubscribersForPhoneOrAlias(from)
     .then((rows: any[]) => rows?.[0]?.name || rows?.[0]?.pppoeUsername || '')
     .catch(() => '');
