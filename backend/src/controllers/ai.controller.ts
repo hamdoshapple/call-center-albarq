@@ -197,3 +197,41 @@ export async function aiUpdateTool(req: Request, res: Response) {
     return fail(res, err);
   }
 }
+
+export async function aiUpdateRule(req: Request, res: Response) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: 'Invalid rule id' });
+
+    const { updateAiRule } = await import('../services/ai.service.js');
+    return ok(res, await updateAiRule(id, req.body || {}));
+  } catch (err) {
+    return fail(res, err);
+  }
+}
+
+export async function aiRunTool(req: Request, res: Response) {
+  try {
+    const key = String(req.params.key || '').trim();
+    if (!key) return res.status(400).json({ ok: false, error: 'Tool key is required' });
+
+    const { runAiTool } = await import('../services/ai-tools/tool-engine.service.js');
+
+    return ok(res, await runAiTool({
+      toolKey: key,
+      params: req.body?.params || {},
+      source: req.body?.source || 'manual',
+    }));
+  } catch (err) {
+    return fail(res, err);
+  }
+}
+
+export async function aiToolHandlers(_req: Request, res: Response) {
+  try {
+    const { listAiToolHandlers } = await import('../services/ai-tools/tool-engine.service.js');
+    return ok(res, await listAiToolHandlers());
+  } catch (err) {
+    return fail(res, err);
+  }
+}

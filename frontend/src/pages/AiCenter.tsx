@@ -29,6 +29,8 @@ import {
   updateAiPrompt,
   updateAiSkill,
   updateAiTool,
+  getAiRules,
+  updateAiRule,
 } from '@/api/ai';
 
 const tabs = [
@@ -428,6 +430,108 @@ function formatBytes(value?: number | string | null) {
 }
 
 
+
+
+
+function AiRulesManagerTab() {
+  const qc = useQueryClient();
+
+  const rulesQuery = useQuery({
+    queryKey: ['ai-rules'],
+    queryFn: getAiRules,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: any }) => updateAiRule(id, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-rules'] });
+    },
+  });
+
+  const rules = rulesQuery.data || [];
+
+  const severityClass = (severity: string) => {
+    if (severity === 'high') return 'bg-red-100 text-red-700';
+    if (severity === 'medium') return 'bg-amber-100 text-amber-700';
+    return 'bg-slate-100 text-slate-700';
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <h2 className="text-xl font-black">Rules Manager</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          قواعد الحماية والسلوك التي يلتزم بها Albarq AI أثناء التحليل.
+        </p>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        {rules.map((rule: any) => (
+          <div
+            key={rule.id}
+            className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-xl font-black">{rule.title}</div>
+                <div className="mt-1 text-xs text-slate-500">{rule.key}</div>
+              </div>
+
+              <label className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-xs font-black dark:bg-slate-900">
+                <span>{rule.enabled ? 'Enabled' : 'Disabled'}</span>
+                <input
+                  type="checkbox"
+                  checked={Boolean(rule.enabled)}
+                  onChange={(e) =>
+                    updateMutation.mutate({
+                      id: rule.id,
+                      payload: { enabled: e.target.checked },
+                    })
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="mt-5">
+              <label className="mb-2 block text-sm font-bold text-slate-500">Rule Content</label>
+              <textarea
+                defaultValue={rule.content || ''}
+                onBlur={(e) =>
+                  updateMutation.mutate({
+                    id: rule.id,
+                    payload: { content: e.target.value },
+                  })
+                }
+                className="min-h-28 w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+              />
+            </div>
+
+            <div className="mt-4 flex items-center gap-3">
+              <span className={`rounded-full px-3 py-1 text-xs font-black ${severityClass(rule.severity)}`}>
+                {rule.severity}
+              </span>
+
+              <select
+                value={rule.severity || 'medium'}
+                onChange={(e) =>
+                  updateMutation.mutate({
+                    id: rule.id,
+                    payload: { severity: e.target.value },
+                  })
+                }
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+              >
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+              </select>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 
 function AiToolsManagerTab() {
@@ -1117,6 +1221,8 @@ export default function AiCenter() {
             <AiSkillsManagerTab />
           ) : activeTab === 'Tools' ? (
             <AiToolsManagerTab />
+          ) : activeTab === 'Rules' ? (
+            <AiRulesManagerTab />
           ) : activeTab === 'Playground' ? (
             <TicketAnalyzerTest />
           ) : (

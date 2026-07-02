@@ -8,11 +8,73 @@ const prisma = new PrismaClient();
 type RunSkillInput = {
   skillKey: string;
   input: string;
-  context?: unknown;
+  context?: any;
 };
+
+function extractPhoneFromText(text: string) {
+  const normalized = String(text || '').replace(/[\s\-()]/g, '');
+  const match = normalized.match(/(?:9647\d{9}|07\d{9})/);
+  if (!match) return '';
+
+  let phone = match[0].replace(/\D/g, '');
+  if (phone.startsWith('964')) phone = '0' + phone.slice(3);
+  return phone;
+}
+
+function normalizePhone(value: unknown) {
+  let phone = String(value || '').replace(/\D/g, '');
+  if (phone.startsWith('964')) phone = '0' + phone.slice(3);
+  if (!phone.startsWith('0') && phone.length === 10) phone = '0' + phone;
+  return phone;
+}
+
+async function enrichTicketContextWithSubscriber(input: string, context: any) {
+  const senderPhone = normalizePhone(context?.senderPhone || context?.fromPhone || context?.phone);
+  const textPhone = extractPhoneFromText(input);
+  const phone = senderPhone || textPhone;
+
+  if (!phone) {
+    return context || {};
+  }
+
+  const { runAiTool } = await import('./ai-tools/tool-engine.service.js');
+
+  try {
+    const lookup = await runAiTool({
+      toolKey: 'read_subscriber',
+      source: 'ticket_analyzer_auto_context',
+      params: { phone },
+    });
+
+    const subscriber = lookup?.result?.subscriber || null;
+
+    return {
+      ...(context || {}),
+      phoneSource: senderPhone ? 'senderPhone' : 'text',
+      phoneResolved: true,
+      subscriberLookup: lookup.result,
+      subscriberStatus: subscriber?.status || context?.subscriberStatus,
+      subscriberDebt: subscriber?.debt,
+      subscriberPackage: subscriber?.package,
+      subscriberExpiration: subscriber?.expiration,
+      subscriberDataSource: lookup?.result?.dataSource,
+    };
+  } catch (err: any) {
+    return {
+      ...(context || {}),
+      phoneSource: senderPhone ? 'senderPhone' : 'text',
+      phoneResolved: false,
+      subscriberLookupError: err?.message || String(err),
+    };
+  }
+}
 
 export async function runAiSkill({ skillKey, input, context }: RunSkillInput) {
   await ensureAiDefaults();
+
+  if (skillKey === 'ticket_analyzer') {
+    context = await enrichTicketContextWithSubscriber(input, context || {});
+  }
 
   const settings = await prisma.aiSetting.findUnique({ where: { id: 1 } });
   if (!settings?.enabled) {
@@ -36,22 +98,10 @@ export async function runAiSkill({ skillKey, input, context }: RunSkillInput) {
     throw new Error(`AI prompt is disabled or missing for skill: ${skillKey}`);
   }
 
-  const rules = await prisma.aiRule.findMany({
-    where: { enabled: true },
-    orderBy: { id: 'asc' },
-  });
-
   const systemPrompt = [
-    'أنت Albarq AI داخل نظام Call Center Albarq.',
-    'أنت مساعد داخلي للموظفين فقط.',
-    'ممنوع إرسال أي رسالة للزبون أو تنفيذ أي عملية.',
-    '',
-    'PROMPT الخاص بالمهارة:',
+    'Albarq AI داخلي فقط. لا ترسل للزبون ولا تنفذ إجراء.',
+    'لا تخمن. إذا البيانات ناقصة قل: المعلومات غير كافية.',
     prompt.content,
-    '',
-    'RULES:',
-    ...rules.map((r) => `- ${r.title}: ${r.content}`),
-    '',
     buildJsonContractPrompt(),
   ].join('\n');
 
@@ -67,27 +117,67 @@ export async function runAiSkill({ skillKey, input, context }: RunSkillInput) {
   const started = Date.now();
 
   const isTicketAnalyzer = skillKey === 'ticket_analyzer';
-  const hasSubscriberStatus = Boolean((context as any)?.subscriberStatus);
   const hasRealDiagnosticContext =
-    hasSubscriberStatus ||
-    Boolean((context as any)?.pppoeStatus) ||
-    Boolean((context as any)?.debt) ||
-    Boolean((context as any)?.lastTickets) ||
-    Boolean((context as any)?.lastCalls);
+    Boolean(context?.subscriberStatus) ||
+    Boolean(context?.subscriberLookup?.found) ||
+    Boolean(context?.pppoeStatus) ||
+    Boolean(context?.debt) ||
+    Boolean(context?.lastTickets) ||
+    Boolean(context?.lastCalls);
+
+  if (isTicketAnalyzer && context?.subscriberLookup?.found) {
+    const sub = context.subscriberLookup.subscriber || {};
+    const safeResult = {
+      answer: `تم العثور على المشترك من ${context.subscriberDataSource || 'النظام'}، حالة الاشتراك: ${sub.status || 'غير معروفة'}، الباقة: ${sub.package || 'غير معروفة'}، الدين: ${Number(sub.debt || 0).toLocaleString('en-US')} د.ع. لا توجد بيانات PPPoE/ONU حالياً لتحديد سبب الانقطاع بدقة.`,
+      confidence: 0.75,
+      reason: 'تم الاعتماد على بيانات مشترك مؤكدة من النظام، لكن سبب الانقطاع يحتاج بيانات جلسة أو فحص فني إضافي.',
+      proposedActions: [
+        'تأكيد حالة الاشتراك والديون مع المشترك.',
+        'فحص حالة PPPoE / Session عند توفرها.',
+        'التحقق هل المشكلة عامة أو على مشترك واحد.',
+        'تحويل التكت للفحص الفني إذا استمر الانقطاع.'
+      ],
+      suggestedReply: 'تم استلام البلاغ، بيانات الاشتراك ظاهرة لدينا وسيتم فحص حالة الخدمة والجلسة ثم تحديث التكت بعد التحقق.',
+      rawText: ''
+    };
+
+    await prisma.aiLog.create({
+      data: {
+        source: 'skill_fast_diagnostic',
+        skillKey,
+        provider: settings.provider,
+        model: skill.modelName || settings.model,
+        prompt: fullInput,
+        response: JSON.stringify(safeResult),
+        confidence: safeResult.confidence,
+        latencyMs: Date.now() - started,
+        success: true,
+        metaJson: { fastDiagnostic: true, subscriberFound: true },
+      },
+    });
+
+    return {
+      skill: { key: skill.key, title: skill.title },
+      provider: settings.provider,
+      model: skill.modelName || settings.model,
+      latencyMs: Date.now() - started,
+      result: safeResult,
+    };
+  }
 
   if (isTicketAnalyzer && !hasRealDiagnosticContext) {
     const safeResult = {
       answer: 'المعلومات المتوفرة لا تكفي للتحقق من حالة الاشتراك أو تحديد سبب المشكلة.',
       confidence: 0.25,
-      reason: 'تم ذكر اسم ورقم ومشكلة، لكن لا توجد بيانات مؤكدة من النظام عن المشترك أو الاشتراك أو الجلسة.',
+      reason: 'تم ذكر مشكلة، لكن لا توجد بيانات مؤكدة من النظام عن المشترك أو الاشتراك أو الجلسة.',
       proposedActions: [
         'البحث عن المشترك بواسطة رقم الهاتف داخل النظام.',
         'التحقق من حالة الاشتراك والديون.',
         'فحص حالة PPPoE / Session إذا كانت متاحة.',
-        'تحويل التكت للفحص الفني إذا لم تظهر بيانات كافية.'
+        'تحويل التكت للفحص الفني إذا لم تظهر بيانات كافية.',
       ],
       suggestedReply: 'تم استلام الملاحظة، سيتم التحقق من بيانات الاشتراك وحالة الخدمة من النظام ثم تحديث التكت بعد الفحص.',
-      rawText: ''
+      rawText: '',
     };
 
     await prisma.aiLog.create({

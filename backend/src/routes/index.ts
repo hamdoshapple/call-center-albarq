@@ -219,8 +219,13 @@ router.get('/ai/skills', perm('company_settings'), h(aiController.aiSkills));
 router.put('/ai/skills/:id', perm('company_settings', 'edit'), h(aiController.aiUpdateSkill));
 router.post('/ai/skills/:key/run', perm('company_settings', 'edit'), h(aiController.aiRunSkill));
 router.get('/ai/tools', perm('company_settings'), h(aiController.aiTools));
+
+router.get('/ai/tools-handlers', perm('company_settings'), h(aiController.aiToolHandlers));
+router.post('/ai/tools/:key/run', perm('company_settings', 'edit'), h(aiController.aiRunTool));
+
 router.put('/ai/tools/:id', perm('company_settings', 'edit'), h(aiController.aiUpdateTool));
 router.get('/ai/rules', perm('company_settings'), h(aiController.aiRules));
+router.put('/ai/rules/:id', perm('company_settings', 'edit'), h(aiController.aiUpdateRule));
 router.post('/ai/playground/run', perm('company_settings', 'edit'), h(aiController.aiPlaygroundRun));
 router.get('/ai/logs', perm('company_settings'), h(aiController.aiLogs));
 

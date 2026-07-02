@@ -124,3 +124,14 @@ export async function updateAiTool(id: number, payload: any): Promise<any> {
     body: JSON.stringify(payload),
   });
 }
+
+export async function getAiRules(): Promise<any[]> {
+  return request<any[]>('/ai/rules');
+}
+
+export async function updateAiRule(id: number, payload: any): Promise<any> {
+  return request<any>(`/ai/rules/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}

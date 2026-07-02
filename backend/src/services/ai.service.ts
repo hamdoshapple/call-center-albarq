@@ -331,3 +331,20 @@ export async function updateAiTool(id: number, data: any) {
     },
   });
 }
+
+export async function updateAiRule(id: number, data: any) {
+  await ensureAiDefaults();
+
+  const rule = await prisma.aiRule.findUnique({ where: { id } });
+  if (!rule) throw new Error('AI rule not found');
+
+  return prisma.aiRule.update({
+    where: { id },
+    data: {
+      title: String(data.title || rule.title),
+      content: String(data.content || rule.content),
+      enabled: typeof data.enabled === 'boolean' ? data.enabled : rule.enabled,
+      severity: typeof data.severity === 'string' ? data.severity : rule.severity,
+    },
+  });
+}
