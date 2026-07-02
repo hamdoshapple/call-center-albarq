@@ -85,7 +85,7 @@ export function buildJsonContractPrompt() {
 }
 
 
-export function enforceAiSafety(result: AiStructuredResult): AiStructuredResult {
+export function enforceAiSafety(result: AiStructuredResult, context?: any): AiStructuredResult {
   const actions = [...(result.proposedActions || [])];
 
   const defaultActions = [
@@ -115,19 +115,30 @@ export function enforceAiSafety(result: AiStructuredResult): AiStructuredResult 
     suggestedReply = safeReply;
   }
 
+  const hasSubscriberStatus = Boolean(context?.subscriberStatus);
   const combined = `${result.answer || ''} ${result.reason || ''} ${suggestedReply}`;
+  const mentionsActiveSubscription = combined.includes('اشتراك فعال') || combined.includes('المشترك فعال') || combined.includes('الاشتراك فعال');
+  const isTemplateOutput =
+    combined.includes('النتيجة المختصرة') ||
+    combined.includes('إجراء مقترح') ||
+    combined.includes('رد مقترح للموظف فقط') ||
+    combined.includes('لا يوجد أي خطأ أو تفاصيل');
   const guessWords = ['انقطاع', 'عادة', 'بسبب مشكلة', 'السبب المحتمل', 'يجب التحقق من سلامة الاشتراك عبر الإنترنت'];
 
-  const hasGuess = guessWords.some((w) => combined.includes(w));
+  const hasGuess = guessWords.some((w) => combined.includes(w)) || isTemplateOutput || (!hasSubscriberStatus && mentionsActiveSubscription);
 
   return {
     ...result,
     answer: hasGuess
-      ? 'المعلومات المتوفرة تشير إلى ضعف في الإنترنت مع اشتراك فعال، ولا تكفي لتحديد السبب.'
+      ? (hasSubscriberStatus
+        ? 'المعلومات المتوفرة تشير إلى ضعف في الإنترنت مع اشتراك فعال، ولا تكفي لتحديد السبب.'
+        : 'المعلومات المتوفرة لا تكفي للتحقق من حالة الاشتراك أو تحديد سبب المشكلة.')
       : result.answer,
     confidence: Math.min(Number(result.confidence || 0.3), hasGuess ? 0.55 : 0.65),
     reason: hasGuess
-      ? 'تم تخفيض الثقة لأن السبب غير مثبت من البيانات المتاحة.'
+      ? (hasSubscriberStatus
+        ? 'تم تخفيض الثقة لأن السبب غير مثبت من البيانات المتاحة.'
+        : 'لا توجد بيانات مشترك مؤكدة في السياق، لذلك لا يمكن تأكيد حالة الاشتراك أو سبب الانقطاع.')
       : result.reason,
     proposedActions: hasGuess ? defaultActions.slice(0, 4) : actions,
     suggestedReply: hasGuess

@@ -66,6 +66,54 @@ export async function runAiSkill({ skillKey, input, context }: RunSkillInput) {
 
   const started = Date.now();
 
+  const isTicketAnalyzer = skillKey === 'ticket_analyzer';
+  const hasSubscriberStatus = Boolean((context as any)?.subscriberStatus);
+  const hasRealDiagnosticContext =
+    hasSubscriberStatus ||
+    Boolean((context as any)?.pppoeStatus) ||
+    Boolean((context as any)?.debt) ||
+    Boolean((context as any)?.lastTickets) ||
+    Boolean((context as any)?.lastCalls);
+
+  if (isTicketAnalyzer && !hasRealDiagnosticContext) {
+    const safeResult = {
+      answer: 'المعلومات المتوفرة لا تكفي للتحقق من حالة الاشتراك أو تحديد سبب المشكلة.',
+      confidence: 0.25,
+      reason: 'تم ذكر اسم ورقم ومشكلة، لكن لا توجد بيانات مؤكدة من النظام عن المشترك أو الاشتراك أو الجلسة.',
+      proposedActions: [
+        'البحث عن المشترك بواسطة رقم الهاتف داخل النظام.',
+        'التحقق من حالة الاشتراك والديون.',
+        'فحص حالة PPPoE / Session إذا كانت متاحة.',
+        'تحويل التكت للفحص الفني إذا لم تظهر بيانات كافية.'
+      ],
+      suggestedReply: 'تم استلام الملاحظة، سيتم التحقق من بيانات الاشتراك وحالة الخدمة من النظام ثم تحديث التكت بعد الفحص.',
+      rawText: ''
+    };
+
+    await prisma.aiLog.create({
+      data: {
+        source: 'skill_fast_guard',
+        skillKey,
+        provider: settings.provider,
+        model: skill.modelName || settings.model,
+        prompt: fullInput,
+        response: JSON.stringify(safeResult),
+        confidence: safeResult.confidence,
+        latencyMs: Date.now() - started,
+        success: true,
+        metaJson: { fastGuard: true, reason: 'missing_diagnostic_context' },
+      },
+    });
+
+    return {
+      skill: { key: skill.key, title: skill.title },
+      provider: settings.provider,
+      model: skill.modelName || settings.model,
+      latencyMs: Date.now() - started,
+      result: safeResult,
+    };
+  }
+
   try {
     const result = await runProvider({
       provider: settings.provider,
@@ -74,7 +122,7 @@ export async function runAiSkill({ skillKey, input, context }: RunSkillInput) {
       systemPrompt,
     });
 
-    const structured = enforceAiSafety(safeParseAiResponse(result.text));
+    const structured = enforceAiSafety(safeParseAiResponse(result.text), context);
 
     await prisma.aiLog.create({
       data: {

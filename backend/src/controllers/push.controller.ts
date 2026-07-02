@@ -1789,7 +1789,13 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
     return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
   });
 
-  res.json(rows);
+  const finalRows = showAllPhoneSubscribers
+    ? rows
+        .filter((x: any) => String(x.phoneNorm || x.phone || '').replace(/\D/g, '').length >= 10)
+        .slice(0, pickerLimit)
+    : rows;
+
+  res.json(finalRows);
 });
 
 
