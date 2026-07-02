@@ -1,6 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import { runAiTool } from './ai-tools/tool-engine.service.js';
 import { evaluateAiReplyPolicy } from './ai-runtime/policy-engine.service.js';
+import { runAiSkill } from './ai-engine.service.js';
+import { findReplyTemplate, renderReplyTemplate } from './ai-reply-template.service.js';
 
 const prisma = new PrismaClient();
 
@@ -146,8 +148,30 @@ export async function ingestAiConversationMessage(input: {
 
 function detectIntent(text: string) {
   const t = String(text || '').toLowerCase();
-  if (t.includes('مقطوع') || t.includes('ماكو نت') || t.includes('لا يعمل')) return 'internet_down';
-  if (t.includes('ضعيف') || t.includes('بطيء')) return 'slow_internet';
+  if (
+    t.includes('مقطوع') ||
+    t.includes('ماكو نت') ||
+    t.includes('ماكو انترنت') ||
+    t.includes('ماكو انترنيت') ||
+    t.includes('النت طافي') ||
+    t.includes('النت فاصل') ||
+    t.includes('فاصل') ||
+    t.includes('يفصل') ||
+    t.includes('لا يعمل') ||
+    t.includes('ما يشتغل') ||
+    t.includes('ميشتغل') ||
+    t.includes('انقطاع') ||
+    t.includes('ضايع النت')
+  ) return 'internet_down';
+
+  if (
+    t.includes('ضعيف') ||
+    t.includes('بطيء') ||
+    t.includes('ثكيل') ||
+    t.includes('ثقيل') ||
+    t.includes('تقطيع') ||
+    t.includes('بطئ')
+  ) return 'slow_internet';
   if (t.includes('دين') || t.includes('حساب') || t.includes('كم علي')) return 'billing';
   if (t.includes('تجديد') || t.includes('افعل')) return 'renewal';
   return 'general';
@@ -257,6 +281,72 @@ export async function decideAiConversationReply(conversationId: number) {
         debt > 0
           ? `أهلاً ${conversation.customerName || ''}، حسب البيانات المتوفرة يوجد مبلغ مستحق قدره ${debt.toLocaleString('en-US')} د.ع.`
           : `أهلاً ${conversation.customerName || ''}، لا يظهر لدينا مبلغ مستحق حالياً حسب البيانات المتوفرة.`,
+      handoffRequired: false,
+    };
+  }
+
+  const shouldUseLlm =
+    !isRisky &&
+    hasSubscriber &&
+    conversation.intent === 'general' &&
+    text.length > 8;
+
+  if (shouldUseLlm) {
+    try {
+      const generated = await runAiSkill({
+        skillKey: 'whatsapp_analyzer',
+        input: text,
+        context: {
+          conversationId: conversation.id,
+          subscriber: sub,
+          lastSummary: conversation.lastSummary,
+          rules: [
+            'رد كموظف دعم في شركة البرق.',
+            'لا تعد بأي وقت صيانة.',
+            'لا تنفذ أي إجراء.',
+            'إذا لم تكن المعلومات كافية اطلب توضيحاً قصيراً.',
+            'الرد يجب أن يكون مناسباً للإرسال عبر واتساب.'
+          ],
+        },
+      });
+
+      if (generated?.result?.suggestedReply || generated?.result?.answer) {
+        decision = {
+          shouldReply: true,
+          replyType: 'ai_generated',
+          confidence: Math.min(0.86, Math.max(0.76, Number(generated.result.confidence || 0.78))),
+          reason: 'تم توليد الرد بواسطة LLM لأن الرسالة عامة ولا تطابق قالباً محفوظاً.',
+          suggestedReply: String(generated.result.suggestedReply || generated.result.answer || '').trim(),
+          handoffRequired: false,
+        };
+      }
+    } catch (e: any) {
+      console.log('[conversation-llm-reply] failed', e?.message || e);
+    }
+  }
+
+  const templateCtx = {
+    hasSubscriber,
+    status,
+    debt,
+    customerName: conversation.customerName || 'بك',
+  };
+
+  const matchedTemplate = await findReplyTemplate(conversation.intent || 'general', templateCtx);
+
+  if (matchedTemplate && !isRisky) {
+    decision = {
+      ...decision,
+      shouldReply: true,
+      replyType: 'template_reply',
+      confidence: Math.max(decision.confidence, 0.9),
+      reason: `تم اختيار قالب رد من AI Center: ${matchedTemplate.title}`,
+      suggestedReply: renderReplyTemplate(matchedTemplate.template, {
+        customerName: conversation.customerName || 'بك',
+        debt: debt.toLocaleString('en-US'),
+        status,
+        package: sub?.package || '',
+      }),
       handoffRequired: false,
     };
   }

@@ -208,6 +208,11 @@ router.put('/permissions', perm('permissions', 'edit'), h(misc.setPermission));
 router.post('/ai/bootstrap', perm('company_settings', 'edit'), h(aiController.aiBootstrap));
 router.get('/ai/status', perm('company_settings'), h(aiController.aiStatus));
 
+
+router.get('/ai/reply-templates', perm('company_settings'), h(aiController.aiReplyTemplates));
+router.post('/ai/reply-templates', perm('company_settings', 'edit'), h(aiController.aiCreateReplyTemplate));
+router.put('/ai/reply-templates/:id', perm('company_settings', 'edit'), h(aiController.aiUpdateReplyTemplate));
+
 router.get('/ai/runtime-settings', perm('company_settings'), h(aiController.aiRuntimeSettings));
 router.put('/ai/runtime-settings', perm('company_settings', 'edit'), h(aiController.aiUpdateRuntimeSettings));
 

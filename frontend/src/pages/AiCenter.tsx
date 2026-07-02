@@ -37,6 +37,9 @@ import {
   decideAiConversation,
   getAiRuntimeSettings,
   updateAiRuntimeSettings,
+  getAiReplyTemplates,
+  updateAiReplyTemplate,
+  createAiReplyTemplate,
 } from '@/api/ai';
 
 const tabs = [
@@ -51,6 +54,7 @@ const tabs = [
   'Tools',
   'Memory',
   'Conversations',
+  'قوالب الردود الذكية',
   'Playground',
   'Analytics',
   'Logs',
@@ -138,7 +142,7 @@ function PlaceholderTab({ name }: { name: string }) {
                 <div className="text-xs text-slate-500">{item.key}</div>
               </div>
               <span className={item.enabled ? 'text-emerald-600' : 'text-slate-400'}>
-                {item.enabled ? 'Enabled' : 'Disabled'}
+                {item.enabled ? 'مفعل' : 'معطل'}
               </span>
             </div>
           ))}
@@ -234,7 +238,7 @@ function AiGeneralSettingsTab({ statusData }: { statusData: any }) {
           <div className="mb-5 text-lg font-black">Runtime</div>
 
           <label className="flex items-center justify-between rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
-            <span className="font-bold">AI Enabled</span>
+            <span className="font-bold">AI مفعل</span>
             <input
               type="checkbox"
               checked={Boolean(form.enabled)}
@@ -336,7 +340,7 @@ function AiDashboardHome({ statusData }: { statusData: any }) {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
           <div className="text-sm font-bold text-slate-500">AI Engine</div>
-          <div className="mt-2 text-3xl font-black">{settings?.enabled ? 'Running' : 'Disabled'}</div>
+          <div className="mt-2 text-3xl font-black">{settings?.enabled ? 'Running' : 'معطل'}</div>
           <div className="mt-2 text-xs text-slate-400">Safe mode controlled from General</div>
         </div>
 
@@ -483,8 +487,8 @@ function AiRuntimeCard() {
           </div>
           <input
             type="checkbox"
-            checked={Boolean(settings.whatsappAutoReplyEnabled)}
-            onChange={(e) => setValue('whatsappAutoReplyEnabled', e.target.checked)}
+            checked={Boolean(settings.whatsappAutoReplyمفعل)}
+            onChange={(e) => setValue('whatsappAutoReplyمفعل', e.target.checked)}
             className="h-5 w-5"
           />
         </label>
@@ -496,8 +500,8 @@ function AiRuntimeCard() {
           </div>
           <input
             type="checkbox"
-            checked={settings.whatsappDryRunEnabled !== false}
-            onChange={(e) => setValue('whatsappDryRunEnabled', e.target.checked)}
+            checked={settings.whatsappDryRunمفعل !== false}
+            onChange={(e) => setValue('whatsappDryRunمفعل', e.target.checked)}
             className="h-5 w-5"
           />
         </label>
@@ -534,14 +538,209 @@ function AiRuntimeCard() {
         <div className="rounded-2xl border border-dashed border-slate-300 p-4 text-xs leading-6 text-slate-500 dark:border-slate-700">
           <div className="font-black text-slate-700 dark:text-slate-200">Policy Engine</div>
           <div className="mt-2">
-            الحالة الحالية: {settings.whatsappAutoReplyEnabled ? 'Auto Reply ON' : 'Auto Reply OFF'} ·
-            {settings.whatsappDryRunEnabled !== false ? ' Dry Run ON' : ' Dry Run OFF'}
+            الحالة الحالية: {settings.whatsappAutoReplyمفعل ? 'Auto Reply ON' : 'Auto Reply OFF'} ·
+            {settings.whatsappDryRunمفعل !== false ? ' Dry Run ON' : ' Dry Run OFF'}
           </div>
           <div>
             الحد الأدنى للثقة: {Math.round(Number(settings.whatsappMinConfidence ?? 0.9) * 100)}% ·
             شرط التعرف على المشترك: {settings.whatsappRequireSubscriber !== false ? 'مفعل' : 'غير مفعل'}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+
+function AiReplyTemplatesTab() {
+  const qc = useQueryClient();
+
+  const templatesQuery = useQuery({
+    queryKey: ['ai-reply-templates'],
+    queryFn: getAiReplyTemplates,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: any }) => updateAiReplyTemplate(id, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-reply-templates'] });
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () => createAiReplyTemplate({
+      key: `custom_${Date.now()}`,
+      title: 'قالب جديد',
+      intent: 'استفسار عام',
+      enabled: true,
+      priority: 100,
+      conditionsJson: {},
+      template: 'أهلاً {{customerName}} ← اسم المشترك، تم استلام رسالتك وسيتم مراجعتها.',
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-reply-templates'] });
+    },
+  });
+
+  const templates = templatesQuery.data || [];
+
+  const save = (item: any, patch: any) => {
+    updateMutation.mutate({
+      id: item.id,
+      payload: {
+        title: item.title,
+        intent: item.intent,
+        enabled: item.enabled,
+        priority: item.priority,
+        conditionsJson: item.conditionsJson || {},
+        template: item.template,
+        ...patch,
+      },
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-xl font-black">قوالب الردود الذكية</h2>
+          </div>
+          <button
+            onClick={() => createMutation.mutate()}
+            disabled={createMutation.isPending}
+            className="rounded-2xl bg-sky-600 px-4 py-3 text-sm font-black text-white disabled:opacity-60"
+          >
+            {createMutation.isPending ? 'جاري الإضافة...' : '+ إضافة قالب جديد'}
+          </button>
+        </div>
+        <p className="mt-1 text-sm text-slate-500">
+          يمكنك إنشاء وإدارة جميع الردود الذكية التي يستخدمها موظف الذكاء الاصطناعي حسب نوع الطلب والشروط، دون الحاجة لتعديل أي كود.
+        </p>
+
+        <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm leading-7 text-sky-900 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-100">
+          <div className="font-black">توجيهات إنشاء القالب</div>
+          <ul className="mt-2 list-inside list-disc">
+            <li>اكتب الرد بصيغة موظف دعم محترم وواضح.</li>
+            <li>لا تضع وعداً بوقت صيانة محدد مثل: خلال 10 دقائق.</li>
+            <li>لا تذكر سبب المشكلة إذا لم يكن مؤكداً من البيانات.</li>
+            <li>استخدم الردود القصيرة المناسبة للواتساب.</li>
+            <li>اجعل القالب عاماً وقابل للاستخدام مع أكثر من مشترك.</li>
+          </ul>
+
+          <div className="mt-4 font-black">أمثلة مقترحة</div>
+          <div className="mt-2 space-y-2">
+            <div className="rounded-xl bg-white/70 p-3 dark:bg-black/20">
+              {`أهلاً {{customerName}}، تم استلام بلاغك وسيتم تحويله للفريق المختص للمراجعة.`}
+            </div>
+            <div className="rounded-xl bg-white/70 p-3 dark:bg-black/20">
+              {`أهلاً {{customerName}}، حسب البيانات المتوفرة يوجد مبلغ مستحق قدره {{debt}} د.ع.`}
+            </div>
+            <div className="rounded-xl bg-white/70 p-3 dark:bg-black/20">
+              أهلاً بك، يرجى تزويدنا برقم الهاتف أو اسم المستخدم حتى نتمكن من التحقق من حالة الخدمة.
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm leading-7 text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+          المتغيرات المتاحة:
+          <span className="mx-1 rounded bg-white px-2 py-1 font-mono dark:bg-slate-950">{'{{customerName}} ← اسم المشترك'}</span>
+          <span className="mx-1 rounded bg-white px-2 py-1 font-mono dark:bg-slate-950">{'{{debt}} ← قيمة الدين'}</span>
+          <span className="mx-1 rounded bg-white px-2 py-1 font-mono dark:bg-slate-950">{'{{status}} ← حالة الاشتراك'}</span>
+          <span className="mx-1 rounded bg-white px-2 py-1 font-mono dark:bg-slate-950">{'{{package}} ← اسم الباقة'}</span>
+        </div>
+      </div>
+
+      <div className="grid gap-4">
+        {templates.map((item: any) => (
+          <div
+            key={item.id}
+            className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950"
+          >
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="text-lg font-black">{item.title}</div>
+                <div className="mt-1 text-xs text-slate-500">{item.key}</div>
+              </div>
+
+              <label className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-xs font-black dark:bg-slate-900">
+                <span>{item.enabled ? 'مفعل' : 'معطل'}</span>
+                <input
+                  type="checkbox"
+                  checked={Boolean(item.enabled)}
+                  onChange={(e) => save(item, { enabled: e.target.checked })}
+                />
+              </label>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-3">
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-500">اسم القالب</label>
+                <input
+                  defaultValue={item.title}
+                  onBlur={(e) => save(item, { title: e.target.value })}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-500">نوع الطلب</label>
+                <select
+                  value={item.intent}
+                  onChange={(e) => save(item, { intent: e.target.value })}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+                >
+                  <option value="انقطاع الإنترنت">انقطاع الإنترنت</option>
+                  <option value="بطء الإنترنت">بطء الإنترنت</option>
+                  <option value="الاستعلام عن الرصيد أو الدين">الاستعلام عن الرصيد أو الدين</option>
+                  <option value="التجديد والتفعيل">التجديد والتفعيل</option>
+                  <option value="استفسار عام">استفسار عام</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-bold text-slate-500">الأولوية</label>
+                <input
+                  type="number"
+                  defaultValue={item.priority || 100}
+                  onBlur={(e) => save(item, { priority: Number(e.target.value || 100) })}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <label className="mb-2 block text-sm font-bold text-slate-500">شروط التطبيق</label>
+              <textarea
+                defaultValue={JSON.stringify(item.conditionsJson || {}, null, 2)}
+                onBlur={(e) => {
+                  try {
+                    save(item, { conditionsJson: JSON.parse(e.target.value || '{}') });
+                  } catch {
+                    alert('شروط التطبيق غير صحيح');
+                  }
+                }}
+                className="min-h-28 w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 font-mono text-xs outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+              />
+            </div>
+
+            <div className="mt-5">
+              <label className="mb-2 block text-sm font-bold text-slate-500">نص الرد</label>
+              <textarea
+                defaultValue={item.template}
+                onBlur={(e) => save(item, { template: e.target.value })}
+                className="min-h-32 w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+              />
+            </div>
+          </div>
+        ))}
+
+        {!templates.length ? (
+          <div className="rounded-3xl border border-dashed border-slate-300 p-10 text-center text-sm text-slate-500 dark:border-slate-700">
+            لا توجد قوالب بعد.
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -645,7 +844,7 @@ function AiConversationsTab() {
                   <span className="rounded-full bg-white/20 px-2 py-1 text-[11px]">{c.channel}</span>
                 </div>
                 <div className="mt-1 text-xs opacity-70">
-                  {c.intent || 'general'} · {c.stage || '—'}
+                  {c.intent || 'استفسار عام'} · {c.stage || '—'}
                 </div>
                 <div className="mt-2 line-clamp-2 text-xs opacity-70">
                   {c.lastSummary || c.messages?.[0]?.content || ''}
@@ -671,7 +870,7 @@ function AiConversationsTab() {
               <div>
                 <h2 className="text-2xl font-black">{selected.customerName || selected.customerPhone}</h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  {selected.channel} · {selected.intent || 'general'} · {selected.stage || '—'}
+                  {selected.channel} · {selected.intent || 'استفسار عام'} · {selected.stage || '—'}
                 </p>
               </div>
 
@@ -879,7 +1078,7 @@ function AiRulesManagerTab() {
               </div>
 
               <label className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-xs font-black dark:bg-slate-900">
-                <span>{rule.enabled ? 'Enabled' : 'Disabled'}</span>
+                <span>{rule.enabled ? 'مفعل' : 'معطل'}</span>
                 <input
                   type="checkbox"
                   checked={Boolean(rule.enabled)}
@@ -981,7 +1180,7 @@ function AiToolsManagerTab() {
               </div>
 
               <label className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-xs font-black dark:bg-slate-900">
-                <span>{tool.enabled ? 'Enabled' : 'Disabled'}</span>
+                <span>{tool.enabled ? 'مفعل' : 'معطل'}</span>
                 <input
                   type="checkbox"
                   checked={Boolean(tool.enabled)}
@@ -1073,7 +1272,7 @@ function AiSkillsManagerTab() {
               </div>
 
               <label className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-xs font-black dark:bg-slate-900">
-                <span>{skill.enabled ? 'Enabled' : 'Disabled'}</span>
+                <span>{skill.enabled ? 'مفعل' : 'معطل'}</span>
                 <input
                   type="checkbox"
                   checked={Boolean(skill.enabled)}
@@ -1226,7 +1425,7 @@ function AiPromptsStudioTab() {
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label className="mb-2 block text-sm font-bold text-slate-500">Title</label>
+                <label className="mb-2 block text-sm font-bold text-slate-500">اسم القالب</label>
                 <input
                   value={form.title || ''}
                   onChange={(e) => setForm((x: any) => ({ ...x, title: e.target.value }))}
@@ -1235,7 +1434,7 @@ function AiPromptsStudioTab() {
               </div>
 
               <label className="flex items-center justify-between rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
-                <span className="font-bold">Enabled</span>
+                <span className="font-bold">مفعل</span>
                 <input
                   type="checkbox"
                   checked={Boolean(form.enabled)}
@@ -1258,7 +1457,7 @@ function AiPromptsStudioTab() {
             <div className="mt-5 rounded-2xl border border-dashed border-slate-300 p-4 text-sm leading-7 text-slate-500 dark:border-slate-700">
               المتغيرات المستقبلية المقترحة:
               <div className="mt-2 flex flex-wrap gap-2">
-                {['{{ticket_text}}', '{{subscriber_status}}', '{{debt}}', '{{onu_power}}', '{{pppoe_status}}', '{{call_summary}}'].map((v) => (
+                {['{{ticket_text}}', '{{subscriber_status}}', '{{debt}} ← قيمة الدين', '{{onu_power}}', '{{pppoe_status}}', '{{call_summary}}'].map((v) => (
                   <span key={v} className="rounded-full bg-slate-100 px-3 py-1 font-mono text-xs dark:bg-slate-900">{v}</span>
                 ))}
               </div>
@@ -1408,7 +1607,7 @@ function TicketAnalyzerTest() {
 
       {runMutation.isError ? (
         <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
-          فشل التحليل. تأكد أن AI Enabled وأن Skill مفعلة وأن Ollama يعمل.
+          فشل التحليل. تأكد أن AI مفعل وأن Skill مفعلة وأن Ollama يعمل.
         </div>
       ) : null}
 
@@ -1481,7 +1680,7 @@ export default function AiCenter() {
   const cards = [
     {
       title: 'AI Status',
-      value: settings?.enabled ? 'Enabled' : 'Disabled',
+      value: settings?.enabled ? 'مفعل' : 'معطل',
       hint: settings?.enabled ? 'Active' : 'Safe by default',
       icon: ShieldCheck,
     },
@@ -1626,6 +1825,8 @@ export default function AiCenter() {
             <AiRulesManagerTab />
           ) : activeTab === 'Conversations' ? (
             <AiConversationsTab />
+          ) : activeTab === 'قوالب الردود الذكية' ? (
+            <AiReplyTemplatesTab />
           ) : activeTab === 'Playground' ? (
             <TicketAnalyzerTest />
           ) : (
@@ -1637,7 +1838,7 @@ export default function AiCenter() {
               <Lock className="mb-3 h-6 w-6" />
               <h3 className="font-bold">Safe Default</h3>
               <p className="mt-2 text-sm leading-7 text-slate-500">
-                AI يبقى Disabled حتى يتم تفعيله من الإعدادات.
+                AI يبقى معطل حتى يتم تفعيله من الإعدادات.
               </p>
             </div>
 

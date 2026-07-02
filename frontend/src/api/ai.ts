@@ -167,3 +167,21 @@ export async function updateAiRuntimeSettings(payload: any): Promise<any> {
     body: JSON.stringify(payload),
   });
 }
+
+export async function getAiReplyTemplates(): Promise<any[]> {
+  return request<any[]>('/ai/reply-templates');
+}
+
+export async function updateAiReplyTemplate(id: number, payload: any): Promise<any> {
+  return request<any>(`/ai/reply-templates/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createAiReplyTemplate(payload: any): Promise<any> {
+  return request<any>('/ai/reply-templates', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}

@@ -1110,3 +1110,19 @@ model AiConversationMessage {
   @@index([conversationId])
   @@index([createdAt])
 }
+
+model AiReplyTemplate {
+  id             Int      @id @default(autoincrement())
+  key            String   @unique
+  title          String
+  intent         String
+  enabled        Boolean  @default(true)
+  priority       Int      @default(100)
+  conditionsJson Json?
+  template       String   @db.LongText
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([intent])
+  @@index([enabled])
+}

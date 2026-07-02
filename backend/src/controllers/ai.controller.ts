@@ -307,3 +307,33 @@ export async function aiUpdateRuntimeSettings(req: Request, res: Response) {
     return fail(res, err);
   }
 }
+
+export async function aiReplyTemplates(_req: Request, res: Response) {
+  try {
+    const { listAiReplyTemplates } = await import('../services/ai-reply-template.service.js');
+    return ok(res, await listAiReplyTemplates());
+  } catch (err) {
+    return fail(res, err);
+  }
+}
+
+export async function aiUpdateReplyTemplate(req: Request, res: Response) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: 'Invalid template id' });
+
+    const { updateAiReplyTemplate } = await import('../services/ai-reply-template.service.js');
+    return ok(res, await updateAiReplyTemplate(id, req.body || {}));
+  } catch (err) {
+    return fail(res, err);
+  }
+}
+
+export async function aiCreateReplyTemplate(req: Request, res: Response) {
+  try {
+    const { createAiReplyTemplate } = await import('../services/ai-reply-template.service.js');
+    return ok(res, await createAiReplyTemplate(req.body || {}));
+  } catch (err) {
+    return fail(res, err);
+  }
+}
