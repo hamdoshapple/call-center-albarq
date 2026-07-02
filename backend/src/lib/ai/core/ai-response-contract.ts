@@ -7,9 +7,17 @@ export type AiStructuredResult = {
   rawText?: string;
 };
 
+
 export function safeParseAiResponse(text: string): AiStructuredResult {
+  const cleaned = String(text || '')
+    .trim()
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
+
   try {
-    const parsed = JSON.parse(text);
+    const parsed = JSON.parse(cleaned);
 
     return {
       answer: String(parsed.answer || 'المعلومات غير كافية.'),
@@ -22,8 +30,27 @@ export function safeParseAiResponse(text: string): AiStructuredResult {
       rawText: text,
     };
   } catch {
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[0]);
+        return {
+          answer: String(parsed.answer || 'المعلومات غير كافية.'),
+          confidence: Math.max(0, Math.min(1, Number(parsed.confidence ?? 0.3))),
+          reason: String(parsed.reason || 'لم يتم توفير سبب كافٍ.'),
+          proposedActions: Array.isArray(parsed.proposedActions)
+            ? parsed.proposedActions.map(String)
+            : ['مراجعة البيانات المتوفرة قبل اتخاذ أي إجراء.'],
+          suggestedReply: String(parsed.suggestedReply || ''),
+          rawText: text,
+        };
+      } catch {
+        // fallback below
+      }
+    }
+
     return {
-      answer: text || 'المعلومات غير كافية.',
+      answer: cleaned || 'المعلومات غير كافية.',
       confidence: 0.3,
       reason: 'تعذر قراءة الرد كـ JSON منظم، لذلك تم تخفيض الثقة.',
       proposedActions: ['إعادة التجربة بصياغة أوضح.', 'مراجعة إعدادات الـ Prompt.'],
@@ -32,6 +59,7 @@ export function safeParseAiResponse(text: string): AiStructuredResult {
     };
   }
 }
+
 
 export function buildJsonContractPrompt() {
   return `
