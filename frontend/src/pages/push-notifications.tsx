@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   BellRing,
   CheckCircle2,
@@ -200,11 +200,9 @@ export default function PushNotificationsPage() {
     variables: '1:name',
   });
   const [selectedTwilioTemplateId, setSelectedTwilioTemplateId] = useState('');
-  const [twilioVariablesText, setTwilioVariablesText] = useState('1={name}');
+  const [twilioVariablesText, setTwilioVariablesText] = useState('');
   const [previewRows, setPreviewRows] = useState<any[]>([]);
   const [previewToken, setPreviewToken] = useState('');
-  const [subscriberOffset, setSubscriberOffset] = useState(0);
-  const [subscriberPages, setSubscriberPages] = useState<any[]>([]);
   const autoLoadRef = useRef(false);
 
 
@@ -215,10 +213,11 @@ export default function PushNotificationsPage() {
     refetchInterval: 7000,
   });
   const settingsQuery = useQuery({ queryKey: ['pushSettings'], queryFn: pushNotificationsApi.settings });
-  const pushSubscribers = useQuery({
-    queryKey: ['pushSubscribers', subscriberSearch, form.channel, subscriberOffset],
-    queryFn: () => pushNotificationsApi.subscribers(subscriberSearch, form.channel, subscriberOffset, 200),
-    refetchInterval: 30000,
+  const pushSubscribers = useInfiniteQuery({
+    queryKey: ['pushSubscribers', subscriberSearch, form.channel],
+    initialPageParam: 0,
+    queryFn: ({ pageParam = 0 }) => pushNotificationsApi.subscribers(subscriberSearch, form.channel, Number(pageParam), 200),
+    getNextPageParam: (lastPage: any) => lastPage?.hasMore ? lastPage.nextOffset : undefined,
   });
   const campaignJobsQuery = useQuery({
     queryKey: ['campaignJobs'],
@@ -327,18 +326,11 @@ export default function PushNotificationsPage() {
   async function removeTwilioTemplate(id: string) {
     await saveTwilioTemplateList(twilioTemplates.filter((x) => x.id !== id));
   }
-
-
-  useEffect(() => {
-    setSubscriberOffset(0);
-    setSubscriberPages([]);
-  }, [subscriberSearch, form.channel]);
-
-  useEffect(() => {
-    const rows = Array.isArray(pushSubscribers.data) ? pushSubscribers.data : (pushSubscribers.data?.rows || []);
-    if (!rows.length) return;
-    setSubscriberPages((prev) => subscriberOffset === 0 ? rows : [...prev, ...rows]);
-  }, [pushSubscribers.data, subscriberOffset]);
+  const subscriberPages = useMemo(() => {
+    return (pushSubscribers.data?.pages || []).flatMap((page: any) =>
+      Array.isArray(page) ? page : (page?.rows || [])
+    );
+  }, [pushSubscribers.data]);
 
   const filteredSubscribers = useMemo(() => {
     const list = subscriberPages;
@@ -361,7 +353,7 @@ export default function PushNotificationsPage() {
         (subscriberFilter === 'expired' && expired) ||
         (subscriberFilter === 'multi' && multi);
     });
-  }, [pushSubscribers.data, subscriberFilter]);
+  }, [subscriberPages, subscriberFilter]);
 
   const previewMutation = useMutation({
     mutationFn: () => pushNotificationsApi.previewCampaign({
@@ -431,7 +423,7 @@ export default function PushNotificationsPage() {
       setForm((f) => ({ ...f, channel: 'twilio_template', message: tpl.body || '' }));
 
       const savedVars = localStorage.getItem(`twilio_vars_${tplId}`);
-      setTwilioVariablesText(savedVars || '1={name}\n2={totalDebt}');
+      setTwilioVariablesText(savedVars || '');
       return;
     }
 
@@ -448,15 +440,14 @@ export default function PushNotificationsPage() {
   const insertVar = (code: string) => setForm((f) => ({ ...f, message: `${f.message || ''}${f.message ? ' ' : ''}${code}` }));
 
   const loadMoreSubscribers = () => {
-    const data: any = pushSubscribers.data || {};
-    if (!data?.hasMore || pushSubscribers.isFetching || autoLoadRef.current) return;
+    if (!pushSubscribers.hasNextPage || pushSubscribers.isFetchingNextPage || autoLoadRef.current) return;
 
     autoLoadRef.current = true;
-    setSubscriberOffset(data.nextOffset || (subscriberOffset + 200));
-
-    setTimeout(() => {
-      autoLoadRef.current = false;
-    }, 450);
+    pushSubscribers.fetchNextPage().finally(() => {
+      setTimeout(() => {
+        autoLoadRef.current = false;
+      }, 450);
+    });
   };
 
   return (
@@ -581,10 +572,10 @@ export default function PushNotificationsPage() {
                         <SelectTrigger><SelectValue placeholder="اختر قالب" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="none">بدون قالب</SelectItem>
-                          {Object.keys(settings.templates || {}).map((k) => (
+                          {form.channel !== 'twilio_template' && Object.keys(settings.templates || {}).map((k) => (
                             <SelectItem key={k} value={k}>{k}</SelectItem>
                           ))}
-                          {twilioTemplates.map((tpl: any) => (
+                          {form.channel === 'twilio_template' && twilioTemplates.map((tpl: any) => (
                             <SelectItem key={`twilio-${tpl.id || tpl.contentSid}`} value={`twilio:${tpl.id || tpl.contentSid}`}>
                               {`Twilio - ${tpl.name}`}
                             </SelectItem>
@@ -658,7 +649,11 @@ export default function PushNotificationsPage() {
 
                   <div className="grid gap-2">
                     <Label>قناة الإرسال</Label>
-                    <Select value={form.channel} onValueChange={(v) => setForm({ ...form, channel: v })}>
+                    <Select value={form.channel} onValueChange={(v) => {
+                      setForm({ ...form, channel: v });
+                      setSelectedTemplateKey('');
+                      if (v !== 'twilio_template') setSelectedTwilioTemplateId('');
+                    }}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="push">تطبيق فقط</SelectItem>
@@ -682,7 +677,7 @@ export default function PushNotificationsPage() {
                       <div className="flex flex-wrap gap-2">
                         <Badge>المعروض {filteredSubscribers.length}</Badge>
                         <Badge variant="secondary">المحدد {selectedPhones.length}</Badge>
-                        {pushSubscribers.isFetching && (
+                        {pushSubscribers.isFetchingNextPage && (
                           <Badge variant="outline">جاري تحميل المزيد...</Badge>
                         )}
                       </div>
@@ -1305,7 +1300,7 @@ export default function PushNotificationsPage() {
                   setForm((f) => ({ ...f, twilioTemplateId: id, channel: 'twilio_template' } as any));
 
                   const savedVars = localStorage.getItem(`twilio_vars_${id}`);
-                  setTwilioVariablesText(savedVars || '1={name}\n2={totalDebt}');
+                  setTwilioVariablesText(savedVars || '');
                 }}>
                   <SelectTrigger className="rounded-xl">
                     <SelectValue placeholder="اختر قالب" />
@@ -1371,6 +1366,19 @@ export default function PushNotificationsPage() {
                 <p className="text-xs text-muted-foreground">
                   اكتب كل متغير بسطر: 1=القيمة، 2=القيمة. لازم يطابق متغيرات القالب المعتمد داخل Twilio.
                 </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-2"
+                  disabled={!selectedTwilioTemplateId}
+                  onClick={() => {
+                    if (!selectedTwilioTemplateId) return;
+                    localStorage.setItem(`twilio_vars_${selectedTwilioTemplateId}`, twilioVariablesText);
+                    toast({ title: 'تم الحفظ', description: 'تم حفظ متغيرات هذا القالب.' });
+                  }}
+                >
+                  حفظ متغيرات القالب
+                </Button>
               </div>
 
               <div className="lg:col-span-2">
