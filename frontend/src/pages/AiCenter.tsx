@@ -31,6 +31,10 @@ import {
   updateAiTool,
   getAiRules,
   updateAiRule,
+  getAiConversations,
+  getAiConversation,
+  ingestAiConversation,
+  decideAiConversation,
 } from '@/api/ai';
 
 const tabs = [
@@ -44,6 +48,7 @@ const tabs = [
   'Skills',
   'Tools',
   'Memory',
+  'Conversations',
   'Playground',
   'Analytics',
   'Logs',
@@ -431,6 +436,265 @@ function formatBytes(value?: number | string | null) {
 
 
 
+
+
+
+function AiConversationsTab() {
+  const qc = useQueryClient();
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [testPhone, setTestPhone] = useState('07832557250');
+  const [testMessage, setTestMessage] = useState('الإنترنت مقطوع عندي من الصبح');
+
+  const conversationsQuery = useQuery({
+    queryKey: ['ai-conversations'],
+    queryFn: getAiConversations,
+    refetchInterval: 5000,
+  });
+
+  const selectedQuery = useQuery({
+    queryKey: ['ai-conversation', selectedId],
+    queryFn: () => getAiConversation(selectedId as number),
+    enabled: Boolean(selectedId),
+    refetchInterval: 5000,
+  });
+
+  const ingestMutation = useMutation({
+    mutationFn: () =>
+      ingestAiConversation({
+        channel: 'whatsapp',
+        customerPhone: testPhone,
+        message: testMessage,
+        source: 'ai-center-test',
+      }),
+    onSuccess: (data: any) => {
+      setSelectedId(data.conversation.id);
+      qc.invalidateQueries({ queryKey: ['ai-conversations'] });
+    },
+  });
+
+  const decideMutation = useMutation({
+    mutationFn: (id: number) => decideAiConversation(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-conversations'] });
+      qc.invalidateQueries({ queryKey: ['ai-conversation', selectedId] });
+    },
+  });
+
+  const conversations = conversationsQuery.data || [];
+  const selected = selectedQuery.data;
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
+      <div className="space-y-4">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <h2 className="text-xl font-black">AI Conversations</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            محادثات AI العامة لكل القنوات: WhatsApp / Tickets / Portal.
+          </p>
+
+          <div className="mt-5 grid gap-3">
+            <input
+              value={testPhone}
+              onChange={(e) => setTestPhone(e.target.value)}
+              className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+              placeholder="رقم الزبون"
+            />
+            <textarea
+              value={testMessage}
+              onChange={(e) => setTestMessage(e.target.value)}
+              className="min-h-24 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+              placeholder="رسالة الزبون"
+            />
+            <button
+              onClick={() => ingestMutation.mutate()}
+              disabled={ingestMutation.isPending}
+              className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-black text-white disabled:opacity-60 dark:bg-white dark:text-slate-950"
+            >
+              {ingestMutation.isPending ? 'جاري الإدخال...' : 'Ingest Test Message'}
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          <div className="mb-2 px-2 text-sm font-black text-slate-500">آخر المحادثات</div>
+          <div className="space-y-2">
+            {conversations.map((c: any) => (
+              <button
+                key={c.id}
+                onClick={() => setSelectedId(c.id)}
+                className={[
+                  'w-full rounded-2xl p-4 text-right transition',
+                  selectedId === c.id
+                    ? 'bg-slate-950 text-white dark:bg-white dark:text-slate-950'
+                    : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800',
+                ].join(' ')}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-black">{c.customerName || c.customerPhone || 'Unknown'}</span>
+                  <span className="rounded-full bg-white/20 px-2 py-1 text-[11px]">{c.channel}</span>
+                </div>
+                <div className="mt-1 text-xs opacity-70">
+                  {c.intent || 'general'} · {c.stage || '—'}
+                </div>
+                <div className="mt-2 line-clamp-2 text-xs opacity-70">
+                  {c.lastSummary || c.messages?.[0]?.content || ''}
+                </div>
+              </button>
+            ))}
+
+            {!conversations.length ? (
+              <div className="p-6 text-center text-sm text-slate-500">لا توجد محادثات بعد.</div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        {!selected ? (
+          <div className="flex min-h-[420px] items-center justify-center text-sm text-slate-500">
+            اختر محادثة من القائمة.
+          </div>
+        ) : (
+          <div className="space-y-5">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h2 className="text-2xl font-black">{selected.customerName || selected.customerPhone}</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {selected.channel} · {selected.intent || 'general'} · {selected.stage || '—'}
+                </p>
+              </div>
+
+              <button
+                onClick={() => decideMutation.mutate(selected.id)}
+                disabled={decideMutation.isPending}
+                className="rounded-2xl bg-sky-600 px-5 py-3 text-sm font-black text-white disabled:opacity-60"
+              >
+                {decideMutation.isPending ? 'جاري القرار...' : 'Run Decision'}
+              </button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+                <div className="text-xs font-bold text-slate-500">Status</div>
+                <div className="mt-1 font-black">{selected.status}</div>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+                <div className="text-xs font-bold text-slate-500">Handoff</div>
+                <div className="mt-1 font-black">{selected.handoffRequired ? 'Required' : 'No'}</div>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+                <div className="text-xs font-bold text-slate-500">Assigned</div>
+                <div className="mt-1 font-black">{selected.assignedTo}</div>
+              </div>
+            </div>
+
+            {selected.subscriberJson?.subscriber ? (
+              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 dark:border-slate-800 dark:bg-slate-900">
+                <div className="mb-4 text-lg font-black">Subscriber Context</div>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-2xl bg-white p-3 dark:bg-slate-950">
+                    <div className="text-xs text-slate-500">Name</div>
+                    <div className="mt-1 font-black">{selected.subscriberJson.subscriber.name || '—'}</div>
+                  </div>
+                  <div className="rounded-2xl bg-white p-3 dark:bg-slate-950">
+                    <div className="text-xs text-slate-500">Status</div>
+                    <div className="mt-1 font-black">{selected.subscriberJson.subscriber.status || '—'}</div>
+                  </div>
+                  <div className="rounded-2xl bg-white p-3 dark:bg-slate-950">
+                    <div className="text-xs text-slate-500">Package</div>
+                    <div className="mt-1 font-black">{selected.subscriberJson.subscriber.package || '—'}</div>
+                  </div>
+                  <div className="rounded-2xl bg-white p-3 dark:bg-slate-950">
+                    <div className="text-xs text-slate-500">Debt</div>
+                    <div className="mt-1 font-black">{Number(selected.subscriberJson.subscriber.debt || 0).toLocaleString('en-US')} د.ع</div>
+                  </div>
+                  <div className="rounded-2xl bg-white p-3 dark:bg-slate-950">
+                    <div className="text-xs text-slate-500">Source</div>
+                    <div className="mt-1 font-black">{selected.subscriberJson.dataSource || '—'}</div>
+                  </div>
+                  <div className="rounded-2xl bg-white p-3 dark:bg-slate-950">
+                    <div className="text-xs text-slate-500">PPPoE</div>
+                    <div className="mt-1 font-black">{selected.subscriberJson.subscriber.pppoeUsername || '—'}</div>
+                  </div>
+                  <div className="rounded-2xl bg-white p-3 dark:bg-slate-950">
+                    <div className="text-xs text-slate-500">Phone</div>
+                    <div className="mt-1 font-black">{selected.subscriberJson.subscriber.phone || '—'}</div>
+                  </div>
+                  <div className="rounded-2xl bg-white p-3 dark:bg-slate-950">
+                    <div className="text-xs text-slate-500">Area</div>
+                    <div className="mt-1 font-black">{selected.subscriberJson.subscriber.address || '—'}</div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {selected.messages?.some((m: any) => m.role === 'ai') ? (
+              <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-50">
+                <div className="mb-4 text-lg font-black">AI Decision</div>
+                {selected.messages
+                  .filter((m: any) => m.role === 'ai')
+                  .slice(-1)
+                  .map((m: any) => (
+                    <div key={m.id} className="space-y-3">
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <div className="rounded-2xl bg-white/70 p-3 dark:bg-black/20">
+                          <div className="text-xs opacity-70">Confidence</div>
+                          <div className="text-2xl font-black">{m.confidence ? Math.round(m.confidence * 100) : 0}%</div>
+                        </div>
+                        <div className="rounded-2xl bg-white/70 p-3 dark:bg-black/20">
+                          <div className="text-xs opacity-70">Reply Type</div>
+                          <div className="font-black">{m.metaJson?.replyType || '—'}</div>
+                        </div>
+                        <div className="rounded-2xl bg-white/70 p-3 dark:bg-black/20">
+                          <div className="text-xs opacity-70">Should Reply</div>
+                          <div className="font-black">{m.metaJson?.shouldReply ? 'Yes' : 'No'}</div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl bg-white/70 p-4 leading-7 dark:bg-black/20">
+                        <div className="mb-1 text-xs font-black opacity-70">Reason</div>
+                        {m.metaJson?.reason || '—'}
+                      </div>
+
+                      <div className="rounded-2xl bg-white/70 p-4 leading-7 dark:bg-black/20">
+                        <div className="mb-1 text-xs font-black opacity-70">Draft Reply</div>
+                        {m.content}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            ) : null}
+
+            <div className="rounded-2xl border border-dashed border-slate-300 p-4 text-sm leading-7 text-slate-600 dark:border-slate-700 dark:text-slate-300">
+              <div className="mb-2 font-black">Summary</div>
+              <pre className="whitespace-pre-wrap font-sans">{selected.lastSummary || '—'}</pre>
+            </div>
+
+            <div className="space-y-3">
+              <div className="font-black">Messages</div>
+              {(selected.messages || []).map((m: any) => (
+                <div
+                  key={m.id}
+                  className={[
+                    'rounded-2xl p-4 text-sm leading-7',
+                    m.role === 'customer'
+                      ? 'bg-slate-100 dark:bg-slate-900'
+                      : 'bg-emerald-50 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-100',
+                  ].join(' ')}
+                >
+                  <div className="mb-1 text-xs font-black opacity-60">
+                    {m.role} · {m.direction || '—'} · {m.confidence ? `${Math.round(m.confidence * 100)}%` : ''}
+                  </div>
+                  {m.content}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 
 function AiRulesManagerTab() {
@@ -1223,6 +1487,8 @@ export default function AiCenter() {
             <AiToolsManagerTab />
           ) : activeTab === 'Rules' ? (
             <AiRulesManagerTab />
+          ) : activeTab === 'Conversations' ? (
+            <AiConversationsTab />
           ) : activeTab === 'Playground' ? (
             <TicketAnalyzerTest />
           ) : (

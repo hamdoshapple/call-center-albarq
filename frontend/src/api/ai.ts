@@ -135,3 +135,24 @@ export async function updateAiRule(id: number, payload: any): Promise<any> {
     body: JSON.stringify(payload),
   });
 }
+
+export async function getAiConversations(): Promise<any[]> {
+  return request<any[]>('/ai/conversations');
+}
+
+export async function getAiConversation(id: number): Promise<any> {
+  return request<any>(`/ai/conversations/${id}`);
+}
+
+export async function ingestAiConversation(payload: any): Promise<any> {
+  return request<any>('/ai/conversations/ingest', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function decideAiConversation(id: number): Promise<any> {
+  return request<any>(`/ai/conversations/${id}/decide`, {
+    method: 'POST',
+  });
+}

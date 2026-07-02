@@ -229,6 +229,12 @@ router.put('/ai/rules/:id', perm('company_settings', 'edit'), h(aiController.aiU
 router.post('/ai/playground/run', perm('company_settings', 'edit'), h(aiController.aiPlaygroundRun));
 router.get('/ai/logs', perm('company_settings'), h(aiController.aiLogs));
 
+router.post('/ai/conversations/ingest', perm('company_settings', 'edit'), h(aiController.aiConversationIngest));
+router.get('/ai/conversations', perm('company_settings'), h(aiController.aiConversations));
+router.get('/ai/conversations/:id', perm('company_settings'), h(aiController.aiConversationGet));
+router.post('/ai/conversations/:id/decide', perm('company_settings', 'edit'), h(aiController.aiConversationDecide));
+
+
 // ---------- Company settings ----------
 router.get('/company', perm('company_settings'), h(misc.getCompany));
 router.put('/company', perm('company_settings', 'edit'), h(misc.updateCompany));

@@ -235,3 +235,57 @@ export async function aiToolHandlers(_req: Request, res: Response) {
     return fail(res, err);
   }
 }
+
+export async function aiConversationIngest(req: Request, res: Response) {
+  try {
+    const { ingestAiConversationMessage } = await import('../services/ai-conversation.service.js');
+
+    const message = String(req.body?.message || '').trim();
+    if (!message) return res.status(400).json({ ok: false, error: 'message is required' });
+
+    return ok(res, await ingestAiConversationMessage({
+      channel: String(req.body?.channel || 'manual'),
+      externalKey: req.body?.externalKey ? String(req.body.externalKey) : undefined,
+      customerPhone: req.body?.customerPhone ? String(req.body.customerPhone) : undefined,
+      customerName: req.body?.customerName ? String(req.body.customerName) : undefined,
+      message,
+      source: req.body?.source ? String(req.body.source) : 'manual',
+      metaJson: req.body?.metaJson || undefined,
+    }));
+  } catch (err) {
+    return fail(res, err);
+  }
+}
+
+export async function aiConversations(_req: Request, res: Response) {
+  try {
+    const { listAiConversations } = await import('../services/ai-conversation.service.js');
+    return ok(res, await listAiConversations());
+  } catch (err) {
+    return fail(res, err);
+  }
+}
+
+export async function aiConversationGet(req: Request, res: Response) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: 'Invalid conversation id' });
+
+    const { getAiConversation } = await import('../services/ai-conversation.service.js');
+    return ok(res, await getAiConversation(id));
+  } catch (err) {
+    return fail(res, err);
+  }
+}
+
+export async function aiConversationDecide(req: Request, res: Response) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: 'Invalid conversation id' });
+
+    const { decideAiConversationReply } = await import('../services/ai-conversation.service.js');
+    return ok(res, await decideAiConversationReply(id));
+  } catch (err) {
+    return fail(res, err);
+  }
+}

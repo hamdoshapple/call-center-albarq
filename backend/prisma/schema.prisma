@@ -1067,3 +1067,46 @@ model AiKnowledgeFile {
   metaJson     Json?
   createdAt    DateTime @default(now())
 }
+
+model AiConversation {
+  id              Int      @id @default(autoincrement())
+  channel         String
+  externalKey     String?
+  customerPhone   String?
+  customerName    String?
+  status          String   @default("open")
+  intent          String?
+  stage           String?
+  assignedTo      String   @default("ai")
+  handoffRequired Boolean  @default(false)
+  lastSummary     String?  @db.LongText
+  subscriberJson  Json?
+  metaJson        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  messages AiConversationMessage[]
+
+  @@index([channel])
+  @@index([externalKey])
+  @@index([customerPhone])
+  @@index([status])
+}
+
+model AiConversationMessage {
+  id             Int      @id @default(autoincrement())
+  conversationId Int
+  role           String
+  content        String   @db.LongText
+  source         String?
+  direction      String?
+  aiGenerated    Boolean  @default(false)
+  confidence     Float?
+  metaJson       Json?
+  createdAt      DateTime @default(now())
+
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([createdAt])
+}
