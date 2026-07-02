@@ -185,3 +185,15 @@ export async function aiUpdateSkill(req: Request, res: Response) {
     return fail(res, err);
   }
 }
+
+export async function aiUpdateTool(req: Request, res: Response) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: 'Invalid tool id' });
+
+    const { updateAiTool } = await import('../services/ai.service.js');
+    return ok(res, await updateAiTool(id, req.body || {}));
+  } catch (err) {
+    return fail(res, err);
+  }
+}

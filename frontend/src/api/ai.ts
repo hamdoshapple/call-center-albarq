@@ -117,3 +117,10 @@ export async function updateAiSkill(id: number, payload: any): Promise<any> {
     body: JSON.stringify(payload),
   });
 }
+
+export async function updateAiTool(id: number, payload: any): Promise<any> {
+  return request<any>(`/ai/tools/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}

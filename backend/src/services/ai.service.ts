@@ -314,3 +314,20 @@ export async function updateAiSkill(id: number, data: any) {
     },
   });
 }
+
+export async function updateAiTool(id: number, data: any) {
+  await ensureAiDefaults();
+
+  const tool = await prisma.aiTool.findUnique({ where: { id } });
+  if (!tool) throw new Error('AI tool not found');
+
+  return prisma.aiTool.update({
+    where: { id },
+    data: {
+      title: String(data.title || tool.title),
+      enabled: typeof data.enabled === 'boolean' ? data.enabled : tool.enabled,
+      riskLevel: typeof data.riskLevel === 'string' ? data.riskLevel : tool.riskLevel,
+      configJson: data.configJson ?? tool.configJson,
+    },
+  });
+}

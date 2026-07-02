@@ -28,6 +28,7 @@ import {
   updateAiSettings,
   updateAiPrompt,
   updateAiSkill,
+  updateAiTool,
 } from '@/api/ai';
 
 const tabs = [
@@ -426,6 +427,99 @@ function formatBytes(value?: number | string | null) {
   return `${mb.toFixed(1)} MB`;
 }
 
+
+
+
+function AiToolsManagerTab() {
+  const qc = useQueryClient();
+
+  const toolsQuery = useQuery({
+    queryKey: ['ai-tools'],
+    queryFn: getAiTools,
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: any }) => updateAiTool(id, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-tools'] });
+      qc.invalidateQueries({ queryKey: ['ai-status'] });
+    },
+  });
+
+  const tools = toolsQuery.data || [];
+
+  const riskClass = (risk: string) => {
+    if (risk === 'dangerous') return 'bg-red-100 text-red-700';
+    if (risk === 'write') return 'bg-amber-100 text-amber-700';
+    return 'bg-emerald-100 text-emerald-700';
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+        <h2 className="text-xl font-black">Tools Manager</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          إدارة الأدوات التي يستطيع AI استخدامها. حالياً الأدوات Read Only وآمنة.
+        </p>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        {tools.map((tool: any) => (
+          <div
+            key={tool.id}
+            className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-xl font-black">{tool.title}</div>
+                <div className="mt-1 text-xs text-slate-500">{tool.key}</div>
+              </div>
+
+              <label className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-xs font-black dark:bg-slate-900">
+                <span>{tool.enabled ? 'Enabled' : 'Disabled'}</span>
+                <input
+                  type="checkbox"
+                  checked={Boolean(tool.enabled)}
+                  onChange={(e) =>
+                    updateMutation.mutate({
+                      id: tool.id,
+                      payload: { enabled: e.target.checked },
+                    })
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <span className={`rounded-full px-3 py-1 text-xs font-black ${riskClass(tool.riskLevel)}`}>
+                {tool.riskLevel}
+              </span>
+
+              <select
+                value={tool.riskLevel || 'read_only'}
+                onChange={(e) =>
+                  updateMutation.mutate({
+                    id: tool.id,
+                    payload: { riskLevel: e.target.value },
+                  })
+                }
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 dark:border-slate-800 dark:bg-slate-900"
+              >
+                <option value="read_only">read_only</option>
+                <option value="write">write</option>
+                <option value="dangerous">dangerous</option>
+              </select>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-dashed border-slate-300 p-4 text-sm text-slate-500 dark:border-slate-700">
+              هذه الأداة مسجلة فقط. التنفيذ الحقيقي للأداة سيتم في Tool Engine لاحقاً.
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 
 function AiSkillsManagerTab() {
@@ -1021,6 +1115,8 @@ export default function AiCenter() {
             <AiPromptsStudioTab />
           ) : activeTab === 'Skills' ? (
             <AiSkillsManagerTab />
+          ) : activeTab === 'Tools' ? (
+            <AiToolsManagerTab />
           ) : activeTab === 'Playground' ? (
             <TicketAnalyzerTest />
           ) : (
