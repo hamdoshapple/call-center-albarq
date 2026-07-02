@@ -1615,7 +1615,7 @@ function normPushPhone(v: any) {
 export const subscribers = asyncHandler(async (req: Request, res: Response) => {
   const q = String(req.query.q || '').trim().toLowerCase();
   const channel = String(req.query.channel || 'push');
-  const includeAll = channel === 'whatsapp' || channel === 'both' || channel === 'all';
+  const includeAll = channel === 'whatsapp' || channel === 'twilio_template' || channel === 'both' || channel === 'all';
 
   const devices = await prisma.subscriberPushSubscription.findMany({
     orderBy: { createdAt: 'desc' },
@@ -1789,13 +1789,25 @@ export const subscribers = asyncHandler(async (req: Request, res: Response) => {
     return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
   });
 
-  const finalRows = showAllPhoneSubscribers
-    ? rows
-        .filter((x: any) => String(x.phoneNorm || x.phone || '').replace(/\D/g, '').length >= 10)
-        .slice(0, pickerLimit)
+  const pickerChannel = String(req.query.channel || 'push');
+  const pickerLimit = Math.max(50, Math.min(500, Number(req.query.limit || 200)));
+  const pickerOffset = Math.max(0, Number(req.query.offset || 0));
+  const showAllPhoneSubscribers = ['whatsapp', 'twilio_template'].includes(pickerChannel);
+
+  const baseRows = showAllPhoneSubscribers
+    ? rows.filter((x: any) => String(x.phoneNorm || x.phone || '').replace(/\D/g, '').length >= 10)
     : rows;
 
-  res.json(finalRows);
+  const pageRows = baseRows.slice(pickerOffset, pickerOffset + pickerLimit);
+
+  res.json({
+    rows: pageRows,
+    total: baseRows.length,
+    offset: pickerOffset,
+    limit: pickerLimit,
+    nextOffset: pickerOffset + pageRows.length,
+    hasMore: pickerOffset + pageRows.length < baseRows.length,
+  });
 });
 
 

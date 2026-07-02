@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   BellRing,
@@ -203,6 +203,9 @@ export default function PushNotificationsPage() {
   const [twilioVariablesText, setTwilioVariablesText] = useState('1={name}');
   const [previewRows, setPreviewRows] = useState<any[]>([]);
   const [previewToken, setPreviewToken] = useState('');
+  const [subscriberOffset, setSubscriberOffset] = useState(0);
+  const [subscriberPages, setSubscriberPages] = useState<any[]>([]);
+  const autoLoadRef = useRef(false);
 
 
   const stats = useQuery({ queryKey: ['pushStats'], queryFn: pushNotificationsApi.stats, refetchInterval: 15000 });
@@ -213,8 +216,8 @@ export default function PushNotificationsPage() {
   });
   const settingsQuery = useQuery({ queryKey: ['pushSettings'], queryFn: pushNotificationsApi.settings });
   const pushSubscribers = useQuery({
-    queryKey: ['pushSubscribers', subscriberSearch, form.channel],
-    queryFn: () => pushNotificationsApi.subscribers(subscriberSearch, form.channel),
+    queryKey: ['pushSubscribers', subscriberSearch, form.channel, subscriberOffset],
+    queryFn: () => pushNotificationsApi.subscribers(subscriberSearch, form.channel, subscriberOffset, 200),
     refetchInterval: 30000,
   });
   const campaignJobsQuery = useQuery({
@@ -326,8 +329,19 @@ export default function PushNotificationsPage() {
   }
 
 
+  useEffect(() => {
+    setSubscriberOffset(0);
+    setSubscriberPages([]);
+  }, [subscriberSearch, form.channel]);
+
+  useEffect(() => {
+    const rows = Array.isArray(pushSubscribers.data) ? pushSubscribers.data : (pushSubscribers.data?.rows || []);
+    if (!rows.length) return;
+    setSubscriberPages((prev) => subscriberOffset === 0 ? rows : [...prev, ...rows]);
+  }, [pushSubscribers.data, subscriberOffset]);
+
   const filteredSubscribers = useMemo(() => {
-    const list = pushSubscribers.data || [];
+    const list = subscriberPages;
     return list.filter((sub: any) => {
       const accounts = sub.accounts || [];
       const hasDebt = Number(sub.totalDebt || 0) > 0;
@@ -432,6 +446,18 @@ export default function PushNotificationsPage() {
   };
 
   const insertVar = (code: string) => setForm((f) => ({ ...f, message: `${f.message || ''}${f.message ? ' ' : ''}${code}` }));
+
+  const loadMoreSubscribers = () => {
+    const data: any = pushSubscribers.data || {};
+    if (!data?.hasMore || pushSubscribers.isFetching || autoLoadRef.current) return;
+
+    autoLoadRef.current = true;
+    setSubscriberOffset(data.nextOffset || (subscriberOffset + 200));
+
+    setTimeout(() => {
+      autoLoadRef.current = false;
+    }, 450);
+  };
 
   return (
     <div className="space-y-6">
@@ -656,6 +682,9 @@ export default function PushNotificationsPage() {
                       <div className="flex flex-wrap gap-2">
                         <Badge>المعروض {filteredSubscribers.length}</Badge>
                         <Badge variant="secondary">المحدد {selectedPhones.length}</Badge>
+                        {pushSubscribers.isFetching && (
+                          <Badge variant="outline">جاري تحميل المزيد...</Badge>
+                        )}
                       </div>
                     </div>
 
@@ -710,7 +739,11 @@ export default function PushNotificationsPage() {
                       </Button>
                     </div>
 
-                    <div className="mt-4 max-h-[420px] overflow-y-auto rounded-2xl border bg-muted/20">
+                    <div className="mt-4 max-h-[420px] overflow-y-auto rounded-2xl border bg-muted/20"
+                      onScroll={(e) => {
+                        const el = e.currentTarget;
+                        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) loadMoreSubscribers();
+                      }}>
                       {pushSubscribers.isLoading ? (
                         <div className="p-6"><Loader /></div>
                       ) : filteredSubscribers.length ? (
@@ -890,7 +923,11 @@ export default function PushNotificationsPage() {
                 <Badge variant="secondary">المحدد {selectedPhones.length}</Badge>
               </div>
 
-              <div className="max-h-[620px] overflow-y-auto rounded-2xl border bg-muted/20">
+              <div className="max-h-[620px] overflow-y-auto rounded-2xl border bg-muted/20"
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 160) loadMoreSubscribers();
+                }}>
                 {pushSubscribers.isLoading ? <div className="p-6"><Loader /></div> : filteredSubscribers.length ? filteredSubscribers.map((sub: any) => {
                   const phone = sub.phoneNorm || sub.phone;
                   const checked = selectedPhones.includes(phone);
