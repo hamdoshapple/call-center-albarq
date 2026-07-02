@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { listProviderModels, runProvider } from '../lib/ai/providers/provider-registry.js';
 
@@ -347,4 +348,47 @@ export async function updateAiRule(id: number, data: any) {
       severity: typeof data.severity === 'string' ? data.severity : rule.severity,
     },
   });
+}
+
+export async function getAiRuntimeSettings() {
+  const rows = await prisma.setting.findMany({
+    where: {
+      key: {
+        in: [
+          'aiWhatsappAutoReplyEnabled',
+          'aiWhatsappDryRunEnabled',
+          'aiWhatsappMinConfidence',
+          'aiWhatsappRequireSubscriber',
+        ],
+      },
+    },
+  });
+
+  const map = new Map(rows.map((x) => [x.key, x.value]));
+
+  return {
+    whatsappAutoReplyEnabled: Boolean(map.get('aiWhatsappAutoReplyEnabled') ?? false),
+    whatsappDryRunEnabled: Boolean(map.get('aiWhatsappDryRunEnabled') ?? true),
+    whatsappMinConfidence: Number(map.get('aiWhatsappMinConfidence') ?? 0.9),
+    whatsappRequireSubscriber: Boolean(map.get('aiWhatsappRequireSubscriber') ?? true),
+  };
+}
+
+export async function updateAiRuntimeSettings(data: any) {
+  const items = {
+    aiWhatsappAutoReplyEnabled: Boolean(data.whatsappAutoReplyEnabled),
+    aiWhatsappDryRunEnabled: data.whatsappDryRunEnabled !== false,
+    aiWhatsappMinConfidence: Math.max(0.5, Math.min(0.99, Number(data.whatsappMinConfidence ?? 0.9))),
+    aiWhatsappRequireSubscriber: data.whatsappRequireSubscriber !== false,
+  };
+
+  for (const [key, value] of Object.entries(items)) {
+    await prisma.setting.upsert({
+      where: { key },
+      create: { id: crypto.randomUUID(), key, value },
+      update: { value },
+    } as any);
+  }
+
+  return getAiRuntimeSettings();
 }

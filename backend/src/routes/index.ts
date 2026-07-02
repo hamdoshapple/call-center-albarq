@@ -207,6 +207,10 @@ router.put('/permissions', perm('permissions', 'edit'), h(misc.setPermission));
 // ---------- Albarq AI ----------
 router.post('/ai/bootstrap', perm('company_settings', 'edit'), h(aiController.aiBootstrap));
 router.get('/ai/status', perm('company_settings'), h(aiController.aiStatus));
+
+router.get('/ai/runtime-settings', perm('company_settings'), h(aiController.aiRuntimeSettings));
+router.put('/ai/runtime-settings', perm('company_settings', 'edit'), h(aiController.aiUpdateRuntimeSettings));
+
 router.get('/ai/settings', perm('company_settings'), h(aiController.aiSettings));
 router.put('/ai/settings', perm('company_settings', 'edit'), h(aiController.aiUpdateSettings));
 router.get('/ai/providers', perm('company_settings'), h(aiController.aiProviders));

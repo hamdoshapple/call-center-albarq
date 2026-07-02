@@ -35,6 +35,8 @@ import {
   getAiConversation,
   ingestAiConversation,
   decideAiConversation,
+  getAiRuntimeSettings,
+  updateAiRuntimeSettings,
 } from '@/api/ai';
 
 const tabs = [
@@ -439,6 +441,106 @@ function formatBytes(value?: number | string | null) {
 
 
 
+
+function AiRuntimeCard() {
+  const qc = useQueryClient();
+
+  const settingsQuery = useQuery({
+    queryKey: ['ai-runtime-settings'],
+    queryFn: getAiRuntimeSettings,
+  });
+
+  const settings = settingsQuery.data || {};
+
+  const updateMutation = useMutation({
+    mutationFn: updateAiRuntimeSettings,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-runtime-settings'] });
+    },
+  });
+
+  const setValue = (key: string, value: any) => {
+    updateMutation.mutate({
+      ...settings,
+      [key]: value,
+    });
+  };
+
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <div className="mb-4">
+        <h2 className="text-xl font-black">WhatsApp AI Employee</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          تحكم بتشغيل موظف AI للردود التلقائية عبر واتساب.
+        </p>
+      </div>
+
+      <div className="grid gap-3">
+        <label className="flex items-center justify-between rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+          <div>
+            <div className="font-black">Auto Reply</div>
+            <div className="text-xs text-slate-500">يرسل الرد تلقائياً إذا وافق Policy Engine.</div>
+          </div>
+          <input
+            type="checkbox"
+            checked={Boolean(settings.whatsappAutoReplyEnabled)}
+            onChange={(e) => setValue('whatsappAutoReplyEnabled', e.target.checked)}
+            className="h-5 w-5"
+          />
+        </label>
+
+        <label className="flex items-center justify-between rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+          <div>
+            <div className="font-black">Dry Run</div>
+            <div className="text-xs text-slate-500">ينشئ Draft فقط بدون إرسال فعلي.</div>
+          </div>
+          <input
+            type="checkbox"
+            checked={settings.whatsappDryRunEnabled !== false}
+            onChange={(e) => setValue('whatsappDryRunEnabled', e.target.checked)}
+            className="h-5 w-5"
+          />
+        </label>
+
+        <label className="flex items-center justify-between rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+          <div>
+            <div className="font-black">Require Subscriber Match</div>
+            <div className="text-xs text-slate-500">لا يرد تلقائياً إذا لم يتم التعرف على المشترك.</div>
+          </div>
+          <input
+            type="checkbox"
+            checked={settings.whatsappRequireSubscriber !== false}
+            onChange={(e) => setValue('whatsappRequireSubscriber', e.target.checked)}
+            className="h-5 w-5"
+          />
+        </label>
+
+        <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="font-black">Minimum Confidence</div>
+            <div className="text-sm font-black">{Math.round(Number(settings.whatsappMinConfidence ?? 0.9) * 100)}%</div>
+          </div>
+          <input
+            type="range"
+            min="0.5"
+            max="0.99"
+            step="0.01"
+            value={Number(settings.whatsappMinConfidence ?? 0.9)}
+            onChange={(e) => setValue('whatsappMinConfidence', Number(e.target.value))}
+            className="w-full"
+          />
+        </div>
+
+        <div className="rounded-2xl border border-dashed border-slate-300 p-4 text-xs leading-6 text-slate-500 dark:border-slate-700">
+          الحالة الحالية: {settings.whatsappAutoReplyEnabled ? 'Auto Reply ON' : 'Auto Reply OFF'} ·
+          {settings.whatsappDryRunEnabled !== false ? ' Dry Run ON' : ' Dry Run OFF'}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function AiConversationsTab() {
   const qc = useQueryClient();
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -486,6 +588,8 @@ function AiConversationsTab() {
   return (
     <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
       <div className="space-y-4">
+        <AiRuntimeCard />
+
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950">
           <h2 className="text-xl font-black">AI Conversations</h2>
           <p className="mt-1 text-sm text-slate-500">

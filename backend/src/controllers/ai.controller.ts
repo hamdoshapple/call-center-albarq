@@ -289,3 +289,21 @@ export async function aiConversationDecide(req: Request, res: Response) {
     return fail(res, err);
   }
 }
+
+export async function aiRuntimeSettings(_req: Request, res: Response) {
+  try {
+    const { getAiRuntimeSettings } = await import('../services/ai.service.js');
+    return ok(res, await getAiRuntimeSettings());
+  } catch (err) {
+    return fail(res, err);
+  }
+}
+
+export async function aiUpdateRuntimeSettings(req: Request, res: Response) {
+  try {
+    const { updateAiRuntimeSettings } = await import('../services/ai.service.js');
+    return ok(res, await updateAiRuntimeSettings(req.body || {}));
+  } catch (err) {
+    return fail(res, err);
+  }
+}

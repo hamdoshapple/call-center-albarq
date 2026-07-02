@@ -156,3 +156,14 @@ export async function decideAiConversation(id: number): Promise<any> {
     method: 'POST',
   });
 }
+
+export async function getAiRuntimeSettings(): Promise<any> {
+  return request<any>('/ai/runtime-settings');
+}
+
+export async function updateAiRuntimeSettings(payload: any): Promise<any> {
+  return request<any>('/ai/runtime-settings', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}

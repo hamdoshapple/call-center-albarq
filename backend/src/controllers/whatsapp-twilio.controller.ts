@@ -517,6 +517,7 @@ export async function webhook(req: Request, res: Response) {
   const rawMediaUrl = String(req.body?.MediaUrl0 || '');
   const mediaType = String(req.body?.MediaContentType0 || '');
   const mediaUrl = rawMediaUrl ? await downloadTwilioMedia(req, rawMediaUrl, mediaType) : '';
+  let isNewInbound = false;
 
   if (!from) return res.status(200).send('OK');
 
@@ -538,6 +539,7 @@ export async function webhook(req: Request, res: Response) {
           toNumber: to,
         },
       });
+      isNewInbound = true;
     }
   } else {
     await prisma.twilioWhatsappMessage.create({
@@ -552,11 +554,12 @@ export async function webhook(req: Request, res: Response) {
         toNumber: to,
       },
     });
+    isNewInbound = true;
   }
 
-  // AI WhatsApp Runtime Dry Run:
+  // AI WhatsApp Runtime Dry Run / Auto Reply:
   // يستقبل الرسالة، يبني Conversation، يولد قرار AI، لكن لا يرسل للزبون حالياً.
-  if (body || mediaUrl) {
+  if ((body || mediaUrl) && isNewInbound) {
     try {
       const { ingestAiConversationMessage, decideAiConversationReply } = await import('../services/ai-conversation.service.js');
 
@@ -575,9 +578,61 @@ export async function webhook(req: Request, res: Response) {
         },
       });
 
-      await decideAiConversationReply(ingest.conversation.id).catch((e: any) => {
+      const decisionResult = await decideAiConversationReply(ingest.conversation.id).catch((e: any) => {
         console.log('[wa-ai-decision-dryrun] failed', e?.message || e);
+        return null;
       });
+
+      const autoReplySetting = await prisma.setting.findUnique({
+        where: { key: 'aiWhatsappAutoReplyEnabled' },
+      }).catch(() => null);
+
+      const autoReplyEnabled = String(autoReplySetting?.value || 'false') === 'true';
+      const decision = decisionResult?.decision;
+      const replyText = String(decision?.suggestedReply || '').trim();
+
+      if (autoReplyEnabled && decision?.shouldReply === true && decision?.policy?.allowed === true && replyText) {
+        const setting = await getSettingRow();
+
+        if (setting.enabled && setting.accountSid && setting.authToken && setting.whatsappFrom) {
+          const client = Twilio(setting.accountSid, setting.authToken);
+          const sent = await client.messages.create({
+            from: asWhatsapp(setting.whatsappFrom),
+            to: asWhatsapp(from),
+            body: replyText,
+            statusCallback: `${publicBase(req)}/api/whatsapp-twilio/status-callback`,
+          });
+
+          await prisma.twilioWhatsappMessage.create({
+            data: {
+              contactId: contact.id,
+              direction: 'outbound',
+              body: replyText,
+              status: 'sent',
+              twilioSid: sent.sid,
+              fromNumber: cleanWhatsappPhone(setting.whatsappFrom),
+              toNumber: from,
+            },
+          });
+
+          await prisma.twilioWhatsappContact.update({
+            where: { id: contact.id },
+            data: {
+              lastMessage: replyText,
+            },
+          });
+
+          console.log('[wa-ai-autoreply] sent', { contactId: contact.id, sid: sent.sid });
+        } else {
+          console.log('[wa-ai-autoreply] skipped: twilio settings incomplete');
+        }
+      } else {
+        console.log('[wa-ai-dryrun] ready', {
+          autoReplyEnabled,
+          shouldReply: decision?.shouldReply,
+          policy: decision?.policy?.action,
+        });
+      }
     } catch (e: any) {
       console.log('[wa-ai-dryrun] failed', e?.message || e);
     }
