@@ -205,5 +205,35 @@
     "claimedByName": "admin",
     "claimedAt": "2026-07-02T18:57:51.892Z",
     "typing": {}
+  },
+  "cmr4vu0uj05u4wq1oeal22fof": {
+    "viewers": {
+      "cmqmi15jms92hpz813yjti7rd": {
+        "id": "cmqmi15jms92hpz813yjti7rd",
+        "name": "8192",
+        "at": 1783080749803
+      }
+    },
+    "claimedById": "cmpzn633t002vw8t26cmm1udu",
+    "claimedByName": "admin",
+    "claimedAt": "2026-07-03T12:02:30.033Z"
+  },
+  "cmr4vyxcg05ubwq1ouqu5qx5u": {
+    "viewers": {
+      "cmpzn633t002vw8t26cmm1udu": {
+        "id": "cmpzn633t002vw8t26cmm1udu",
+        "name": "admin",
+        "at": 1783080905732
+      }
+    }
+  },
+  "cmr4w95h30eo9wq1oy1vv8y2z": {
+    "viewers": {
+      "cmpzn633t002vw8t26cmm1udu": {
+        "id": "cmpzn633t002vw8t26cmm1udu",
+        "name": "admin",
+        "at": 1783081775942
+      }
+    }
   }
 }
