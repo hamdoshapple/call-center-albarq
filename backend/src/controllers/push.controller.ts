@@ -2457,3 +2457,20 @@ export const contactHistory = asyncHandler(async (req: Request, res: Response) =
 
   res.json({ rows: Array.from(byPhone.values()) });
 });
+
+export const contactHistoryLogs = asyncHandler(async (req: Request, res: Response) => {
+  const phoneRaw = String(req.query.phone || '');
+  const p = normPushPhone(phoneRaw);
+  if (!p) return res.json({ rows: [] });
+
+  const bare = String(p).replace(/^0+/, '');
+  const variants = Array.from(new Set([p, bare, '0' + bare, '964' + bare, '+964' + bare].filter(Boolean)));
+
+  const rows = await prisma.pushNotificationLog.findMany({
+    where: { phone: { in: variants } },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+  }).catch(() => []);
+
+  res.json({ rows });
+});

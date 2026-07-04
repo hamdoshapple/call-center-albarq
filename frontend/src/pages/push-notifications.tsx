@@ -73,6 +73,23 @@ function relativeTime(v?: string | null) {
   return `قبل ${d} يوم`;
 }
 
+
+function statusClassName(status: any) {
+  const st = String(status || '').toLowerCase();
+  if (['delivered', 'read', 'sent', 'accepted'].includes(st)) return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  if (['queued', 'pending'].includes(st)) return 'border-amber-200 bg-amber-50 text-amber-700';
+  if (['failed', 'undelivered', 'rejected'].includes(st)) return 'border-red-200 bg-red-50 text-red-700';
+  return 'border-slate-200 bg-slate-50 text-slate-600';
+}
+
+function channelIcon(channel: any) {
+  const ch = String(channel || '').toLowerCase();
+  if (ch.includes('twilio')) return '🟦';
+  if (ch.includes('whatsapp')) return '🟢';
+  if (ch.includes('push')) return '🔔';
+  return '📨';
+}
+
 function pickHistoryByChannel(history: any, channel: string) {
   if (!history) return null;
   if (channel === 'twilio_template') return history.lastTwilio;
@@ -172,55 +189,6 @@ function StatCard({ title, value, icon: Icon, tone = 'primary' }: any) {
     tone === 'amber' ? 'bg-amber-50 text-amber-600 border-amber-100' :
     'bg-primary/10 text-primary border-primary/10';
 
-  const contactHistoryPhonesKey = useMemo(() => {
-    if (form.targetType !== 'phone') return '';
-    return filteredSubscribers
-      .slice(0, 250)
-      .map((x: any) => normUiPhone(x.phoneNorm || x.phone))
-      .filter(Boolean)
-      .join(',');
-  }, [form.targetType, filteredSubscribers]);
-
-  useEffect(() => {
-    if (!contactHistoryPhonesKey) return;
-
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/push/contact-history?phones=${encodeURIComponent(contactHistoryPhonesKey)}`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}` },
-        });
-        const data = await res.json();
-        const map: Record<string, any> = {};
-        for (const row of data.rows || []) map[normUiPhone(row.phone)] = row;
-        setContactHistory(map);
-      } catch {
-        setContactHistory({});
-      }
-    }, 250);
-
-    return () => clearTimeout(timer);
-  }, [contactHistoryPhonesKey]);
-
-  const displayedSubscribers = useMemo(() => {
-    if (form.targetType !== 'phone') return filteredSubscribers;
-    if (contactHistoryFilter === 'all') return filteredSubscribers;
-
-    return filteredSubscribers.filter((sub: any) => {
-      const phone = normUiPhone(sub.phoneNorm || sub.phone);
-      const h = pickHistoryByChannel(contactHistory[phone], form.channel);
-      const sentAt = h?.lastSentAt ? new Date(h.lastSentAt).getTime() : 0;
-      const ageDays = sentAt ? (Date.now() - sentAt) / 86400000 : Infinity;
-
-      if (contactHistoryFilter === 'sent_within') return sentAt && ageDays <= Number(contactHistoryDays || 0);
-      if (contactHistoryFilter === 'hide_sent_within') return !sentAt || ageDays > Number(contactHistoryDays || 0);
-      if (contactHistoryFilter === 'sent_between') {
-        return sentAt && ageDays >= Number(contactHistoryFromDays || 0) && ageDays <= Number(contactHistoryToDays || 0);
-      }
-
-      return true;
-    });
-  }, [filteredSubscribers, contactHistory, contactHistoryFilter, contactHistoryDays, contactHistoryFromDays, contactHistoryToDays, form.channel, form.targetType]);
-
 
   return (
     <Card className="overflow-hidden border-slate-200/80 shadow-sm">
@@ -274,6 +242,10 @@ export default function PushNotificationsPage() {
   const [contactHistoryDays, setContactHistoryDays] = useState(7);
   const [contactHistoryFromDays, setContactHistoryFromDays] = useState(1);
   const [contactHistoryToDays, setContactHistoryToDays] = useState(30);
+  const [contactHistoryTemplateFilter, setContactHistoryTemplateFilter] = useState('');
+  const [historyModalPhone, setHistoryModalPhone] = useState('');
+  const [historyModalRows, setHistoryModalRows] = useState<any[]>([]);
+  const [historyModalLoading, setHistoryModalLoading] = useState(false);
   const [subscriberFilter, setSubscriberFilter] = useState('all');
   const [selectedTemplateKey, setSelectedTemplateKey] = useState('');
   const [jobId, setJobId] = useState('');
@@ -533,6 +505,85 @@ export default function PushNotificationsPage() {
       }, 450);
     });
   };
+
+  const contactHistoryPhonesKey = useMemo(() => {
+    if (form.targetType !== 'phone') return '';
+    return filteredSubscribers
+      .slice(0, 250)
+      .map((x: any) => normUiPhone(x.phoneNorm || x.phone))
+      .filter(Boolean)
+      .join(',');
+  }, [form.targetType, filteredSubscribers]);
+
+  useEffect(() => {
+    if (!contactHistoryPhonesKey) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/push/contact-history?phones=${encodeURIComponent(contactHistoryPhonesKey)}`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}` },
+        });
+        const data = await res.json();
+        const map: Record<string, any> = {};
+        for (const row of data.rows || []) map[normUiPhone(row.phone)] = row;
+        setContactHistory(map);
+      } catch {
+        setContactHistory({});
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [contactHistoryPhonesKey]);
+
+  const displayedSubscribers = useMemo(() => {
+    if (form.targetType !== 'phone') return filteredSubscribers;
+    if (contactHistoryFilter === 'all') return filteredSubscribers;
+
+    return filteredSubscribers.filter((sub: any) => {
+      const phone = normUiPhone(sub.phoneNorm || sub.phone);
+      const h = pickHistoryByChannel(contactHistory[phone], form.channel);
+      const sentAt = h?.lastSentAt ? new Date(h.lastSentAt).getTime() : 0;
+      const ageDays = sentAt ? (Date.now() - sentAt) / 86400000 : Infinity;
+
+      if (contactHistoryFilter === 'sent_within') return Boolean(sentAt) && ageDays <= Number(contactHistoryDays || 0);
+      if (contactHistoryFilter === 'hide_sent_within') return !sentAt || ageDays > Number(contactHistoryDays || 0);
+      if (contactHistoryFilter === 'sent_between') {
+        return Boolean(sentAt) && ageDays >= Number(contactHistoryFromDays || 0) && ageDays <= Number(contactHistoryToDays || 0);
+      }
+      if (contactHistoryFilter === 'never_sent') return !sentAt;
+      if (contactHistoryFilter === 'last_24h') return Boolean(sentAt) && ageDays <= 1;
+      if (contactHistoryFilter === 'last_3d') return Boolean(sentAt) && ageDays <= 3;
+      if (contactHistoryFilter === 'last_7d') return Boolean(sentAt) && ageDays <= 7;
+      if (contactHistoryFilter === 'last_30d') return Boolean(sentAt) && ageDays <= 30;
+      if (contactHistoryFilter === 'older_than') return Boolean(sentAt) && ageDays > Number(contactHistoryDays || 0);
+      if (contactHistoryFilter === 'template_contains') {
+        const t = String(h?.lastTemplate || h?.lastTitle || '').toLowerCase();
+        return Boolean(contactHistoryTemplateFilter.trim()) && t.includes(contactHistoryTemplateFilter.trim().toLowerCase());
+      }
+
+      return true;
+    });
+  }, [filteredSubscribers, contactHistory, contactHistoryFilter, contactHistoryDays, contactHistoryFromDays, contactHistoryToDays, contactHistoryTemplateFilter, form.channel, form.targetType]);
+
+
+  async function openContactHistory(phoneRaw: any) {
+    const phone = normUiPhone(phoneRaw);
+    setHistoryModalPhone(phone);
+    setHistoryModalRows([]);
+    setHistoryModalLoading(true);
+    try {
+      const res = await fetch(`/api/push/contact-history/logs?phone=${encodeURIComponent(phone)}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}` },
+      });
+      const data = await res.json();
+      setHistoryModalRows(data.rows || []);
+    } catch {
+      setHistoryModalRows([]);
+    } finally {
+      setHistoryModalLoading(false);
+    }
+  }
+
 
   return (
     <div className="space-y-6">
@@ -808,18 +859,34 @@ export default function PushNotificationsPage() {
                           onChange={(e) => setContactHistoryFilter(e.target.value)}
                         >
                           <option value="all">الكل</option>
+                          <option value="never_sent">لم يرسل له أبداً</option>
+                          <option value="last_24h">آخر 24 ساعة</option>
+                          <option value="last_3d">آخر 3 أيام</option>
+                          <option value="last_7d">آخر أسبوع</option>
+                          <option value="last_30d">آخر شهر</option>
                           <option value="sent_within">المرسل لهم خلال</option>
                           <option value="hide_sent_within">إخفاء المرسل لهم خلال</option>
                           <option value="sent_between">مرسل بين يومين</option>
+                          <option value="older_than">أقدم من</option>
+                          <option value="template_contains">حسب اسم القالب</option>
                         </select>
 
-                        {(contactHistoryFilter === 'sent_within' || contactHistoryFilter === 'hide_sent_within') && (
+                        {(contactHistoryFilter === 'sent_within' || contactHistoryFilter === 'hide_sent_within' || contactHistoryFilter === 'older_than') && (
                           <input
                             type="number"
                             min={1}
                             className="h-8 w-20 rounded-xl border bg-background px-2 text-xs font-bold"
                             value={contactHistoryDays}
                             onChange={(e) => setContactHistoryDays(Number(e.target.value || 1))}
+                          />
+                        )}
+
+                        {contactHistoryFilter === 'template_contains' && (
+                          <input
+                            className="h-8 w-40 rounded-xl border bg-background px-2 text-xs font-bold"
+                            value={contactHistoryTemplateFilter}
+                            onChange={(e) => setContactHistoryTemplateFilter(e.target.value)}
+                            placeholder="اسم القالب"
                           />
                         )}
 
@@ -912,20 +979,38 @@ export default function PushNotificationsPage() {
                                     </Badge>
                                   </div>
 
-                                  <div className="mt-3 rounded-2xl border bg-background/70 p-3 text-xs">
-                                    <div className="flex flex-wrap gap-2">
-                                      <Badge variant={channelHistory ? 'secondary' : 'outline'}>
-                                        آخر إرسال: {relativeTime(channelHistory?.lastSentAt)}
-                                      </Badge>
-                                      <Badge variant="outline">
-                                        القالب: {channelHistory?.lastTemplate || channelHistory?.lastTitle || '—'}
-                                      </Badge>
-                                      <Badge variant="outline">
-                                        القناة: {channelHistory?.lastChannel || '—'}
-                                      </Badge>
-                                      <Badge variant={['sent', 'accepted', 'queued', 'delivered'].includes(String(channelHistory?.lastStatus || '').toLowerCase()) ? 'default' : channelHistory ? 'destructive' : 'outline'}>
-                                        الحالة: {channelHistory?.lastStatus || '—'}
-                                      </Badge>
+                                  <div
+                                    className="mt-3 rounded-2xl border bg-white/80 p-3 text-xs shadow-sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openContactHistory(phone);
+                                    }}
+                                  >
+                                    <div className="mb-2 flex items-center justify-between gap-2">
+                                      <div className="font-black text-slate-700">سجل التواصل</div>
+                                      <div className="text-[11px] font-bold text-muted-foreground">اضغط لآخر 10 رسائل</div>
+                                    </div>
+
+                                    <div className="grid gap-2 md:grid-cols-4">
+                                      <div className="rounded-xl bg-slate-50 p-2">
+                                        <div className="text-[10px] font-black text-slate-400">آخر إرسال</div>
+                                        <div className="mt-1 font-black">{relativeTime(channelHistory?.lastSentAt)}</div>
+                                      </div>
+
+                                      <div className="rounded-xl bg-slate-50 p-2">
+                                        <div className="text-[10px] font-black text-slate-400">القالب</div>
+                                        <div className="mt-1 truncate font-black">{channelHistory?.lastTemplate || channelHistory?.lastTitle || '—'}</div>
+                                      </div>
+
+                                      <div className="rounded-xl bg-slate-50 p-2">
+                                        <div className="text-[10px] font-black text-slate-400">القناة</div>
+                                        <div className="mt-1 font-black">{channelIcon(channelHistory?.lastChannel)} {channelHistory?.lastChannel || '—'}</div>
+                                      </div>
+
+                                      <div className={`rounded-xl border p-2 ${statusClassName(channelHistory?.lastStatus)}`}>
+                                        <div className="text-[10px] font-black opacity-70">الحالة</div>
+                                        <div className="mt-1 font-black">{channelHistory?.lastStatus || '—'}</div>
+                                      </div>
                                     </div>
                                   </div>
                                 </div>
@@ -1616,6 +1701,57 @@ export default function PushNotificationsPage() {
           </div>
         </TabsContent>
       </Tabs>
+      {historyModalPhone ? (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" dir="rtl">
+          <div className="w-full max-w-3xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b p-5">
+              <div>
+                <div className="text-xl font-black">آخر 10 رسائل</div>
+                <div className="mt-1 font-mono text-xs text-muted-foreground" dir="ltr">{historyModalPhone}</div>
+              </div>
+              <button onClick={() => setHistoryModalPhone('')} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-black">
+                إغلاق
+              </button>
+            </div>
+
+            <div className="max-h-[520px] overflow-y-auto p-4">
+              {historyModalLoading ? (
+                <div className="p-8"><Loader /></div>
+              ) : historyModalRows.length ? (
+                <div className="space-y-2">
+                  {historyModalRows.map((x: any, i: number) => (
+                    <div key={x.id || i} className="rounded-2xl border bg-slate-50 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="font-black">{x.title || '—'}</div>
+                        <div className={`rounded-full border px-3 py-1 text-xs font-black ${statusClassName(x.status)}`}>
+                          {x.status || '—'}
+                        </div>
+                      </div>
+                      <div className="mt-2 text-xs font-bold text-muted-foreground">
+                        {new Date(x.createdAt).toLocaleString('ar-IQ')}
+                      </div>
+                      <div className="mt-2 text-xs font-bold">
+                        القناة: {channelIcon(x.targetType)} {x.targetType || '—'}
+                      </div>
+                      <div className="mt-2 whitespace-pre-wrap rounded-xl bg-white p-3 text-xs leading-6">
+                        {x.message || '—'}
+                      </div>
+                      {x.error ? (
+                        <div className="mt-2 rounded-xl bg-red-50 p-2 text-xs font-bold text-red-700">
+                          {x.error}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-8 text-center text-sm font-bold text-muted-foreground">لا يوجد سجل لهذا الرقم</div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
     </div>
   );
 }
