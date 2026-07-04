@@ -247,16 +247,16 @@
   },
   "cmr520gan86a2wq1omx5iw4qp": {
     "viewers": {
-      "cmqmi15jms92hpz813yjti7rd": {
-        "id": "cmqmi15jms92hpz813yjti7rd",
-        "name": "8192",
-        "at": 1783109887921
+      "cmpzn633t002vw8t26cmm1udu": {
+        "id": "cmpzn633t002vw8t26cmm1udu",
+        "name": "admin",
+        "at": 1783150164825
       }
     },
     "typing": {},
-    "claimedById": "cmqmi15jms92hpz813yjti7rd",
-    "claimedByName": "8192",
-    "claimedAt": "2026-07-03T20:14:41.797Z"
+    "claimedById": "cmpzn633t002vw8t26cmm1udu",
+    "claimedByName": "admin",
+    "claimedAt": "2026-07-04T07:22:50.566Z"
   },
   "cmr4zimpx4nqmwq1o27f2pvvy": {
     "viewers": {
@@ -321,7 +321,7 @@
       "cmpzn633t002vw8t26cmm1udu": {
         "id": "cmpzn633t002vw8t26cmm1udu",
         "name": "admin",
-        "at": 1783104515172
+        "at": 1783149780130
       }
     },
     "typing": {},
