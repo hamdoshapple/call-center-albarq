@@ -53,6 +53,35 @@ user.albarq.app
 
 {rand:شكراً لثقتكم|نتشرف بخدمتكم|البرق الرقمي بخدمتكم دائماً}`;
 
+
+function normUiPhone(v: any) {
+  let n = String(v || '').replace(/\D/g, '');
+  if (n.startsWith('964')) n = '0' + n.slice(3);
+  if (!n.startsWith('0') && n.startsWith('7')) n = '0' + n;
+  return n;
+}
+
+function relativeTime(v?: string | null) {
+  if (!v) return 'لم يرسل سابقاً';
+  const diff = Date.now() - new Date(v).getTime();
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return 'الآن';
+  if (min < 60) return `قبل ${min} دقيقة`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `قبل ${h} ساعة`;
+  const d = Math.floor(h / 24);
+  return `قبل ${d} يوم`;
+}
+
+function pickHistoryByChannel(history: any, channel: string) {
+  if (!history) return null;
+  if (channel === 'twilio_template') return history.lastTwilio;
+  if (channel === 'push') return history.lastPush;
+  if (channel === 'whatsapp') return history.lastWhatsapp || history.lastTwilio;
+  if (channel === 'both') return history.lastAny;
+  return history.lastAny;
+}
+
 const defaultSettings: any = {
   auto: {
     enabled: true,
@@ -143,6 +172,56 @@ function StatCard({ title, value, icon: Icon, tone = 'primary' }: any) {
     tone === 'amber' ? 'bg-amber-50 text-amber-600 border-amber-100' :
     'bg-primary/10 text-primary border-primary/10';
 
+  const contactHistoryPhonesKey = useMemo(() => {
+    if (form.targetType !== 'phone') return '';
+    return filteredSubscribers
+      .slice(0, 250)
+      .map((x: any) => normUiPhone(x.phoneNorm || x.phone))
+      .filter(Boolean)
+      .join(',');
+  }, [form.targetType, filteredSubscribers]);
+
+  useEffect(() => {
+    if (!contactHistoryPhonesKey) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/push/contact-history?phones=${encodeURIComponent(contactHistoryPhonesKey)}`, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}` },
+        });
+        const data = await res.json();
+        const map: Record<string, any> = {};
+        for (const row of data.rows || []) map[normUiPhone(row.phone)] = row;
+        setContactHistory(map);
+      } catch {
+        setContactHistory({});
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [contactHistoryPhonesKey]);
+
+  const displayedSubscribers = useMemo(() => {
+    if (form.targetType !== 'phone') return filteredSubscribers;
+    if (contactHistoryFilter === 'all') return filteredSubscribers;
+
+    return filteredSubscribers.filter((sub: any) => {
+      const phone = normUiPhone(sub.phoneNorm || sub.phone);
+      const h = pickHistoryByChannel(contactHistory[phone], form.channel);
+      const sentAt = h?.lastSentAt ? new Date(h.lastSentAt).getTime() : 0;
+      const ageDays = sentAt ? (Date.now() - sentAt) / 86400000 : Infinity;
+
+      if (contactHistoryFilter === 'sent_within') return sentAt && ageDays <= Number(contactHistoryDays || 0);
+      if (contactHistoryFilter === 'hide_sent_within') return !sentAt || ageDays > Number(contactHistoryDays || 0);
+      if (contactHistoryFilter === 'sent_between') {
+        return sentAt && ageDays >= Number(contactHistoryFromDays || 0) && ageDays <= Number(contactHistoryToDays || 0);
+      }
+
+      return true;
+    });
+  }, [filteredSubscribers, contactHistory, contactHistoryFilter, contactHistoryDays, contactHistoryFromDays, contactHistoryToDays, form.channel, form.targetType]);
+
+
   return (
     <Card className="overflow-hidden border-slate-200/80 shadow-sm">
       <CardContent className="flex items-center justify-between p-5">
@@ -190,6 +269,11 @@ export default function PushNotificationsPage() {
   const [logFilters, setLogFilters] = useState({ q: '', status: 'all', type: 'all' });
   const [subscriberSearch, setSubscriberSearch] = useState('');
   const [selectedPhones, setSelectedPhones] = useState<string[]>([]);
+  const [contactHistory, setContactHistory] = useState<Record<string, any>>({});
+  const [contactHistoryFilter, setContactHistoryFilter] = useState('all');
+  const [contactHistoryDays, setContactHistoryDays] = useState(7);
+  const [contactHistoryFromDays, setContactHistoryFromDays] = useState(1);
+  const [contactHistoryToDays, setContactHistoryToDays] = useState(30);
   const [subscriberFilter, setSubscriberFilter] = useState('all');
   const [selectedTemplateKey, setSelectedTemplateKey] = useState('');
   const [jobId, setJobId] = useState('');
@@ -675,7 +759,7 @@ export default function PushNotificationsPage() {
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        <Badge>المعروض {filteredSubscribers.length}</Badge>
+                        <Badge>المعروض {displayedSubscribers.length}</Badge>
                         <Badge variant="secondary">المحدد {selectedPhones.length}</Badge>
                         {pushSubscribers.isFetchingNextPage && (
                           <Badge variant="outline">جاري تحميل المزيد...</Badge>
@@ -715,11 +799,59 @@ export default function PushNotificationsPage() {
                         </button>
                       ))}
 
+
+                      <div className="flex flex-wrap items-center gap-2 rounded-2xl border bg-muted/30 px-3 py-2">
+                        <span className="text-xs font-black text-muted-foreground">سجل الإرسال:</span>
+                        <select
+                          className="h-8 rounded-xl border bg-background px-2 text-xs font-bold"
+                          value={contactHistoryFilter}
+                          onChange={(e) => setContactHistoryFilter(e.target.value)}
+                        >
+                          <option value="all">الكل</option>
+                          <option value="sent_within">المرسل لهم خلال</option>
+                          <option value="hide_sent_within">إخفاء المرسل لهم خلال</option>
+                          <option value="sent_between">مرسل بين يومين</option>
+                        </select>
+
+                        {(contactHistoryFilter === 'sent_within' || contactHistoryFilter === 'hide_sent_within') && (
+                          <input
+                            type="number"
+                            min={1}
+                            className="h-8 w-20 rounded-xl border bg-background px-2 text-xs font-bold"
+                            value={contactHistoryDays}
+                            onChange={(e) => setContactHistoryDays(Number(e.target.value || 1))}
+                          />
+                        )}
+
+                        {contactHistoryFilter === 'sent_between' && (
+                          <>
+                            <input
+                              type="number"
+                              min={0}
+                              className="h-8 w-20 rounded-xl border bg-background px-2 text-xs font-bold"
+                              value={contactHistoryFromDays}
+                              onChange={(e) => setContactHistoryFromDays(Number(e.target.value || 0))}
+                              placeholder="من"
+                            />
+                            <input
+                              type="number"
+                              min={1}
+                              className="h-8 w-20 rounded-xl border bg-background px-2 text-xs font-bold"
+                              value={contactHistoryToDays}
+                              onChange={(e) => setContactHistoryToDays(Number(e.target.value || 1))}
+                              placeholder="إلى"
+                            />
+                          </>
+                        )}
+
+                        <span className="text-xs font-bold text-muted-foreground">يوم</span>
+                      </div>
+
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => setSelectedPhones(filteredSubscribers.map((x: any) => x.phoneNorm || x.phone).filter(Boolean))}
+                        onClick={() => setSelectedPhones(displayedSubscribers.map((x: any) => x.phoneNorm || x.phone).filter(Boolean))}
                       >
                         تحديد الكل
                       </Button>
@@ -741,8 +873,8 @@ export default function PushNotificationsPage() {
                       }}>
                       {pushSubscribers.isLoading ? (
                         <div className="p-6"><Loader /></div>
-                      ) : filteredSubscribers.length ? (
-                        filteredSubscribers.map((sub: any) => {
+                      ) : displayedSubscribers.length ? (
+                        displayedSubscribers.map((sub: any) => {
                           const phone = sub.phoneNorm || sub.phone;
                           const checked = selectedPhones.includes(phone);
                           const nearDays = Math.min(
@@ -750,6 +882,8 @@ export default function PushNotificationsPage() {
                               .map((a: any) => daysUntil(a.expiration))
                               .filter((x: any) => x !== null)
                           );
+                          const history = contactHistory[normUiPhone(phone)];
+                          const channelHistory = pickHistoryByChannel(history, form.channel);
 
                           return (
                             <button
@@ -776,6 +910,23 @@ export default function PushNotificationsPage() {
                                     <Badge variant={sub.pushEnabled ? 'default' : 'outline'}>
                                       {sub.pushEnabled ? 'Push مفعل' : 'واتساب فقط'}
                                     </Badge>
+                                  </div>
+
+                                  <div className="mt-3 rounded-2xl border bg-background/70 p-3 text-xs">
+                                    <div className="flex flex-wrap gap-2">
+                                      <Badge variant={channelHistory ? 'secondary' : 'outline'}>
+                                        آخر إرسال: {relativeTime(channelHistory?.lastSentAt)}
+                                      </Badge>
+                                      <Badge variant="outline">
+                                        القالب: {channelHistory?.lastTemplate || channelHistory?.lastTitle || '—'}
+                                      </Badge>
+                                      <Badge variant="outline">
+                                        القناة: {channelHistory?.lastChannel || '—'}
+                                      </Badge>
+                                      <Badge variant={['sent', 'accepted', 'queued', 'delivered'].includes(String(channelHistory?.lastStatus || '').toLowerCase()) ? 'default' : channelHistory ? 'destructive' : 'outline'}>
+                                        الحالة: {channelHistory?.lastStatus || '—'}
+                                      </Badge>
+                                    </div>
                                   </div>
                                 </div>
 
@@ -905,7 +1056,7 @@ export default function PushNotificationsPage() {
                     {label}
                   </button>
                 ))}
-                <Button variant="outline" size="sm" onClick={() => setSelectedPhones(filteredSubscribers.map((x: any) => x.phoneNorm || x.phone).filter(Boolean))}>
+                <Button variant="outline" size="sm" onClick={() => setSelectedPhones(displayedSubscribers.map((x: any) => x.phoneNorm || x.phone).filter(Boolean))}>
                   تحديد الكل المعروض
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => setSelectedPhones([])}>
@@ -914,7 +1065,7 @@ export default function PushNotificationsPage() {
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <Badge>المعروض {filteredSubscribers.length}</Badge>
+                <Badge>المعروض {displayedSubscribers.length}</Badge>
                 <Badge variant="secondary">المحدد {selectedPhones.length}</Badge>
               </div>
 
@@ -923,7 +1074,7 @@ export default function PushNotificationsPage() {
                   const el = e.currentTarget;
                   if (el.scrollTop + el.clientHeight >= el.scrollHeight - 160) loadMoreSubscribers();
                 }}>
-                {pushSubscribers.isLoading ? <div className="p-6"><Loader /></div> : filteredSubscribers.length ? filteredSubscribers.map((sub: any) => {
+                {pushSubscribers.isLoading ? <div className="p-6"><Loader /></div> : filteredSubscribers.length ? displayedSubscribers.map((sub: any) => {
                   const phone = sub.phoneNorm || sub.phone;
                   const checked = selectedPhones.includes(phone);
                   const nearDays = Math.min(...(sub.accounts || []).map((a: any) => daysUntil(a.expiration)).filter((x: any) => x !== null));

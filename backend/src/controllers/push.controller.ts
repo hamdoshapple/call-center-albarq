@@ -2401,15 +2401,15 @@ export const contactHistory = asyncHandler(async (req: Request, res: Response) =
   const rows = await prisma.pushNotificationLog.findMany({
     where: { phone: { in: variants } },
     orderBy: { createdAt: 'desc' },
-    take: 2000,
+    take: 5000,
   }).catch(() => []);
 
-  const latest = new Map<string, any>();
+  function canonical(v: any) {
+    const n = normPushPhone(v);
+    return n ? '0' + String(n).replace(/^0+/, '') : String(v || '');
+  }
 
-  for (const r of rows as any[]) {
-    const phone = normPushPhone(r.phone);
-    if (!phone || latest.has(phone)) continue;
-
+  function mapLog(r: any) {
     const targetType = String(r.targetType || '');
     const channel =
       targetType.includes('twilio') ? 'Twilio Template' :
@@ -2417,17 +2417,43 @@ export const contactHistory = asyncHandler(async (req: Request, res: Response) =
       targetType.includes('push') ? 'Push App' :
       targetType || '—';
 
-    const canonicalPhone = '0' + phone.replace(/^0+/, '');
-    latest.set(canonicalPhone, {
-      phone: canonicalPhone,
+    return {
+      phone: canonical(r.phone),
       lastSentAt: r.createdAt,
       lastTitle: r.title || '—',
       lastTemplate: targetType.includes('twilio') ? (r.title || 'Twilio Template') : (r.title || '—'),
       lastChannel: channel,
       lastStatus: r.status || '—',
       lastError: r.error || null,
-    });
+      targetType,
+      message: r.message || '',
+    };
   }
 
-  res.json({ rows: Array.from(latest.values()) });
+  const byPhone = new Map<string, any>();
+
+  for (const r of rows as any[]) {
+    const phone = canonical(r.phone);
+    if (!phone) continue;
+
+    const item = byPhone.get(phone) || {
+      phone,
+      lastAny: null,
+      lastTwilio: null,
+      lastWhatsapp: null,
+      lastPush: null,
+    };
+
+    const targetType = String(r.targetType || '');
+    const mapped = mapLog(r);
+
+    if (!item.lastAny) item.lastAny = mapped;
+    if (!item.lastTwilio && targetType.includes('twilio')) item.lastTwilio = mapped;
+    if (!item.lastWhatsapp && targetType.includes('whatsapp')) item.lastWhatsapp = mapped;
+    if (!item.lastPush && targetType.includes('push')) item.lastPush = mapped;
+
+    byPhone.set(phone, item);
+  }
+
+  res.json({ rows: Array.from(byPhone.values()) });
 });
