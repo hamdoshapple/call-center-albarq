@@ -1385,11 +1385,12 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
 
               console.log('[twilio sent sid]', msg.sid, msg.status);
               whatsappSent++;
+              const twilioTemplateTitle = await getTwilioTemplateLabel(twilioTemplateId);
               await prisma.pushNotificationLog.create({
                 data: {
-                  phone,
-                  title: 'Twilio Template',
-                  message: `contentSid=${twilioTemplateId}; sid=${msg.sid}`,
+                  phone: normalizeLogPhoneForPush(phone),
+                  title: twilioTemplateTitle,
+                  message: `contentSid=${twilioTemplateId}; template=${twilioTemplateTitle}; sid=${msg.sid}`,
                   targetType: `${targetType}:twilio_template`,
                   status: msg.status || 'queued',
                   error: null,
@@ -1397,11 +1398,12 @@ export const send = asyncHandler(async (req: Request, res: Response) => {
               }).catch(() => null);
             } catch (e: any) {
               whatsappFailed++;
+              const twilioTemplateTitle = await getTwilioTemplateLabel(twilioTemplateId);
               await prisma.pushNotificationLog.create({
                 data: {
-                  phone,
-                  title: 'Twilio Template',
-                  message: `contentSid=${twilioTemplateId}`,
+                  phone: normalizeLogPhoneForPush(phone),
+                  title: twilioTemplateTitle,
+                  message: `contentSid=${twilioTemplateId}; template=${twilioTemplateTitle}`,
                   targetType: `${targetType}:twilio_template`,
                   status: 'failed',
                   error: e?.message || String(e),
@@ -1912,6 +1914,24 @@ function renderSystemVars(text: any, vars: Record<string, any>) {
   });
 }
 
+
+async function getTwilioTemplateLabel(contentSid: any) {
+  const sid = String(contentSid || '').trim();
+  if (!sid) return 'Twilio Template';
+
+  const templates = await getStoredTwilioTemplates().catch(() => []);
+  const found = (templates || []).find((x: any) =>
+    String(x.contentSid || x.sid || x.id || '').trim() === sid
+  );
+
+  return String(found?.name || found?.friendlyName || found?.title || found?.contentSid || sid || 'Twilio Template');
+}
+
+function normalizeLogPhoneForPush(phone: any) {
+  const n = normPushPhone(phone);
+  return n ? '0' + String(n).replace(/^0+/, '') : String(phone || '');
+}
+
 export const sendTwilioTemplate = asyncHandler(async (req: Request, res: Response) => {
   const targetType = String(req.body?.targetType || 'phone');
   const targetValue = String(req.body?.targetValue || '');
@@ -1967,11 +1987,12 @@ export const sendTwilioTemplate = asyncHandler(async (req: Request, res: Respons
 
       sent++;
 
+      const twilioTemplateTitle = await getTwilioTemplateLabel(contentSid);
       await prisma.pushNotificationLog.create({
         data: {
-          phone,
-          title: 'Twilio Template',
-          message: `contentSid=${contentSid}`,
+          phone: normalizeLogPhoneForPush(phone),
+          title: twilioTemplateTitle,
+          message: `contentSid=${contentSid}; template=${twilioTemplateTitle}; sid=${msg.sid}`,
           targetType: `twilio_template:${targetType}`,
           status: msg.status || 'queued',
           error: null,
@@ -1980,11 +2001,12 @@ export const sendTwilioTemplate = asyncHandler(async (req: Request, res: Respons
     } catch (e: any) {
       failed++;
 
+      const twilioTemplateTitle = await getTwilioTemplateLabel(contentSid);
       await prisma.pushNotificationLog.create({
         data: {
-          phone,
-          title: 'Twilio Template',
-          message: `contentSid=${contentSid}`,
+          phone: normalizeLogPhoneForPush(phone),
+          title: twilioTemplateTitle,
+          message: `contentSid=${contentSid}; template=${twilioTemplateTitle}`,
           targetType: `twilio_template:${targetType}`,
           status: 'failed',
           error: e?.message || String(e),
