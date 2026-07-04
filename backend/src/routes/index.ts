@@ -335,6 +335,7 @@ router.post('/push/twilio-templates/sync', h(push.syncTwilioTemplates));
 router.put('/push/twilio-templates', h(push.saveTwilioTemplates));
 router.post('/push/send-twilio-template', h(push.sendTwilioTemplate));
 
+router.get('/push/contact-history', h(push.contactHistory));
 router.get('/push/campaign-jobs', h(push.campaignJobs));
 router.get('/push/campaign-jobs/:id', h(push.campaignJob));
 router.post('/push/campaign-jobs/:id/cancel', h(push.cancelCampaignJob));

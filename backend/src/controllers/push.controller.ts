@@ -2360,3 +2360,52 @@ export const employeeTestPush = asyncHandler(async (req: Request, res: Response)
   );
   res.json({ ok: true, ...out, userId: user?.id || null });
 });
+
+export const contactHistory = asyncHandler(async (req: Request, res: Response) => {
+  const phones = String(req.query.phones || '')
+    .split(',')
+    .map((x) => normPushPhone(x))
+    .filter(Boolean);
+
+  if (!phones.length) return res.json({ rows: [] });
+
+  const variants = Array.from(new Set(
+    phones.flatMap((p) => {
+      const bare = String(p || '').replace(/^0+/, '');
+      return [p, bare, '0' + bare, '964' + bare, '+964' + bare].filter(Boolean);
+    })
+  ));
+
+  const rows = await prisma.pushNotificationLog.findMany({
+    where: { phone: { in: variants } },
+    orderBy: { createdAt: 'desc' },
+    take: 2000,
+  }).catch(() => []);
+
+  const latest = new Map<string, any>();
+
+  for (const r of rows as any[]) {
+    const phone = normPushPhone(r.phone);
+    if (!phone || latest.has(phone)) continue;
+
+    const targetType = String(r.targetType || '');
+    const channel =
+      targetType.includes('twilio') ? 'Twilio Template' :
+      targetType.includes('whatsapp') ? 'WhatsApp' :
+      targetType.includes('push') ? 'Push App' :
+      targetType || '—';
+
+    const canonicalPhone = '0' + phone.replace(/^0+/, '');
+    latest.set(canonicalPhone, {
+      phone: canonicalPhone,
+      lastSentAt: r.createdAt,
+      lastTitle: r.title || '—',
+      lastTemplate: targetType.includes('twilio') ? (r.title || 'Twilio Template') : (r.title || '—'),
+      lastChannel: channel,
+      lastStatus: r.status || '—',
+      lastError: r.error || null,
+    });
+  }
+
+  res.json({ rows: Array.from(latest.values()) });
+});
