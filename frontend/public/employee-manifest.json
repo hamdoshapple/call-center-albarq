@@ -1,0 +1,20 @@
+{
+  "id": "albarq-staff-pwa-v1",
+  "name": "Albarq Staff",
+  "short_name": "Albarq Staff",
+  "description": "Albarq Staff",
+  "start_url": "/employee/dashboard?app=staff",
+  "scope": "/employee/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "dir": "ltr",
+  "lang": "en",
+  "background_color": "#f6f8fb",
+  "theme_color": "#0ea5e9",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

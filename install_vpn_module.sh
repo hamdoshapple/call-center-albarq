@@ -1,0 +1,835 @@
+#!/usr/bin/env bash
+set -e
+
+APP="/opt/call-center-albarq"
+cd "$APP"
+
+STAMP="$(date +%s)"
+echo "[1] Backup..."
+mkdir -p backups/vpn-$STAMP
+cp backend/prisma/schema.prisma backups/vpn-$STAMP/schema.prisma
+cp backend/src/routes/index.ts backups/vpn-$STAMP/index.ts
+cp frontend/src/App.tsx backups/vpn-$STAMP/App.tsx
+cp frontend/src/api/index.ts backups/vpn-$STAMP/api-index.ts
+cp frontend/src/components/layout/sidebar.tsx backups/vpn-$STAMP/sidebar.tsx
+
+echo "[2] Add Prisma models..."
+python3 - <<'PY'
+from pathlib import Path
+p = Path("backend/prisma/schema.prisma")
+s = p.read_text()
+
+if "model VpnUser" not in s:
+    s += r'''
+
+// ===================== VPN / L2TP Management =====================
+model VpnUser {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  password     String
+  service      String   @default("l2tp")
+  remoteIp     String?  @db.VarChar(60)
+  localIp      String?  @db.VarChar(60)
+  routedRanges String?  @db.Text
+  expiresAt    DateTime?
+  enabled      Boolean  @default(true)
+  notes        String?  @db.Text
+  createdBy    String?
+  logs         VpnLog[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model VpnLog {
+  id          String   @id @default(cuid())
+  vpnUserId   String?
+  vpnUser     VpnUser? @relation(fields: [vpnUserId], references: [id], onDelete: SetNull)
+  actorId     String?
+  action      String
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+
+  @@index([vpnUserId])
+}
+'''
+    p.write_text(s)
+PY
+
+echo "[3] Detect Prisma import..."
+PRISMA_IMPORT=$(grep -R "new PrismaClient\|export const prisma\|prisma =" -n backend/src | head -1 || true)
+echo "$PRISMA_IMPORT"
+
+echo "[4] Create VPN controller..."
+cat > backend/src/controllers/vpn.controller.ts <<'EOF'
+import { Request, Response } from 'express';
+import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+const CHAP_PATH = process.env.CHAP_SECRETS_PATH || '/etc/ppp/chap-secrets';
+const XL2TPD_SERVICE = process.env.XL2TPD_SERVICE || 'xl2tpd';
+const STRONGSWAN_SERVICE = process.env.STRONGSWAN_SERVICE || 'strongswan';
+
+function getActorId(req: Request) {
+  return (req as any).user?.id || null;
+}
+
+function normalize(row: any, online = new Map<string, any>()) {
+  const state = online.get(String(row.username));
+  return {
+    id: row.id,
+    username: row.username,
+    password: row.password,
+    service: row.service,
+    remote_ip: row.remoteIp || '',
+    local_ip: row.localIp || '',
+    routed_ranges: row.routedRanges || '',
+    expires_at: row.expiresAt,
+    enabled: row.enabled,
+    online: Boolean(state?.online),
+    last_login: state?.last_login || null,
+    notes: row.notes || '',
+    created_at: row.createdAt,
+    updated_at: row.updatedAt,
+  };
+}
+
+function readOnlineVpnUsers() {
+  const online = new Map<string, { online: boolean; last_login?: string; local_ip?: string; remote_ip?: string }>();
+
+  try {
+    const ppp = execSync("ip -o addr show | grep -E ' ppp[0-9]+' || true", {
+      encoding: 'utf8',
+      timeout: 2000,
+    });
+
+    const logs = execSync("journalctl -u xl2tpd --no-pager -n 600 2>/dev/null || true", {
+      encoding: 'utf8',
+      timeout: 3500,
+    });
+
+    const currentIps = new Set<string>();
+    for (const line of ppp.split('\n')) {
+      const m = line.match(/\s(ppp\d+)\s+inet\s+(\S+)\s+peer\s+(\S+)/);
+      if (m) currentIps.add(m[3].split('/')[0]);
+    }
+
+    let lastUser = '';
+    for (const line of logs.split('\n')) {
+      const userMatch = line.match(/name\s*=\s*"([^"]+)"/i) || line.match(/CHAP.*"([^"]+)"/i);
+      if (userMatch) lastUser = userMatch[1];
+
+      const ipMatch = line.match(/remote IP address\s+([0-9.]+)/i);
+      if (ipMatch && lastUser) {
+        online.set(lastUser, {
+          online: currentIps.has(ipMatch[1]) || true,
+          last_login: line.trim(),
+          remote_ip: ipMatch[1],
+        });
+      }
+
+      if (/terminated|disconnect|closed|hangup/i.test(line) && lastUser && online.has(lastUser)) {
+        const old = online.get(lastUser);
+        online.set(lastUser, { ...old, online: false, last_login: line.trim() });
+      }
+    }
+  } catch {}
+
+  return online;
+}
+
+async function log(vpnUserId: string | null, actorId: string | null, action: string, description?: string) {
+  await prisma.vpnLog.create({
+    data: {
+      vpnUserId,
+      actorId,
+      action,
+      description,
+    },
+  });
+}
+
+async function generateChapSecrets(actorId?: string | null) {
+  const users = await prisma.vpnUser.findMany({
+    where: { enabled: true, service: 'l2tp' },
+    orderBy: { username: 'asc' },
+  });
+
+  const lines = users.map((u) => {
+    const remote = u.remoteIp?.trim() || '*';
+    return `${u.username}\tAlbarqVPN\t${u.password}\t${remote}`;
+  });
+
+  const content = [
+    '# Generated by Call Center Albarq',
+    `# ${new Date().toISOString()}`,
+    ...lines,
+    '',
+  ].join('\n');
+
+  if (fs.existsSync(CHAP_PATH)) {
+    fs.copyFileSync(CHAP_PATH, `${CHAP_PATH}.bak.${Date.now()}`);
+  }
+
+  fs.writeFileSync(CHAP_PATH, content, { mode: 0o600 });
+  await log(null, actorId || null, 'generate_chap', CHAP_PATH);
+
+  return { path: CHAP_PATH, users: users.length };
+}
+
+export async function list(req: Request, res: Response) {
+  const q = String(req.query.q || '').trim();
+
+  const where = q
+    ? {
+        OR: [
+          { username: { contains: q } },
+          { remoteIp: { contains: q } },
+          { localIp: { contains: q } },
+          { notes: { contains: q } },
+        ],
+      }
+    : {};
+
+  const rows = await prisma.vpnUser.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    take: 500,
+  });
+
+  const online = readOnlineVpnUsers();
+  res.json(rows.map((r) => normalize(r, online)));
+}
+
+export async function create(req: Request, res: Response) {
+  const username = String(req.body.username || '').trim();
+  const password = String(req.body.password || '').trim();
+
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password are required' });
+  }
+
+  const row = await prisma.vpnUser.create({
+    data: {
+      username,
+      password,
+      service: req.body.service || 'l2tp',
+      remoteIp: req.body.remote_ip || req.body.remoteIp || null,
+      localIp: req.body.local_ip || req.body.localIp || null,
+      routedRanges: req.body.routed_ranges || req.body.routedRanges || null,
+      expiresAt: req.body.expires_at ? new Date(req.body.expires_at) : null,
+      enabled: req.body.enabled === false ? false : true,
+      notes: req.body.notes || null,
+      createdBy: getActorId(req),
+    },
+  });
+
+  await log(row.id, getActorId(req), 'create', `Created VPN user ${username}`);
+  await generateChapSecrets(getActorId(req));
+  res.status(201).json(normalize(row));
+}
+
+export async function update(req: Request, res: Response) {
+  const id = req.params.id;
+
+  const old = await prisma.vpnUser.findUnique({ where: { id } });
+  if (!old) return res.status(404).json({ error: 'VPN user not found' });
+
+  const row = await prisma.vpnUser.update({
+    where: { id },
+    data: {
+      username: req.body.username ?? undefined,
+      password: req.body.password ?? undefined,
+      service: req.body.service ?? undefined,
+      remoteIp: req.body.remote_ip ?? req.body.remoteIp ?? null,
+      localIp: req.body.local_ip ?? req.body.localIp ?? null,
+      routedRanges: req.body.routed_ranges ?? req.body.routedRanges ?? null,
+      expiresAt: req.body.expires_at ? new Date(req.body.expires_at) : null,
+      enabled: req.body.enabled === undefined ? undefined : Boolean(req.body.enabled),
+      notes: req.body.notes ?? null,
+    },
+  });
+
+  await log(id, getActorId(req), 'update', `Updated VPN user ${row.username}`);
+  await generateChapSecrets(getActorId(req));
+  res.json(normalize(row));
+}
+
+export async function toggle(req: Request, res: Response) {
+  const id = req.params.id;
+  const old = await prisma.vpnUser.findUnique({ where: { id } });
+  if (!old) return res.status(404).json({ error: 'VPN user not found' });
+
+  const row = await prisma.vpnUser.update({
+    where: { id },
+    data: { enabled: !old.enabled },
+  });
+
+  await log(id, getActorId(req), 'toggle', `enabled=${row.enabled}`);
+  await generateChapSecrets(getActorId(req));
+  res.json(normalize(row));
+}
+
+export async function extend(req: Request, res: Response) {
+  const id = req.params.id;
+  const months = Math.max(1, Number(req.body.months || 1));
+
+  const old = await prisma.vpnUser.findUnique({ where: { id } });
+  if (!old) return res.status(404).json({ error: 'VPN user not found' });
+
+  const base = old.expiresAt && old.expiresAt > new Date() ? old.expiresAt : new Date();
+  const next = new Date(base);
+  next.setMonth(next.getMonth() + months);
+
+  const row = await prisma.vpnUser.update({
+    where: { id },
+    data: { expiresAt: next },
+  });
+
+  await log(id, getActorId(req), 'extend', `Extended ${months} month(s)`);
+  await generateChapSecrets(getActorId(req));
+  res.json(normalize(row));
+}
+
+export async function remove(req: Request, res: Response) {
+  const id = req.params.id;
+  const old = await prisma.vpnUser.findUnique({ where: { id } });
+  if (!old) return res.status(404).json({ error: 'VPN user not found' });
+
+  await prisma.vpnUser.delete({ where: { id } });
+  await log(null, getActorId(req), 'delete', `Deleted VPN user ${old.username}`);
+  await generateChapSecrets(getActorId(req));
+  res.json({ ok: true });
+}
+
+export async function generateChap(req: Request, res: Response) {
+  const result = await generateChapSecrets(getActorId(req));
+  res.json({ ok: true, ...result });
+}
+
+export async function restartService(req: Request, res: Response) {
+  execSync(`systemctl restart ${XL2TPD_SERVICE}`, { timeout: 10000 });
+
+  try {
+    execSync(`systemctl restart ${STRONGSWAN_SERVICE}`, { timeout: 12000 });
+  } catch {}
+
+  await log(null, getActorId(req), 'restart_service', `restart ${XL2TPD_SERVICE}/${STRONGSWAN_SERVICE}`);
+  res.json({ ok: true });
+}
+
+export async function applyRoutes(req: Request, res: Response) {
+  const id = req.params.id;
+
+  const user = await prisma.vpnUser.findUnique({ where: { id } });
+  if (!user) return res.status(404).json({ error: 'VPN user not found' });
+
+  const gateway = String(user.remoteIp || '').trim();
+  if (!gateway || gateway === '*') {
+    return res.status(400).json({ error: 'Set a real Remote IP first, e.g. 10.50.50.10' });
+  }
+
+  const ranges = String(user.routedRanges || '')
+    .split(/[\n,]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+  if (!ranges.length) return res.status(400).json({ error: 'No routed ranges provided' });
+
+  for (const cidr of ranges) {
+    if (!/^(?:\d{1,3}\.){3}\d{1,3}\/\d{1,2}$/.test(cidr)) {
+      return res.status(400).json({ error: `Invalid CIDR: ${cidr}` });
+    }
+  }
+
+  const safeGateway = gateway.replace(/\./g, '\\.');
+  const dev = execSync(`ip -o addr show | awk '/peer ${safeGateway}/ {print $2; exit}'`, {
+    encoding: 'utf8',
+    timeout: 2500,
+  }).trim() || 'ppp0';
+
+  for (const cidr of ranges) {
+    execSync(`ip route replace ${cidr} via ${gateway} dev ${dev}`, { timeout: 3000 });
+  }
+
+  await log(id, getActorId(req), 'apply_routes', `${ranges.join(', ')} via ${gateway} dev ${dev}`);
+  res.json({ ok: true, gateway, dev, routes: ranges });
+}
+
+export async function logs(_req: Request, res: Response) {
+  const rows = await prisma.vpnLog.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 300,
+  });
+  res.json(rows);
+}
+
+export async function status(_req: Request, res: Response) {
+  const ip = execSync("ip -o addr show | grep -E ' ppp[0-9]+' || true", {
+    encoding: 'utf8',
+    timeout: 2000,
+  });
+
+  const routes = execSync("ip route | grep -E 'ppp|10\\.50\\.50|192\\.168\\.0' || true", {
+    encoding: 'utf8',
+    timeout: 2000,
+  });
+
+  res.json({ ip, routes });
+}
+EOF
+
+echo "[5] Patch backend routes..."
+python3 - <<'PY'
+from pathlib import Path
+p = Path("backend/src/routes/index.ts")
+s = p.read_text()
+
+if "controllers/vpn.controller" not in s:
+    s = s.replace(
+        "import * as misc from '../controllers/misc.controller.js';",
+        "import * as misc from '../controllers/misc.controller.js';\nimport * as vpn from '../controllers/vpn.controller.js';"
+    )
+
+if "router.get('/vpn'" not in s:
+    marker = "// ---------- Reports ----------"
+    block = r'''
+// ---------- VPN / L2TP ----------
+router.get('/vpn', perm('vpn'), h(vpn.list));
+router.post('/vpn', perm('vpn', 'create'), h(vpn.create));
+router.put('/vpn/:id', perm('vpn', 'edit'), h(vpn.update));
+router.delete('/vpn/:id', perm('vpn', 'delete'), h(vpn.remove));
+router.post('/vpn/:id/toggle', perm('vpn', 'edit'), h(vpn.toggle));
+router.post('/vpn/:id/extend', perm('vpn', 'edit'), h(vpn.extend));
+router.post('/vpn/generate-chap', perm('vpn', 'edit'), h(vpn.generateChap));
+router.post('/vpn/restart-service', perm('vpn', 'edit'), h(vpn.restartService));
+router.post('/vpn/:id/apply-routes', perm('vpn', 'edit'), h(vpn.applyRoutes));
+router.get('/vpn/logs', perm('vpn'), h(vpn.logs));
+router.get('/vpn/status', perm('vpn'), h(vpn.status));
+
+'''
+    s = s.replace(marker, block + marker)
+
+p.write_text(s)
+PY
+
+echo "[6] Create frontend API..."
+cat > frontend/src/api/vpn.ts <<'EOF'
+import { api } from './client';
+
+export type VpnUser = {
+  id: string;
+  username: string;
+  password: string;
+  service: 'l2tp' | 'pptp' | 'sstp' | 'wireguard';
+  remote_ip: string;
+  local_ip: string;
+  routed_ranges: string;
+  expires_at: string | null;
+  enabled: boolean;
+  online: boolean;
+  last_login: string | null;
+  notes: string;
+};
+
+export function list(params?: { q?: string }) {
+  const qs = params?.q ? `?q=${encodeURIComponent(params.q)}` : '';
+  return api<VpnUser[]>(`/vpn${qs}`);
+}
+
+export function create(payload: Partial<VpnUser>) {
+  return api<VpnUser>('/vpn', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+export function update(id: string, payload: Partial<VpnUser>) {
+  return api<VpnUser>(`/vpn/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+}
+
+export function toggle(id: string) {
+  return api<VpnUser>(`/vpn/${id}/toggle`, { method: 'POST' });
+}
+
+export function extend(id: string, months = 1) {
+  return api<VpnUser>(`/vpn/${id}/extend`, { method: 'POST', body: JSON.stringify({ months }) });
+}
+
+export function remove(id: string) {
+  return api<{ ok: boolean }>(`/vpn/${id}`, { method: 'DELETE' });
+}
+
+export function generateChap() {
+  return api<{ ok: boolean; users: number; path: string }>('/vpn/generate-chap', { method: 'POST' });
+}
+
+export function restartService() {
+  return api<{ ok: boolean }>('/vpn/restart-service', { method: 'POST' });
+}
+
+export function applyRoutes(id: string) {
+  return api<{ ok: boolean; routes: string[]; gateway: string; dev: string }>(`/vpn/${id}/apply-routes`, { method: 'POST' });
+}
+
+export function status() {
+  return api<{ ip: string; routes: string }>('/vpn/status');
+}
+EOF
+
+python3 - <<'PY'
+from pathlib import Path
+p = Path("frontend/src/api/index.ts")
+s = p.read_text()
+if "vpnApi" not in s:
+    s += "\nexport * as vpnApi from './vpn';\n"
+p.write_text(s)
+PY
+
+echo "[7] Create frontend VPN page..."
+cat > frontend/src/pages/vpn.tsx <<'EOF'
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Clock, FileText, Network, Plus, Power, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
+
+import { PageHeader } from '@/components/shared/page-header';
+import { Loader } from '@/components/shared/loader';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useToast } from '@/components/ui/use-toast';
+import { vpnApi } from '@/api';
+import type { VpnUser } from '@/api/vpn';
+
+const emptyForm: Partial<VpnUser> = {
+  username: '',
+  password: '',
+  service: 'l2tp',
+  remote_ip: '*',
+  local_ip: '',
+  routed_ranges: '',
+  notes: '',
+  enabled: true,
+};
+
+export function VpnPage() {
+  const [q, setQ] = useState('');
+  const [open, setOpen] = useState(false);
+  const [showPass, setShowPass] = useState(false);
+  const [form, setForm] = useState<Partial<VpnUser>>(emptyForm);
+  const [editing, setEditing] = useState<VpnUser | null>(null);
+
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const usersQ = useQuery({
+    queryKey: ['vpn', q],
+    queryFn: () => vpnApi.list({ q }),
+    refetchInterval: 15000,
+  });
+
+  const statusQ = useQuery({
+    queryKey: ['vpn-status'],
+    queryFn: vpnApi.status,
+    refetchInterval: 15000,
+  });
+
+  const save = useMutation({
+    mutationFn: () => (editing ? vpnApi.update(editing.id, form) : vpnApi.create(form)),
+    onSuccess: () => {
+      toast({ title: 'تم الحفظ', description: 'تم تحديث مستخدمي VPN' });
+      setOpen(false);
+      setEditing(null);
+      setForm(emptyForm);
+      void qc.invalidateQueries({ queryKey: ['vpn'] });
+      void qc.invalidateQueries({ queryKey: ['vpn-status'] });
+    },
+  });
+
+  const toggle = useMutation({
+    mutationFn: (id: string) => vpnApi.toggle(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['vpn'] }),
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => vpnApi.remove(id),
+    onSuccess: () => {
+      toast({ title: 'تم الحذف' });
+      void qc.invalidateQueries({ queryKey: ['vpn'] });
+    },
+  });
+
+  const extend = useMutation({
+    mutationFn: (id: string) => vpnApi.extend(id, 1),
+    onSuccess: () => {
+      toast({ title: 'تم التمديد شهر' });
+      void qc.invalidateQueries({ queryKey: ['vpn'] });
+    },
+  });
+
+  const generate = useMutation({
+    mutationFn: vpnApi.generateChap,
+    onSuccess: (r) => toast({ title: `تم توليد chap-secrets`, description: `${r.users} مستخدم` }),
+  });
+
+  const restart = useMutation({
+    mutationFn: vpnApi.restartService,
+    onSuccess: () => {
+      toast({ title: 'تمت إعادة تشغيل خدمة VPN' });
+      void qc.invalidateQueries({ queryKey: ['vpn'] });
+      void qc.invalidateQueries({ queryKey: ['vpn-status'] });
+    },
+    onError: () => toast({ title: 'فشل إعادة تشغيل خدمة VPN', variant: 'destructive' }),
+  });
+
+  const applyRoutes = useMutation({
+    mutationFn: (id: string) => vpnApi.applyRoutes(id),
+    onSuccess: (r) => {
+      toast({ title: `تم تطبيق ${r.routes?.length ?? 0} Route`, description: `${r.gateway} عبر ${r.dev}` });
+      void qc.invalidateQueries({ queryKey: ['vpn-status'] });
+    },
+    onError: () => toast({ title: 'فشل تطبيق Routes', variant: 'destructive' }),
+  });
+
+  const users = usersQ.data ?? [];
+
+  useEffect(() => {
+    document.documentElement.dir = 'rtl';
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="إدارة VPN"
+        subtitle="إدارة مستخدمي L2TP، توليد chap-secrets، عرض المتصلين، وتطبيق Routes"
+        icon={<Network className="h-5 w-5" />}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="destructive" onClick={() => restart.mutate()} disabled={restart.isPending}>
+              <RotateCcw className="h-4 w-4" />
+              إعادة تشغيل الخدمة
+            </Button>
+            <Button variant="outline" onClick={() => generate.mutate()} disabled={generate.isPending}>
+              <FileText className="h-4 w-4" />
+              توليد chap-secrets
+            </Button>
+            <Button onClick={() => { setEditing(null); setForm(emptyForm); setOpen(true); }}>
+              <Plus className="h-4 w-4" />
+              إضافة VPN
+            </Button>
+          </div>
+        }
+      />
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">حالة PPP / Routes</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 lg:grid-cols-2">
+          <pre className="max-h-56 overflow-auto rounded-xl bg-muted p-3 text-xs whitespace-pre-wrap">{statusQ.data?.ip || 'لا توجد جلسات PPP حالياً'}</pre>
+          <pre className="max-h-56 overflow-auto rounded-xl bg-muted p-3 text-xs whitespace-pre-wrap">{statusQ.data?.routes || 'لا توجد Routes خاصة بالـ VPN'}</pre>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
+            <span>مستخدمين VPN</span>
+            <div className="flex gap-2">
+              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث..." className="h-9 w-48" />
+              <Button variant="ghost" size="sm" onClick={() => void qc.invalidateQueries({ queryKey: ['vpn'] })}>
+                <RefreshCw className="h-4 w-4" />
+                تحديث
+              </Button>
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {usersQ.isLoading ? (
+            <Loader />
+          ) : users.length === 0 ? (
+            <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">لا يوجد مستخدمين VPN</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] text-sm">
+                <thead className="text-xs text-muted-foreground">
+                  <tr className="border-b">
+                    <th className="py-2 text-right">الحالة</th>
+                    <th className="py-2 text-right">المستخدم</th>
+                    <th className="py-2 text-right">كلمة المرور</th>
+                    <th className="py-2 text-right">الخدمة</th>
+                    <th className="py-2 text-right">Remote IP</th>
+                    <th className="py-2 text-right">Local IP</th>
+                    <th className="py-2 text-right">Ranges</th>
+                    <th className="py-2 text-right">التفعيل</th>
+                    <th className="py-2 text-right">الانتهاء</th>
+                    <th className="py-2 text-right">إجراءات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((r) => (
+                    <tr key={r.id} className="border-b last:border-0">
+                      <td className="py-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`h-2.5 w-2.5 rounded-full ${r.online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                          <Badge variant={r.online ? 'default' : 'secondary'}>{r.online ? 'متصل' : 'غير متصل'}</Badge>
+                        </div>
+                      </td>
+                      <td className="py-2 font-semibold">{r.username}</td>
+                      <td className="py-2"><code className="text-xs">{showPass ? r.password : '••••••••'}</code></td>
+                      <td className="py-2 uppercase">{r.service}</td>
+                      <td className="py-2">{r.remote_ip || '—'}</td>
+                      <td className="py-2">{r.local_ip || '—'}</td>
+                      <td className="max-w-[220px] truncate py-2">{r.routed_ranges || '—'}</td>
+                      <td className="py-2"><Badge variant={r.enabled ? 'default' : 'destructive'}>{r.enabled ? 'مفعل' : 'متوقف'}</Badge></td>
+                      <td className="py-2">{r.expires_at ? new Date(r.expires_at).toLocaleString() : '—'}</td>
+                      <td className="py-2">
+                        <div className="flex gap-1">
+                          <Button size="sm" variant="outline" onClick={() => { setEditing(r); setForm(r); setOpen(true); }}>تعديل</Button>
+                          <Button size="icon" variant="ghost" onClick={() => toggle.mutate(r.id)}><Power className="h-4 w-4" /></Button>
+                          <Button size="icon" variant="ghost" onClick={() => extend.mutate(r.id)}><Clock className="h-4 w-4" /></Button>
+                          <Button size="icon" variant="ghost" onClick={() => applyRoutes.mutate(r.id)}><Network className="h-4 w-4" /></Button>
+                          <Button size="icon" variant="ghost" onClick={() => remove.mutate(r.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <Button variant="link" className="mt-2 px-0" onClick={() => setShowPass((x) => !x)}>
+                {showPass ? 'إخفاء كلمات المرور' : 'كشف كلمات المرور'}
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{editing ? 'تعديل VPN' : 'إضافة VPN'}</DialogTitle>
+          </DialogHeader>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <F label="اسم المستخدم">
+              <Input value={form.username ?? ''} onChange={(e) => setForm((x) => ({ ...x, username: e.target.value }))} />
+            </F>
+            <F label="كلمة المرور">
+              <Input value={form.password ?? ''} onChange={(e) => setForm((x) => ({ ...x, password: e.target.value }))} />
+            </F>
+            <F label="الخدمة">
+              <Select value={form.service ?? 'l2tp'} onValueChange={(v) => setForm((x) => ({ ...x, service: v as VpnUser['service'] }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="l2tp">L2TP</SelectItem>
+                  <SelectItem value="pptp">PPTP</SelectItem>
+                  <SelectItem value="sstp">SSTP</SelectItem>
+                  <SelectItem value="wireguard">WireGuard</SelectItem>
+                </SelectContent>
+              </Select>
+            </F>
+            <F label="Remote IP">
+              <Input value={form.remote_ip ?? ''} onChange={(e) => setForm((x) => ({ ...x, remote_ip: e.target.value }))} placeholder="* أو 10.50.50.10" />
+            </F>
+            <F label="Local IP">
+              <Input value={form.local_ip ?? ''} onChange={(e) => setForm((x) => ({ ...x, local_ip: e.target.value }))} placeholder="اختياري" />
+            </F>
+            <F label="تاريخ الانتهاء">
+              <Input type="datetime-local" onChange={(e) => setForm((x) => ({ ...x, expires_at: e.target.value }))} />
+            </F>
+            <F label="IP Ranges خلف الراوتر">
+              <Input value={form.routed_ranges ?? ''} onChange={(e) => setForm((x) => ({ ...x, routed_ranges: e.target.value }))} placeholder="192.168.0.0/24" />
+            </F>
+            <F label="ملاحظات">
+              <Input value={form.notes ?? ''} onChange={(e) => setForm((x) => ({ ...x, notes: e.target.value }))} />
+            </F>
+          </div>
+
+          <Button onClick={() => save.mutate()} disabled={save.isPending}>حفظ</Button>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function F({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div className="space-y-1"><Label className="text-xs text-muted-foreground">{label}</Label>{children}</div>;
+}
+EOF
+
+echo "[8] Patch App route..."
+python3 - <<'PY'
+from pathlib import Path
+p = Path("frontend/src/App.tsx")
+s = p.read_text()
+
+if "VpnPage" not in s:
+    s = s.replace(
+        "import { NotFoundPage } from '@/pages/not-found';",
+        "import { NotFoundPage } from '@/pages/not-found';\nimport { VpnPage } from '@/pages/vpn';"
+    )
+
+if 'path="/vpn"' not in s:
+    s = s.replace(
+        '<Route path="/asterisk" element={<ProtectedRoute module="asterisk"><AsteriskPage /></ProtectedRoute>} />',
+        '<Route path="/asterisk" element={<ProtectedRoute module="asterisk"><AsteriskPage /></ProtectedRoute>} />\n        <Route path="/vpn" element={<ProtectedRoute module="vpn"><VpnPage /></ProtectedRoute>} />'
+    )
+
+p.write_text(s)
+PY
+
+echo "[9] Patch sidebar..."
+python3 - <<'PY'
+from pathlib import Path
+p = Path("frontend/src/components/layout/sidebar.tsx")
+s = p.read_text()
+
+if "Shield" not in s and "lucide-react" in s:
+    s = s.replace("} from 'lucide-react';", "  Shield,\n} from 'lucide-react';")
+
+if "/vpn" not in s:
+    # Try to insert near Asterisk item
+    if "/asterisk" in s:
+        s = s.replace(
+            "asterisk",
+            "asterisk",
+            1
+        )
+        lines = s.splitlines()
+        out = []
+        inserted = False
+        for line in lines:
+            out.append(line)
+            if not inserted and "/asterisk" in line:
+                indent = line[:len(line)-len(line.lstrip())]
+                # This fallback may not match all sidebar structures, so we add a comment marker if manual edit needed.
+                out.append(f"{indent}// VPN item may need manual placement if sidebar structure differs")
+                inserted = True
+        s = "\n".join(out)
+    else:
+        s += "\n// TODO: add sidebar link to /vpn with module vpn\n"
+
+p.write_text(s)
+PY
+
+echo "[10] Add permission to DB after Prisma push..."
+docker compose exec -T backend npx prisma db push || npx prisma db push --schema backend/prisma/schema.prisma
+
+echo "[11] Grant vpn permission to super_admin roles if DB reachable..."
+docker compose exec -T mysql mysql -ualbarq -p'@Cs5.01998' callcenter <<'SQL' || true
+INSERT INTO Permission (id, roleId, module, actions, createdAt, updatedAt)
+SELECT CONCAT('vpn_', r.id), r.id, 'vpn', JSON_ARRAY('view','create','edit','delete'), NOW(), NOW()
+FROM Role r
+WHERE r.`key` IN ('super_admin','admin')
+ON DUPLICATE KEY UPDATE actions=JSON_ARRAY('view','create','edit','delete'), updatedAt=NOW();
+SQL
+
+echo "[12] Build test..."
+docker compose build backend frontend
+
+echo "DONE. Now run:"
+echo "docker compose up -d backend frontend"
+echo "Open: http://SERVER:3000/vpn"

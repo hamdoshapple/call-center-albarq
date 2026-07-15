@@ -1,0 +1,340 @@
+import type { Request, Response } from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import multer from 'multer';
+import { z } from 'zod';
+import { prisma } from '../config/prisma.js';
+import { ApiError } from '../utils/ApiError.js';
+
+const SOUND_DIR = '/var/lib/asterisk/sounds/custom';
+const MOH_DIR = '/var/lib/asterisk/moh';
+
+const CATEGORIES = [
+  'welcome',
+  'waiting',
+  'hold_music',
+  'closed_hours',
+  'busy',
+  'transfer',
+  'transfer_failed',
+  'ivr',
+  'queue',
+  'goodbye',
+  'announcement',
+  'other',
+] as const;
+
+const schema = z.object({
+  name: z.string().min(1),
+  category: z.enum(CATEGORIES),
+  fileName: z.string().min(1),
+  url: z.string().default('#'),
+  duration: z.number().optional(),
+  language: z.string().optional(),
+  sizeKb: z.number().optional(),
+});
+
+function safeFileName(name: string) {
+  const ext = path.extname(name).toLowerCase() || '.wav';
+  const base = path.basename(name, ext).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80);
+  return `${base || 'prompt'}-${Date.now()}${ext}`;
+}
+
+function isVideoFile(fileName: string, mime = '') {
+  const ext = path.extname(fileName).toLowerCase();
+  return ['.mp4', '.mov', '.avi', '.mkv', '.webm'].includes(ext) || /^video\//i.test(mime);
+}
+
+async function extractAudioToWav(inputPath: string, outputPath: string) {
+  const { execFileSync } = await import('node:child_process');
+
+  execFileSync('ffmpeg', [
+    '-y',
+    '-i', inputPath,
+    '-vn',
+    '-filter:a', 'highpass=f=120,loudnorm=I=-16:TP=-1.5:LRA=11,volume=2',
+    '-ar', '8000',
+    '-ac', '1',
+    '-c:a', 'pcm_s16le',
+    outputPath,
+  ]);
+}
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    fs.mkdirSync(SOUND_DIR, { recursive: true });
+    cb(null, SOUND_DIR);
+  },
+  filename: (_req, file, cb) => cb(null, safeFileName(file.originalname)),
+});
+
+export const uploadVoicePrompt = multer({
+  storage,
+  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const okExt = /\.(wav|mp3|m4a|aac|ogg|mp4|mov|avi|mkv|webm|mpeg|gsm|ulaw|alaw)$/i.test(file.originalname);
+    const okMime = /^(audio|video)\//i.test(file.mimetype) || /mp4|mpeg|aac|webm|quicktime|matroska/i.test(file.mimetype);
+    if (!okExt && !okMime) {
+      return cb(new Error(`Only audio/video files are allowed: ${file.originalname} (${file.mimetype})`));
+    }
+    cb(null, true);
+  },
+}).single('file');
+
+export async function list(_req: Request, res: Response) {
+  const rows = await prisma.voicePrompt.findMany({ orderBy: { createdAt: 'desc' } });
+  res.json(rows);
+}
+
+export async function create(req: Request, res: Response) {
+  const data = schema.parse(req.body);
+  const row = await prisma.voicePrompt.create({
+    data: { ...data, duration: data.duration ?? 0, language: data.language ?? 'ar', sizeKb: data.sizeKb ?? 0 },
+  });
+  res.status(201).json(row);
+}
+
+export async function upload(req: Request, res: Response) {
+  const file = req.file;
+  if (!file) throw ApiError.badRequest('Audio file is required');
+
+  const category = String(req.body.category || 'other');
+  const name = String(req.body.name || path.basename(file.originalname, path.extname(file.originalname)));
+  const language = String(req.body.language || 'ar');
+
+  if (!CATEGORIES.includes(category as any)) {
+    throw ApiError.badRequest('Invalid prompt category');
+  }
+
+  if (category === 'waiting' || category === 'hold_music') {
+    fs.mkdirSync(MOH_DIR, { recursive: true });
+
+    for (const old of fs.readdirSync(MOH_DIR)) {
+      if (/^albarq-hold-/i.test(old)) {
+        fs.unlinkSync(path.join(MOH_DIR, old));
+      }
+    }
+
+    const mohName = `albarq-hold-${file.filename}`;
+    fs.copyFileSync(file.path, path.join(MOH_DIR, mohName));
+
+    try {
+      // Asterisk reloads MOH externally; this file is ready for moh reload.
+    } catch {}
+  }
+
+  let finalFileName = file.filename;
+  let finalPath = file.path;
+  let finalSize = file.size;
+
+  if (isVideoFile(file.originalname, file.mimetype)) {
+    const base = path.basename(file.filename, path.extname(file.filename));
+    finalFileName = `${base}.wav`;
+    finalPath = path.join(SOUND_DIR, finalFileName);
+
+    await extractAudioToWav(file.path, finalPath);
+
+    try {
+      fs.unlinkSync(file.path);
+    } catch {}
+
+    finalSize = fs.statSync(finalPath).size;
+  }
+
+  const row = await prisma.voicePrompt.create({
+    data: {
+      name,
+      category,
+      fileName: finalFileName,
+      url: `/api/voice-prompts/${finalFileName}/audio`,
+      duration: Number(req.body.duration || 0),
+      language,
+      sizeKb: Math.max(1, Math.round(finalSize / 1024)),
+    },
+  });
+
+  
+  try {
+    const targetName = APPLY_TARGETS[row.category] || `${row.category}.wav`;
+    await convertPromptToWav(finalPath, targetName);
+  } catch (err) {
+    console.error('[voice-prompts] auto apply after upload failed', err);
+  }
+
+res.status(201).json(row);
+}
+
+export async function update(req: Request, res: Response) {
+  const data = schema.partial().parse(req.body);
+  const existing = await prisma.voicePrompt.findUnique({ where: { id: req.params.id } });
+  if (!existing) throw ApiError.notFound('Voice prompt not found');
+  const row = await prisma.voicePrompt.update({ where: { id: req.params.id }, data });
+  res.json(row);
+}
+
+export async function remove(req: Request, res: Response) {
+  const existing = await prisma.voicePrompt.findUnique({ where: { id: req.params.id } });
+  if (!existing) throw ApiError.notFound('Voice prompt not found');
+
+  const filePath = path.join(SOUND_DIR, path.basename(existing.fileName));
+  if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+
+  await prisma.voicePrompt.delete({ where: { id: req.params.id } });
+  res.status(204).end();
+}
+
+export async function audio(req: Request, res: Response) {
+  const safeName = path.basename(req.params.fileName);
+  const filePath = path.join(SOUND_DIR, safeName);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Audio file not found' });
+  }
+
+  const ext = path.extname(safeName).toLowerCase();
+  const type =
+    ext === '.mp3' ? 'audio/mpeg' :
+    ext === '.m4a' || ext === '.mp4' ? 'audio/mp4' :
+    ext === '.aac' ? 'audio/aac' :
+    'audio/wav';
+
+  res.setHeader('Content-Type', type);
+  res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+  fs.createReadStream(filePath).pipe(res);
+}
+
+
+const APPLY_TARGETS: Record<string, string> = {
+  hold_music: 'hold.wav',
+  waiting: 'queue_wait.wav',
+  welcome: 'welcome.wav',
+  closed_hours: 'closed.wav',
+  busy: 'busy.wav',
+  transfer: 'transfer.wav',
+  transfer_failed: 'transfer_failed.wav',
+  ivr: 'ivr_main.wav',
+  queue: 'queue_wait.wav',
+  goodbye: 'goodbye.wav',
+  announcement: 'announcement.wav',
+};
+
+async function convertPromptToWav(source: string, targetName: string) {
+  const { execFileSync } = await import('node:child_process');
+  fs.mkdirSync(MOH_DIR, { recursive: true });
+
+  const target = path.join(MOH_DIR, targetName);
+
+  execFileSync('ffmpeg', [
+    '-y',
+    '-i', source,
+    '-filter:a', 'highpass=f=120,loudnorm=I=-16:TP=-1.5:LRA=11,volume=2',
+    '-ar', '8000',
+    '-ac', '1',
+    '-c:a', 'pcm_s16le',
+    target,
+  ]);
+
+  if (targetName === 'welcome.wav') {
+    fs.copyFileSync(target, path.join(MOH_DIR, 'ivr_main.wav'));
+  }
+
+  if (targetName === 'queue_wait.wav') {
+    const queueDir = path.join(MOH_DIR, 'queue_wait');
+    fs.mkdirSync(queueDir, { recursive: true });
+
+    for (const old of fs.readdirSync(queueDir)) {
+      const oldPath = path.join(queueDir, old);
+      if (fs.statSync(oldPath).isFile()) fs.unlinkSync(oldPath);
+    }
+
+    fs.copyFileSync(target, path.join(queueDir, 'hold.wav'));
+  }
+
+  if (targetName === 'hold.wav') {
+    const defaultDir = MOH_DIR;
+    for (const old of fs.readdirSync(defaultDir)) {
+      const oldPath = path.join(defaultDir, old);
+      if (
+        fs.statSync(oldPath).isFile() &&
+        old !== 'hold.wav' &&
+        old.startsWith('albarq-hold-')
+      ) {
+        fs.unlinkSync(oldPath);
+      }
+    }
+  }
+
+  return target;
+}
+
+async function reloadAsterisk(category: string) {
+  const { execFileSync } = await import('node:child_process');
+
+  try {
+    if (category === 'hold_music' || category === 'waiting') {
+      execFileSync('asterisk', ['-rx', 'moh reload']);
+      return { reloadOk: true, reloadCommand: 'moh reload' };
+    }
+
+    execFileSync('asterisk', ['-rx', 'dialplan reload']);
+    return { reloadOk: true, reloadCommand: 'dialplan reload' };
+  } catch {
+    return {
+      reloadOk: false,
+      reloadCommand: category === 'hold_music' || category === 'waiting' ? 'moh reload' : 'dialplan reload',
+    };
+  }
+}
+
+export async function applyPrompt(req: Request, res: Response) {
+  const row = await prisma.voicePrompt.findUnique({ where: { id: req.params.id } });
+  if (!row) throw ApiError.notFound('Voice prompt not found');
+
+  const targetName = APPLY_TARGETS[row.category] || `${row.category}.wav`;
+
+  const source = path.join(SOUND_DIR, path.basename(row.fileName));
+  if (!fs.existsSync(source)) {
+    return res.status(404).json({ error: 'Source audio file not found', fileName: row.fileName });
+  }
+
+  await convertPromptToWav(source, targetName);
+  const reload = await reloadAsterisk(row.category);
+
+  res.json({
+    success: true,
+    category: row.category,
+    fileName: targetName,
+    asteriskSound: targetName.replace(/\.wav$/i, ''),
+    ...reload,
+    message: reload.reloadOk
+      ? `Prompt converted, applied and Asterisk ${reload.reloadCommand} done.`
+      : `Prompt converted and applied. Run manually: asterisk -rx "${reload.reloadCommand}"`,
+  });
+}
+
+export async function setAsMoh(req: Request, res: Response) {
+  const row = await prisma.voicePrompt.findUnique({ where: { id: req.params.id } });
+  if (!row) throw ApiError.notFound('Voice prompt not found');
+
+  const source = path.join(SOUND_DIR, path.basename(row.fileName));
+  if (!fs.existsSync(source)) {
+    return res.status(404).json({ error: 'Source audio file not found', fileName: row.fileName });
+  }
+
+  for (const old of fs.readdirSync(MOH_DIR)) {
+    const oldPath = path.join(MOH_DIR, old);
+    if (fs.statSync(oldPath).isFile()) fs.unlinkSync(oldPath);
+  }
+
+  await convertPromptToWav(source, 'hold.wav');
+  const reload = await reloadAsterisk('hold_music');
+
+  res.json({
+    success: true,
+    fileName: 'hold.wav',
+    ...reload,
+    message: reload.reloadOk
+      ? 'Converted, applied as MusicOnHold and moh reload done.'
+      : 'Converted and applied as MusicOnHold. Run manually: asterisk -rx "moh reload"',
+  });
+}

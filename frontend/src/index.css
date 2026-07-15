@@ -1,0 +1,327 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&family=Tajawal:wght@400;500;700&display=swap');
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 40% 96%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 94%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 94%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 214 95% 93%;
+    --accent-foreground: 221 83% 35%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 221 83% 53%;
+    --radius: 0.875rem;
+
+    --sidebar: 222 47% 11%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 221 83% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217 33% 18%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 22%;
+    --sidebar-ring: 221 83% 60%;
+
+    --component-inactive-color: hsl(var(--muted-foreground));
+    --component-bg: hsl(var(--card));
+    --component-shadow: hsl(var(--border));
+    --component-active-bg: hsl(var(--secondary));
+    --component-line-inactive-color: hsl(var(--border));
+    --component-active-color-default: hsl(var(--primary));
+
+    --chart-1: 221 83% 53%;
+    --chart-2: 142 71% 45%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 262 83% 58%;
+    --chart-5: 0 84% 60%;
+  }
+
+  .dark {
+    --background: 222 47% 7%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 10%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 47% 10%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 221 83% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 70%;
+    --accent: 217 33% 20%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --border: 217 33% 18%;
+    --input: 217 33% 18%;
+    --ring: 221 83% 60%;
+
+    --sidebar: 222 47% 8%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 221 83% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 217 33% 15%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 18%;
+    --sidebar-ring: 221 83% 60%;
+
+    --component-inactive-color: hsl(var(--muted-foreground));
+    --component-bg: hsl(var(--card));
+    --component-shadow: hsl(var(--border));
+    --component-active-bg: hsl(var(--secondary));
+    --component-line-inactive-color: hsl(var(--muted-foreground));
+    --component-active-color-default: hsl(var(--primary));
+
+    --chart-1: 221 83% 60%;
+    --chart-2: 142 71% 45%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 262 83% 65%;
+    --chart-5: 0 72% 51%;
+  }
+
+  .theme {
+    --color-chart-2: var(--color-chart-2);
+    --color-chart-3: var(--color-chart-3);
+    --color-chart-4: var(--color-chart-4);
+    --color-chart-5: var(--color-chart-5);
+    --font-heading: var(--font-sans);
+    --font-sans: 'Geist Variable', sans-serif;
+  }
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+  html[dir='rtl'] body {
+    font-family: 'Cairo', 'Tajawal', system-ui, sans-serif;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-muted-foreground/30 rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/50;
+}
+
+/* Call Center Albarq fixed desktop sidebar */
+.cc-layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.cc-content {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cc-sidebar {
+  position: static;
+  height: 100vh;
+  transform: none !important;
+  transition: transform .2s ease;
+}
+
+.cc-sidebar-backdrop {
+  display: none;
+}
+
+.cc-menu-btn {
+  display: none !important;
+}
+
+/* Mobile drawer only */
+@media (max-width: 699px) {
+  .cc-sidebar {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    z-index: 40;
+    transform: translateX(100%) !important;
+  }
+
+  html[dir='ltr'] .cc-sidebar {
+    transform: translateX(-100%) !important;
+  }
+
+  .cc-sidebar.cc-sidebar-open {
+    transform: translateX(0) !important;
+  }
+
+  .cc-sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: rgb(0 0 0 / 0.5);
+  }
+
+  .cc-menu-btn {
+    display: inline-flex !important;
+  }
+}
+
+html, body, #root {
+  background: hsl(var(--background));
+}
+
+body {
+  margin: 0;
+}
+
+/* PWA no zoom */
+html, body, #root {
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+
+@media (max-width: 699px) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.orb-float-a {
+  animation: orb-float-a 8s ease-in-out infinite;
+}
+
+.orb-float-b {
+  animation: orb-float-b 11s ease-in-out infinite;
+}
+
+.orb-float-c {
+  animation: orb-float-c 13s ease-in-out infinite;
+}
+
+@keyframes orb-float-a {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(18px, 10px, 0) scale(1.06); }
+}
+
+@keyframes orb-float-b {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-14px, -12px, 0) scale(1.04); }
+}
+
+@keyframes orb-float-c {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(12px, -16px, 0) scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orb-float-a,
+  .orb-float-b,
+  .orb-float-c {
+    animation: none !important;
+  }
+}
+
+.banner-luxury-slide {
+  animation: banner-soft-in 420ms ease-out both;
+}
+
+@keyframes banner-soft-in {
+  from {
+    opacity: 0.35;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.ticket-modal-pop {
+  animation: ticket-modal-pop 180ms ease-out both;
+}
+
+@keyframes ticket-modal-pop {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.banner-luxury-slide {
+  isolation: isolate;
+}
+
+@theme inline {
+  @keyframes iconBounce {
+  0%, 100% {
+    transform: translateY(0);
+    }
+  20% {
+    transform: translateY(-0.3em);
+    }
+  40% {
+    transform: translateY(0);
+    }
+  60% {
+    transform: translateY(-0.1em);
+    }
+  80% {
+    transform: translateY(0);
+    }
+  }
+}

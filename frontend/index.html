@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+        <meta name="description" content="Call Center Albarq - منصة إدارة مركز الاتصال" />
+    <title>Call Center Albarq | مركز اتصال البرق</title>
+                  <script>
+      document.write('<link rel="manifest" href="' + (
+  location.hostname === "staff.albarq.app" || location.pathname.startsWith("/employee")
+    ? "/employee-manifest.json"
+    : location.hostname === "dashboard.albarq.app"
+      ? "/dashboard-manifest.json"
+      : "/manifest.json"
+) + '">');
+    </script>
+    <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+      <meta name="theme-color" content="#f1f5f9" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover" />
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

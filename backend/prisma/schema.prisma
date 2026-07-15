@@ -1,0 +1,1128 @@
+// Call Center Albarq - Prisma schema (MySQL)
+// Covers all modules: auth/RBAC, agents, departments, queues, IVR,
+// voice prompts, TG400 lines, calls/CDR, recordings, subscribers,
+// notes, tickets, callbacks, settings, audit logs, notifications.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ===================== Auth / RBAC =====================
+model Role {
+  id          String       @id @default(cuid())
+  key         String       @unique // super_admin, manager, supervisor, agent, accountant, support
+  name        String
+  nameEn      String
+  description String?      @db.Text
+  users       User[]
+  permissions Permission[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Permission {
+  id        String   @id @default(cuid())
+  roleId    String
+  module    String // dashboard, live_calls, agents, ...
+  actions   Json // ["view","create","edit","delete"]
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([roleId, module])
+  @@index([roleId])
+}
+
+model User {
+  id           String     @id @default(cuid())
+  username     String     @unique
+  email        String?    @unique
+  passwordHash String
+  fullName     String
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id])
+  active       Boolean    @default(true)
+  agent        Agent?
+  lastLogin    DateTime?
+  notes        Note[]
+  auditLogs    AuditLog[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([roleId])
+}
+
+// ===================== Departments / Agents =====================
+model Department {
+  id          String   @id @default(cuid())
+  name        String
+  nameEn      String
+  description String?  @db.Text
+  color       String   @default("#0ea5e9")
+  agents      Agent[]
+  queues      Queue[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Agent {
+  id            String        @id @default(cuid())
+  userId        String?       @unique
+  user          User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name          String
+  email         String?
+  status        String        @default("offline") // online, offline, busy, paused
+  departmentId  String?
+  department    Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  extension     Extension?
+  workFrom      String        @default("09:00")
+  workTo        String        @default("17:00")
+  workDays      Json          @default("[0,1,2,3,4]")
+  callsHandled  Int           @default(0)
+  callsMissed   Int           @default(0)
+  avgHandleTime Int           @default(0)
+  totalTalkTime Int           @default(0)
+  satisfaction  Int           @default(0)
+  occupancy     Int           @default(0)
+  queueMembers  QueueMember[]
+  calls         Call[]
+  recordings    Recording[]
+  callbacks     Callback[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([departmentId])
+}
+
+model Extension {
+  id          String   @id @default(cuid())
+  number      String   @unique
+  sipUsername String   @unique
+  sipPassword String
+  agentId     String?  @unique
+  agent       Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  context     String   @default("from-internal")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ===================== Queues =====================
+model Queue {
+  id             String        @id @default(cuid())
+  name           String
+  number         String        @unique
+  strategy       String        @default("ringall") // ringall, linear, leastrecent, roundrobin
+  maxWaitTime    Int           @default(120)
+  musicOnHold    String        @default("default")
+  announcement   String?
+  missedBehavior String        @default("voicemail") // voicemail, callback, overflow, hangup
+  departmentId   String?
+  department     Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  members        QueueMember[]
+  calls          Call[]
+  waiting        Int           @default(0)
+  answered       Int           @default(0)
+  abandoned      Int           @default(0)
+  avgWait        Int           @default(0)
+  serviceLevel   Int           @default(0)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([departmentId])
+}
+
+model QueueMember {
+  id      String @id @default(cuid())
+  queueId String
+  agentId String
+  penalty Int    @default(0)
+  queue   Queue  @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([queueId, agentId])
+  @@index([agentId])
+}
+
+// ===================== IVR =====================
+model IvrMenu {
+  id                 String       @id @default(cuid())
+  name               String
+  description        String?      @db.Text
+  greetingPromptId   String?
+  greetingPrompt     VoicePrompt? @relation(fields: [greetingPromptId], references: [id], onDelete: SetNull)
+  timeout            Int          @default(10)
+  timeoutDestination String       @default("hangup")
+  invalidDestination String       @default("repeat")
+  repeatOnInvalid    Boolean      @default(true)
+  maxRepeats         Int          @default(3)
+  active             Boolean      @default(true)
+  options            IvrOption[]
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@index([greetingPromptId])
+}
+
+model IvrOption {
+  id               String  @id @default(cuid())
+  menuId           String
+  menu             IvrMenu @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  key              String // 0-9, *, #
+  label            String
+  destinationType  String // queue, department, agent, ivr, hangup, voicemail, external
+  destinationId    String?
+  destinationValue String?
+
+  @@unique([menuId, key])
+  @@index([menuId])
+}
+
+// ===================== Voice Prompts =====================
+model VoicePrompt {
+  id        String    @id @default(cuid())
+  name      String
+  category  String // welcome, waiting, closed_hours, busy, ivr, announcement, other
+  fileName  String
+  url       String
+  duration  Int       @default(0)
+  language  String    @default("ar")
+  sizeKb    Int       @default(0)
+  ivrMenus  IvrMenu[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// ===================== TG400 / GSM Lines =====================
+model Tg400Line {
+  id            String   @id @default(cuid())
+  slot          Int      @unique
+  number        String
+  carrier       String?
+  status        String   @default("no_sim") // active, inactive, no_sim, error
+  signal        Int      @default(0)
+  purpose       String?
+  inboundRoute  String   @default("-")
+  outboundRoute String   @default("-")
+  usageCalls    Int      @default(0)
+  usageMinutes  Int      @default(0)
+  usageCost     Float    @default(0)
+  balance       Float    @default(0)
+  calls         Call[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// ===================== Calls / CDR =====================
+model Call {
+  id                String      @id @default(cuid())
+  uniqueId          String?     @unique // Asterisk channel uniqueid
+  callerNumber      String
+  destinationNumber String
+  direction         String // inbound, outbound, internal
+  status            String      @default("ringing") // ringing, waiting, active, ended, missed, failed
+  disposition       String? // answered, missed, busy, failed, no_answer, abandoned
+  agentId           String?
+  agent             Agent?      @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  queueId           String?
+  queue             Queue?      @relation(fields: [queueId], references: [id], onDelete: SetNull)
+  lineId            String?
+  line              Tg400Line?  @relation(fields: [lineId], references: [id], onDelete: SetNull)
+  subscriberId      String?
+  subscriber        Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+  startedAt         DateTime    @default(now())
+  answeredAt        DateTime?
+  endedAt           DateTime?
+  durationSec       Int         @default(0)
+  talkTimeSec       Int         @default(0)
+  waitTimeSec       Int         @default(0)
+  note              String?     @db.Text
+  events            CallEvent[]
+  recording         Recording?
+  createdAt         DateTime    @default(now())
+
+  @@index([agentId])
+  @@index([queueId])
+  @@index([startedAt])
+  @@index([disposition])
+}
+
+model CallEvent {
+  id        String   @id @default(cuid())
+  callId    String
+  call      Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+  type      String // created, ringing, answered, hold, unhold, transfer, note, hangup
+  detail    String?  @db.Text
+  actor     String?
+  timestamp DateTime @default(now())
+
+  @@index([callId])
+}
+
+model Recording {
+  id           String   @id @default(cuid())
+  callId       String   @unique
+  call         Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+  callerNumber String
+  agentId      String?
+  agent        Agent?   @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  fileName     String
+  url          String
+  durationSec  Int      @default(0)
+  sizeKb       Int      @default(0)
+  recordedAt   DateTime @default(now())
+
+  @@index([agentId])
+}
+
+// ===================== Subscribers / Tickets / Callbacks =====================
+model Subscriber {
+  id             String     @id @default(cuid())
+  name           String
+  phone          String
+  pppoeUsername  String?
+  status         String     @default("active") // active, expired, suspended, disabled
+  package        String?
+  speed          String?
+  expiration     DateTime?
+  debt           Float      @default(0)
+  lastActivation DateTime?
+  address        String?
+  notes          String?    @db.Text
+  tickets        Ticket[]
+  calls          Call[]
+  callbacks      Callback[]
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+}
+
+model Ticket {
+  id String @id @default(cuid())
+
+  subscriberId String?
+  subscriber   Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+
+  externalId     String?
+  externalName   String?
+  externalPhone  String?
+  externalPppoe  String?
+  externalSource String?
+
+  subject  String
+  status   String  @default("open") // open, pending, resolved, closed
+  priority String  @default("medium") // low, medium, high, urgent
+  agentId  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([subscriberId])
+  @@index([externalId])
+  @@index([externalPhone])
+}
+
+model Callback {
+  id           String      @id @default(cuid())
+  callerNumber String
+  subscriberId String?
+  subscriber   Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+  requestedAt  DateTime    @default(now())
+  scheduledFor DateTime
+  status       String      @default("pending") // pending, completed, failed
+  agentId      String?
+  agent        Agent?      @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  reason       String?     @db.Text
+
+  @@index([agentId])
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  refType   String // call, subscriber, agent
+  refId     String
+  body      String   @db.Text
+  authorId  String?
+  author    User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([refType, refId])
+}
+
+// ===================== Settings / Audit / Notifications =====================
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String?
+  detail    Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String // call, system, agent, subscriber, alert
+  title     String
+  message   String   @db.Text
+  read      Boolean  @default(false)
+  userId    String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([read])
+}
+
+// ===================== VPN / L2TP Management =====================
+model VpnUser {
+  id           String    @id @default(cuid())
+  username     String    @unique
+  password     String
+  service      String    @default("l2tp")
+  remoteIp     String?   @db.VarChar(60)
+  localIp      String?   @db.VarChar(60)
+  routedRanges String?   @db.Text
+  expiresAt    DateTime?
+  enabled      Boolean   @default(true)
+  notes        String?   @db.Text
+  createdBy    String?
+  logs         VpnLog[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model VpnLog {
+  id          String   @id @default(cuid())
+  vpnUserId   String?
+  vpnUser     VpnUser? @relation(fields: [vpnUserId], references: [id], onDelete: SetNull)
+  actorId     String?
+  action      String
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+
+  @@index([vpnUserId])
+}
+
+model SubscriberCache {
+  id              String    @id @default(cuid())
+  externalId      String    @unique
+  name            String
+  phone           String
+  normalizedPhone String
+  pppoeUsername   String?
+  status          String    @default("active")
+  package         String?
+  speed           String?
+  expiration      DateTime?
+  debt            Float     @default(0)
+  lastActivation  DateTime?
+  address         String?
+  notes           String?   @db.Text
+  source          String    @default("mynet")
+  raw             Json?
+  cachedAt        DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([normalizedPhone])
+  @@index([phone])
+  @@index([pppoeUsername])
+  @@index([cachedAt])
+}
+
+model DataSourceSetting {
+  id              String    @id @default(cuid())
+  sourceName      String    @unique
+  enabled         Boolean   @default(true)
+  cacheTtlMinutes Int       @default(30)
+  fallbackToCache Boolean   @default(true)
+  manualCacheOnly Boolean   @default(false)
+  lastSyncAt      DateTime?
+  lastError       String?   @db.Text
+  lastStatus      String    @default("unknown")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model ExternalSubscriberCache {
+  id             String    @id @default(cuid())
+  externalId     String    @unique
+  name           String
+  phone          String
+  phoneNorm      String
+  pppoeUsername  String?
+  status         String    @default("active")
+  package        String?
+  speed          String?
+  expiration     DateTime?
+  debt           Float     @default(0)
+  lastActivation DateTime?
+  address        String?
+  notes          String?   @db.Text
+  externalSource String    @default("mynet")
+  cachedAt       DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([phoneNorm])
+  @@index([name])
+  @@index([pppoeUsername])
+  @@index([cachedAt])
+}
+
+// ===================== Subscriber Portal =====================
+
+model SubscriberAppConfig {
+  id String @id @default(cuid())
+
+  appName       String  @default("Albarq")
+  logoUrl       String?
+  splashLogoUrl String?
+
+  primaryColor   String @default("#4f46e5")
+  secondaryColor String @default("#06b6d4")
+
+  expiredColor String @default("#dc2626")
+  warningColor String @default("#f59e0b")
+
+  supportPhone    String?
+  supportWhatsapp String?
+  supportTelegram String?
+
+  welcomeMessage String? @db.Text
+  expiredMessage String? @db.Text
+
+  bannerTitle String?
+  bannerText  String? @db.Text
+  bannerImage String?
+  bannerLink  String?
+
+  popupEnabled Boolean @default(false)
+  popupTitle   String?
+  popupMessage String? @db.Text
+
+  enablePayments      Boolean @default(false)
+  enableTickets       Boolean @default(true)
+  enableNotifications Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SubscriberAppBanner {
+  id String @id @default(cuid())
+
+  title       String
+  description String? @db.Text
+
+  imageUrl String?
+  linkUrl  String?
+
+  active    Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SubscriberPayment {
+  id String @id @default(cuid())
+
+  externalSubscriberId String
+
+  amount Float
+
+  paymentMethod String
+
+  referenceNumber String?
+
+  status String @default("pending")
+
+  paidAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([externalSubscriberId])
+  @@index([status])
+}
+
+model ExternalSubscriberPaymentCache {
+  id         String    @id @default(cuid())
+  externalId String
+  sandId     Int
+  date       DateTime?
+  amount     Float     @default(0)
+  type       String    @default("other")
+  title      String
+  notes      String?   @db.Text
+  package    String?
+  dateFrom   DateTime?
+  dateTo     DateTime?
+  moneyIn    Float     @default(0)
+  moneyOut   Float     @default(0)
+  cachedAt   DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([externalId, sandId])
+  @@index([externalId])
+  @@index([date])
+  @@index([type])
+}
+
+// ===================== Admin Ticket Center =====================
+model TicketDepartment {
+  id        String   @id
+  name      String
+  nameEn    String?
+  color     String   @default("#0ea5e9")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("TicketDepartment")
+}
+
+model AdminTicket {
+  id             String    @id
+  ticketNo       Int       @unique @default(autoincrement())
+  subscriberId   String?
+  externalId     String?
+  externalName   String?
+  externalPhone  String?
+  externalPppoe  String?
+  subject        String    @db.VarChar(255)
+  description    String?   @db.Text
+  category       String    @default("general")
+  departmentId   String?
+  assignedUserId String?
+  status         String    @default("new")
+  priority       String    @default("medium")
+  source         String    @default("admin")
+  createdById    String?
+  closedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([departmentId])
+  @@index([assignedUserId])
+  @@index([status])
+  @@index([priority])
+  @@index([externalPhone])
+  @@index([createdAt])
+  @@map("AdminTicket")
+}
+
+model AdminTicketReply {
+  id         String   @id
+  ticketId   String
+  authorId   String?
+  body       String   @db.Text
+  visibility String   @default("public")
+  createdAt  DateTime @default(now())
+
+  @@index([ticketId])
+  @@map("AdminTicketReply")
+}
+
+model AdminTicketAttachment {
+  id        String   @id
+  ticketId  String
+  replyId   String?
+  url       String   @db.Text
+  fileName  String?
+  mimeType  String?
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+  @@index([replyId])
+  @@map("AdminTicketAttachment")
+}
+
+model AdminTicketMention {
+  id        String    @id
+  ticketId  String
+  replyId   String?
+  userId    String
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([ticketId])
+  @@map("AdminTicketMention")
+}
+
+// ===================== Subscriber Push Notifications =====================
+model SubscriberPushSubscription {
+  id           String   @id
+  phone        String
+  phoneNorm    String
+  endpointHash String   @unique
+  endpoint     String   @db.Text
+  p256dh       String   @db.Text
+  auth         String   @db.Text
+  userAgent    String?  @db.Text
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([phoneNorm])
+  @@index([active])
+}
+
+model PushCampaign {
+  id          String   @id
+  title       String
+  message     String   @db.Text
+  targetType  String
+  targetValue String?  @db.Text
+  sentCount   Int      @default(0)
+  failedCount Int      @default(0)
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([targetType])
+  @@index([createdAt])
+}
+
+model PushNotificationLog {
+  id         String   @id @default(cuid())
+  phone      String?
+  title      String
+  message    String   @db.Text
+  targetType String
+  status     String
+  error      String?  @db.Text
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([status])
+}
+
+model WhatsappSession {
+  id          String    @id @default(cuid())
+  sessionId   String    @unique
+  name        String
+  status      String    @default("idle")
+  active      Boolean   @default(true)
+  delayMin    Int       @default(5)
+  delayMax    Int       @default(15)
+  dailyLimit  Int       @default(200)
+  sentToday   Int       @default(0)
+  failedToday Int       @default(0)
+  lastError   String?   @db.Text
+  connectedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@index([active])
+}
+
+model WhatsappMessageLog {
+  id         String    @id @default(cuid())
+  sessionId  String?
+  to         String
+  message    String    @db.Text
+  status     String    @default("queued")
+  error      String?   @db.Text
+  createdAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@index([sessionId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model TelegramSession {
+  id          String    @id @default(cuid())
+  sessionId   String    @unique
+  name        String
+  status      String    @default("idle")
+  active      Boolean   @default(true)
+  delayMin    Int       @default(5)
+  delayMax    Int       @default(15)
+  dailyLimit  Int       @default(200)
+  sentToday   Int       @default(0)
+  failedToday Int       @default(0)
+  lastError   String?   @db.Text
+  connectedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@index([active])
+}
+
+model TelegramMessageLog {
+  id         String    @id @default(cuid())
+  sessionId  String?
+  to         String
+  message    String    @db.Text
+  status     String    @default("queued")
+  error      String?   @db.Text
+  createdAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@index([sessionId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model TwilioWhatsappSetting {
+  id                      String   @id @default(cuid())
+  accountSid              String?
+  authToken               String?  @db.Text
+  whatsappFrom            String?
+  messagingServiceSid     String?
+  enabled                 Boolean  @default(false)
+  conversationWindowHours Int      @default(24)
+  lastError               String?  @db.Text
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+}
+
+model TwilioWhatsappContact {
+  id            String    @id @default(cuid())
+  phone         String    @unique
+  name          String?
+  lastMessage   String?   @db.Text
+  lastAt        DateTime?
+  lastInboundAt DateTime?
+  unreadCount   Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  messages TwilioWhatsappMessage[]
+}
+
+model TwilioWhatsappMessage {
+  id         String   @id @default(cuid())
+  contactId  String
+  direction  String
+  body       String?  @db.Text
+  mediaUrl   String?  @db.Text
+  mediaType  String?
+  agentName  String?
+  agentId    String?
+  status     String   @default("received")
+  twilioSid  String?  @unique
+  fromNumber String
+  toNumber   String
+  createdAt  DateTime @default(now())
+
+  contact TwilioWhatsappContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@index([createdAt])
+  @@index([direction])
+}
+
+model AdminTicketTeam {
+  id          String   @id
+  ticketId    String
+  userId      String
+  role        String   @default("member")
+  invitedById String?
+  createdAt   DateTime @default(now())
+
+  @@unique([ticketId, userId], name: "AdminTicketTeam_ticket_user_unique")
+  @@index([ticketId], name: "AdminTicketTeam_ticket_idx")
+  @@index([userId], name: "AdminTicketTeam_user_idx")
+  @@map("AdminTicketTeam")
+}
+
+model AdminTicketActivity {
+  id        String   @id
+  ticketId  String
+  userId    String?
+  userName  String?
+  type      String
+  message   String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+  @@index([createdAt])
+  @@map("AdminTicketActivity")
+}
+
+model AdminTicketPresence {
+  id        String   @id
+  ticketId  String
+  userId    String
+  userName  String
+  typing    Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([ticketId, userId], name: "AdminTicketPresence_ticket_user_unique")
+  @@index([ticketId])
+  @@map("AdminTicketPresence")
+}
+
+model AdminTicketChecklist {
+  id        String    @id
+  ticketId  String
+  title     String
+  done      Boolean   @default(false)
+  doneById  String?
+  doneAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([ticketId])
+  @@map("AdminTicketChecklist")
+}
+
+model AdminTicketTag {
+  id        String   @id
+  ticketId  String
+  tag       String
+  createdAt DateTime @default(now())
+
+  @@unique([ticketId, tag], name: "AdminTicketTag_ticket_tag_unique")
+  @@index([ticketId])
+  @@map("AdminTicketTag")
+}
+
+model AdminTicketWorkSession {
+  id        String    @id
+  ticketId  String
+  userId    String
+  userName  String?
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+  seconds   Int       @default(0)
+
+  @@index([ticketId])
+  @@index([userId])
+  @@map("AdminTicketWorkSession")
+}
+
+model SubscriberContactAlias {
+  id            String   @id
+  phoneNorm     String   @unique
+  label         String?
+  pppoeUsername String?
+  externalId    String?
+  subscriberId  String?
+  verified      Boolean  @default(false)
+  isPrimary     Boolean  @default(false)
+  source        String   @default("manual")
+  createdById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([pppoeUsername])
+  @@index([externalId])
+  @@index([subscriberId])
+}
+
+model AiSetting {
+  id          Int      @id @default(1)
+  enabled     Boolean  @default(false)
+  provider    String   @default("ollama")
+  model       String   @default("gemma3:4b")
+  temperature Float    @default(0.2)
+  topP        Float    @default(0.9)
+  topK        Int      @default(40)
+  contextSize Int      @default(4096)
+  maxTokens   Int      @default(512)
+  timeoutMs   Int      @default(60000)
+  streaming   Boolean  @default(false)
+  threads     Int      @default(4)
+  gpuLayers   Int      @default(0)
+  memoryMb    Int      @default(4096)
+  keepAlive   String   @default("10m")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AiProvider {
+  id         Int      @id @default(autoincrement())
+  key        String   @unique
+  name       String
+  type       String   @default("local")
+  baseUrl    String?
+  enabled    Boolean  @default(true)
+  configJson Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model AiModel {
+  id          Int      @id @default(autoincrement())
+  providerKey String
+  name        String
+  displayName String?
+  sizeBytes   BigInt?
+  status      String   @default("available")
+  isDefault   Boolean  @default(false)
+  metaJson    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([providerKey, name])
+}
+
+model AiPrompt {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  title     String
+  content   String   @db.LongText
+  enabled   Boolean  @default(true)
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AiSkill {
+  id         Int      @id @default(autoincrement())
+  key        String   @unique
+  title      String
+  enabled    Boolean  @default(false)
+  promptKey  String?
+  modelName  String?
+  toolsJson  Json?
+  configJson Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model AiTool {
+  id         Int      @id @default(autoincrement())
+  key        String   @unique
+  title      String
+  enabled    Boolean  @default(false)
+  riskLevel  String   @default("read_only")
+  configJson Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model AiRule {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  title     String
+  content   String   @db.LongText
+  enabled   Boolean  @default(true)
+  severity  String   @default("medium")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AiLog {
+  id         Int      @id @default(autoincrement())
+  source     String
+  skillKey   String?
+  provider   String?
+  model      String?
+  prompt     String?  @db.LongText
+  response   String?  @db.LongText
+  confidence Float?
+  latencyMs  Int?
+  tokensIn   Int?
+  tokensOut  Int?
+  success    Boolean  @default(true)
+  error      String?  @db.LongText
+  metaJson   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([source])
+  @@index([skillKey])
+}
+
+model AiPlaygroundRun {
+  id         Int      @id @default(autoincrement())
+  prompt     String   @db.LongText
+  response   String?  @db.LongText
+  provider   String?
+  model      String?
+  confidence Float?
+  latencyMs  Int?
+  rawJson    Json?
+  createdAt  DateTime @default(now())
+}
+
+model AiKnowledgeFile {
+  id           Int      @id @default(autoincrement())
+  originalName String
+  storedName   String
+  mimeType     String?
+  sizeBytes    Int?
+  status       String   @default("uploaded")
+  path         String
+  metaJson     Json?
+  createdAt    DateTime @default(now())
+}
+
+model AiConversation {
+  id              Int      @id @default(autoincrement())
+  channel         String
+  externalKey     String?
+  customerPhone   String?
+  customerName    String?
+  status          String   @default("open")
+  intent          String?
+  stage           String?
+  assignedTo      String   @default("ai")
+  handoffRequired Boolean  @default(false)
+  lastSummary     String?  @db.LongText
+  subscriberJson  Json?
+  metaJson        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  messages AiConversationMessage[]
+
+  @@index([channel])
+  @@index([externalKey])
+  @@index([customerPhone])
+  @@index([status])
+}
+
+model AiConversationMessage {
+  id             Int      @id @default(autoincrement())
+  conversationId Int
+  role           String
+  content        String   @db.LongText
+  source         String?
+  direction      String?
+  aiGenerated    Boolean  @default(false)
+  confidence     Float?
+  metaJson       Json?
+  createdAt      DateTime @default(now())
+
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([createdAt])
+}
+
+model AiReplyTemplate {
+  id             Int      @id @default(autoincrement())
+  key            String   @unique
+  title          String
+  intent         String
+  enabled        Boolean  @default(true)
+  priority       Int      @default(100)
+  conditionsJson Json?
+  template       String   @db.LongText
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([intent])
+  @@index([enabled])
+}

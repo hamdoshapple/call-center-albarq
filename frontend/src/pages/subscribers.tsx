@@ -1,0 +1,735 @@
+import { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  UserSearch,
+  Search,
+  Phone,
+  Wifi,
+  Calendar,
+  Wallet,
+  MapPin,
+  Ticket as TicketIcon,
+  User,
+  ArrowLeft,
+  Plus,
+  Pencil,
+  Database,
+  RefreshCw,
+} from 'lucide-react';
+import { PageHeader } from '@/components/shared/page-header';
+import { StatusBadge } from '@/components/shared/status-badge';
+import { EmptyState } from '@/components/shared/empty-state';
+import { Loader } from '@/components/shared/loader';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { subscribersApi } from '@/api';
+import type { Subscriber, SubscriberStatus } from '@/types';
+import { useLanguage } from '@/hooks/use-language';
+import { formatDate } from '@/lib/utils';
+import { useToast } from '@/components/ui/use-toast';
+
+const emptyForm: Omit<Subscriber, 'id'> = {
+  name: '',
+  phone: '',
+  pppoeUsername: '',
+  status: 'active',
+  package: '',
+  speed: '',
+  expiration: new Date().toISOString().slice(0, 10),
+  debt: 0,
+  lastActivation: new Date().toISOString(),
+  address: '',
+  notes: '',
+};
+
+export function SubscribersPage() {
+  const { t } = useTranslation();
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const [query, setQuery] = useState('');
+  const [searchSource, setSearchSource] = useState<'auto' | 'live' | 'cache'>('auto');
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<Subscriber | null>(null);
+  const [form, setForm] = useState<Omit<Subscriber, 'id'>>(emptyForm);
+
+  const [cacheIntervalMinutes, setCacheIntervalMinutes] = useState(15);
+  const [cacheFinalTime, setCacheFinalTime] = useState('22:00');
+  const [cacheLimit, setCacheLimit] = useState(7000);
+  const [cacheSettingsOpen, setCacheSettingsOpen] = useState(false);
+
+  const { data: results, isLoading } = useQuery({
+    queryKey: ['subscribers', query, searchSource],
+    queryFn: () => subscribersApi.searchSubscribers(query, searchSource),
+    staleTime: 1000 * 60 * 5,
+  });
+
+  const { data: cacheStatus } = useQuery({
+    queryKey: ['subscribers-cache-status'],
+    queryFn: subscribersApi.getSubscriberCacheStatus,
+    refetchInterval: 1000 * 60,
+  });
+
+  const cacheSchedule = (cacheStatus as any)?.schedule;
+
+  useEffect(() => {
+    if (!cacheSchedule) return;
+    setCacheIntervalMinutes(Number(cacheSchedule.intervalMinutes || 15));
+    setCacheFinalTime(String(cacheSchedule.finalTime || '22:00'));
+    setCacheLimit(Number(cacheSchedule.limit || 7000));
+  }, [cacheSchedule?.intervalMinutes, cacheSchedule?.finalTime, cacheSchedule?.limit]);
+
+  const refreshCacheMutation = useMutation({
+    mutationFn: () => subscribersApi.refreshSubscriberCache(),
+    onSuccess: (data) => {
+      toast({ title: `تم تحديث الكاش: ${data.count.toLocaleString('en-US')} مشترك` });
+      qc.invalidateQueries({ queryKey: ['subscribers-cache-status'] });
+      qc.invalidateQueries({ queryKey: ['subscribers'] });
+    },
+    onError: () => toast({ title: 'فشل تحديث الكاش', variant: 'destructive' }),
+  });
+
+  const saveCacheSettingsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/subscribers-cache/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}`,
+        },
+        body: JSON.stringify({
+          intervalMinutes: Number(cacheIntervalMinutes || 15),
+          finalTime: cacheFinalTime || '22:00',
+          limit: Number(cacheLimit || 7000),
+        }),
+      });
+
+      if (!res.ok) throw new Error('save failed');
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: data.message || 'تم حفظ إعدادات الكاش' });
+      qc.invalidateQueries({ queryKey: ['subscribers-cache-status'] });
+    },
+    onError: () => toast({ title: 'فشل حفظ إعدادات الكاش', variant: 'destructive' }),
+  });
+
+  const { data: selected } = useQuery({
+    queryKey: ['subscriber', id],
+    queryFn: () => subscribersApi.getSubscriber(id!),
+    enabled: !!id,
+  });
+
+  const { data: tickets = [] } = useQuery({
+    queryKey: ['subscriber-tickets', id],
+    queryFn: () => subscribersApi.getSubscriberTickets(id!),
+    enabled: !!id,
+  });
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['subscribers'] });
+    qc.invalidateQueries({ queryKey: ['subscriber'] });
+  };
+
+  const createMutation = useMutation({
+    mutationFn: subscribersApi.createSubscriber,
+    onSuccess: () => {
+      toast({ title: 'تمت إضافة المشترك بنجاح' });
+      setFormOpen(false);
+      refresh();
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<Subscriber> }) =>
+      subscribersApi.updateSubscriber(id, data),
+    onSuccess: () => {
+      toast({ title: 'تم تعديل بيانات المشترك بنجاح' });
+      setFormOpen(false);
+      refresh();
+    },
+  });
+
+  const openCreate = () => {
+    setEditing(null);
+    setForm(emptyForm);
+    setFormOpen(true);
+  };
+
+  const openEdit = (s: Subscriber) => {
+    setEditing(s);
+    setForm({
+      name: s.name,
+      phone: s.phone,
+      pppoeUsername: s.pppoeUsername,
+      status: s.status,
+      package: s.package,
+      speed: s.speed,
+      expiration: s.expiration ? s.expiration.slice(0, 10) : new Date().toISOString().slice(0, 10),
+      debt: Number(s.debt || 0),
+      lastActivation: s.lastActivation || new Date().toISOString(),
+      address: s.address,
+      notes: s.notes || '',
+    });
+    setFormOpen(true);
+  };
+
+  const submit = () => {
+    const payload = {
+      ...form,
+      debt: Number(form.debt || 0),
+      expiration: form.expiration ? new Date(form.expiration).toISOString() : new Date().toISOString(),
+    };
+
+    if (editing) updateMutation.mutate({ id: editing.id, data: payload });
+    else createMutation.mutate(payload);
+  };
+
+  if (id) {
+    if (!selected) return <Loader />;
+    return (
+      <>
+        <SubscriberProfile subscriber={selected} tickets={tickets} onBack={() => navigate('/subscribers')} onEdit={() => openEdit(selected)} />
+        <SubscriberFormDialog open={formOpen} onOpenChange={setFormOpen} form={form} setForm={setForm} editing={editing} onSubmit={submit} loading={createMutation.isPending || updateMutation.isPending} />
+      </>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title={t('subscribers.title')}
+        subtitle={t('subscribers.subtitle')}
+        icon={<UserSearch className="h-5 w-5" />}
+        actions={
+          <Button onClick={openCreate}>
+            <Plus className="h-4 w-4" />
+            إضافة مشترك
+          </Button>
+        }
+      />
+
+      <Card>
+        <CardContent className="space-y-3 p-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="relative flex-1">
+              <Search className="absolute start-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+              <Input placeholder={t('subscribers.search_placeholder')} className="h-12 ps-10 text-base" value={query} onChange={(e) => setQuery(e.target.value)} />
+            </div>
+
+            <Select value={searchSource} onValueChange={(v) => setSearchSource(v as 'auto' | 'live' | 'cache')}>
+              <SelectTrigger className="h-12 w-full lg:w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">تلقائي</SelectItem>
+                <SelectItem value="live">مباشر</SelectItem>
+                <SelectItem value="cache">كاش فقط</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Button
+              variant="outline"
+              className="h-12"
+              disabled={refreshCacheMutation.isPending}
+              onClick={() => refreshCacheMutation.mutate()}
+            >
+              <RefreshCw className={`h-4 w-4 ${refreshCacheMutation.isPending ? 'animate-spin' : ''}`} />
+              تحديث الكاش
+            </Button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/40 p-3 text-sm">
+            <Database className="h-4 w-4 text-primary" />
+
+            <span>الكاش:</span>
+            <b>{Number(cacheStatus?.count || 0).toLocaleString('en-US')}</b>
+            <span>مشترك</span>
+
+            <span className="text-muted-foreground">
+              آخر تحديث: {cacheStatus?.newestCachedAt ? new Date(cacheStatus.newestCachedAt).toLocaleString('ar-IQ') : '—'}
+            </span>
+
+            <Badge variant={searchSource === 'cache' ? 'default' : 'secondary'}>
+              {searchSource === 'cache' ? 'كاش فقط' : searchSource === 'live' ? 'مباشر' : 'تلقائي'}
+            </Badge>
+
+            <Badge
+              variant="outline"
+              className="cursor-pointer"
+              onClick={() => setCacheSettingsOpen((v) => !v)}
+            >
+              الإعدادات
+            </Badge>
+          </div>
+
+          {cacheSettingsOpen && (
+            <div className="rounded-xl border bg-muted/20 p-3">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="space-y-1">
+                  <Label>كل / دقيقة</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={cacheIntervalMinutes}
+                    onChange={(e) => setCacheIntervalMinutes(Number(e.target.value))}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label>آخر سحبة يومية</Label>
+                  <Input
+                    type="time"
+                    value={cacheFinalTime}
+                    onChange={(e) => setCacheFinalTime(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label>حد السحب</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={100000}
+                    value={cacheLimit}
+                    onChange={(e) => setCacheLimit(Number(e.target.value))}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <div className="text-xs text-muted-foreground">
+                  التلقائي كل {cacheSchedule?.intervalMinutes || cacheIntervalMinutes} دقيقة،
+                  وآخر سحبة الساعة {cacheSchedule?.finalTime || cacheFinalTime}.
+                </div>
+
+                <Button
+                  type="button"
+                  disabled={saveCacheSettingsMutation.isPending}
+                  onClick={() => saveCacheSettingsMutation.mutate()}
+                >
+                  {saveCacheSettingsMutation.isPending ? 'جاري الحفظ...' : 'حفظ'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {isLoading ? (
+        <Loader />
+      ) : (results ?? []).length === 0 ? (
+        <Card><CardContent><EmptyState icon={UserSearch} title={t('common.no_results')} description={t('subscribers.search_placeholder')} /></CardContent></Card>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {(results ?? []).map((s) => (
+            <Card key={s.id} className="transition hover:border-primary hover:shadow-md">
+              <CardContent className="space-y-3 p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex cursor-pointer items-center gap-3" onClick={() => navigate(`/subscribers/${s.id}`)}>
+                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary"><User className="h-5 w-5" /></div>
+                    <div>
+                      <p className="font-semibold">{s.name}</p>
+                      <p className="text-sm text-muted-foreground tabular-nums">{s.phone}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <StatusBadge status={s.status} />
+                    <Button size="icon-sm" variant="ghost" onClick={() => openEdit(s)}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <Badge variant="secondary">{s.package}</Badge>
+                  {s.debt > 0 && <span className="text-destructive font-medium">{formatMoneyEn(s.debt)}</span>}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <SubscriberFormDialog open={formOpen} onOpenChange={setFormOpen} form={form} setForm={setForm} editing={editing} onSubmit={submit} loading={createMutation.isPending || updateMutation.isPending} />
+    </div>
+  );
+}
+
+
+
+function formatMoneyEn(value: number) {
+  return `${Number(value || 0).toLocaleString('en-US')} د.ع`;
+}
+
+function noteAuthorName(note: any) {
+  return note?.author?.fullName || note?.author?.username || note?.author?.email || 'النظام';
+}
+
+function formatTicketTime(value?: string) {
+  if (!value) return '';
+  const d = new Date(value);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function SubscriberProfile({ subscriber: s, tickets, onBack, onEdit }: { subscriber: Subscriber; tickets: any[]; onBack: () => void; onEdit: () => void }) {
+  const qc = useQueryClient();
+  const [openTicketId, setOpenTicketId] = useState<string | null>(null);
+  const [commentText, setCommentText] = useState<Record<string, string>>({});
+
+  const changeTicketStatus = useMutation({
+    mutationFn: ({ ticketId, status }: { ticketId: string; status: 'open' | 'pending' | 'resolved' | 'closed' }) =>
+      subscribersApi.updateSubscriberTicketStatus(s.id, ticketId, status),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['subscriber-tickets', s.id] }),
+  });
+
+  const addTicketComment = useMutation({
+    mutationFn: ({ ticketId, body }: { ticketId: string; body: string }) =>
+      subscribersApi.addSubscriberTicketComment(s.id, ticketId, body),
+    onSuccess: (_data, vars) => {
+      setCommentText((old) => ({ ...old, [vars.ticketId]: '' }));
+      qc.invalidateQueries({ queryKey: ['subscriber-tickets', s.id] });
+    },
+  });
+  const { t } = useTranslation();
+  const { lang } = useLanguage();
+
+  const rows = [
+    { icon: Phone, label: t('common.phone'), value: s.phone },
+    { icon: Wifi, label: t('subscribers.pppoe'), value: s.pppoeUsername },
+    { icon: Wifi, label: t('subscribers.package'), value: `${s.package} • ${s.speed}` },
+    { icon: Calendar, label: t('subscribers.expiration'), value: formatDate(s.expiration, lang) },
+    { icon: Calendar, label: t('subscribers.last_activation'), value: formatDate(s.lastActivation, lang) },
+    { icon: Wallet, label: t('subscribers.debt'), value: formatMoneyEn(s.debt) },
+    { icon: MapPin, label: t('subscribers.address'), value: s.address },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="icon" onClick={onBack}><ArrowLeft className="h-4 w-4 rtl:rotate-180" /></Button>
+          <PageHeader title={s.name} subtitle={t('subscribers.profile')} icon={<User className="h-5 w-5" />} />
+        </div>
+        <Button onClick={onEdit}>
+          <Pencil className="h-4 w-4" />
+          تعديل
+        </Button>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <CardTitle>{t('subscribers.profile')}</CardTitle>
+            <StatusBadge status={s.status} />
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {rows.map((r) => (
+                <div key={r.label} className="flex items-start gap-3 rounded-lg border p-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary"><r.icon className="h-4 w-4" /></div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">{r.label}</p>
+                    <p className="font-medium">{r.value}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {s.notes && <p className="mt-4 rounded-lg bg-muted/50 p-3 text-sm">{s.notes}</p>}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TicketIcon className="h-4 w-4" />
+              التذاكر
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                {tickets.length}
+              </span>
+            </CardTitle>
+          </CardHeader>
+
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-4 gap-2 text-center text-xs">
+              <div className="rounded-lg bg-muted p-2">الكل<br />{tickets.length}</div>
+              <div className="rounded-lg bg-green-500/10 p-2">مفتوحة<br />{tickets.filter((x) => x.status === 'open').length}</div>
+              <div className="rounded-lg bg-yellow-500/10 p-2">متابعة<br />{tickets.filter((x) => x.status === 'pending').length}</div>
+              <div className="rounded-lg bg-slate-500/10 p-2">مغلقة<br />{tickets.filter((x) => x.status === 'closed').length}</div>
+            </div>
+
+            {tickets.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('common.no_data')}</p>
+            ) : (
+              tickets.map((ticket) => {
+                const opened = openTicketId === ticket.id;
+
+                return (
+                  <div key={ticket.id} className="overflow-hidden rounded-xl border bg-card">
+                    <button
+                      type="button"
+                      onClick={() => setOpenTicketId(opened ? null : ticket.id)}
+                      className="flex w-full items-start justify-between gap-3 p-3 text-start hover:bg-muted/40"
+                    >
+                      <div className="min-w-0">
+                        <p className="line-clamp-2 text-sm font-semibold">{ticket.subject}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {ticket.createdAt ? formatTicketTime(ticket.createdAt) : '—'}
+                        </p>
+                      </div>
+
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <StatusBadge status={ticket.status} />
+                        <Badge variant={ticket.priority === 'urgent' || ticket.priority === 'high' ? 'destructive' : 'secondary'}>
+                          {ticket.priority === 'urgent' ? 'عاجلة' :
+                           ticket.priority === 'high' ? 'عالية' :
+                           ticket.priority === 'low' ? 'منخفضة' : 'متوسطة'}
+                        </Badge>
+                      </div>
+                    </button>
+
+                    {opened && (
+                      <div className="space-y-3 border-t p-3">
+                        <div className="space-y-3">
+                          <p className="text-xs font-semibold text-muted-foreground">سجل التذكرة الكامل</p>
+
+                          {(ticket.notes ?? []).length === 0 ? (
+                            <p className="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground">
+                              لا توجد تفاصيل أو تعليقات بعد.
+                            </p>
+                          ) : (
+                            <div className="space-y-2">
+                              {[...(ticket.notes ?? [])]
+                                .sort(
+                                  (a: any, b: any) =>
+                                    new Date(a.createdAt).getTime() -
+                                    new Date(b.createdAt).getTime()
+                                )
+                                .map((note: any) => (
+                                <div key={note.id} className="rounded-lg bg-muted/50 p-3">
+                                  <div className="mb-1 flex items-center justify-between gap-2">
+                                    <div>
+                                      <span className="text-xs font-semibold">
+                                        {note.body?.startsWith('--- تفاصيل الاتصال ---') ? 'تفاصيل الاتصال' :
+                                         note.body?.startsWith('تم تغيير حالة') ? 'تغيير حالة' : 'تعليق'}
+                                      </span>
+                                      <p className="text-[11px] text-muted-foreground">
+                                        بواسطة: {noteAuthorName(note)}
+                                      </p>
+                                    </div>
+                                    <span dir="ltr" className="font-mono text-[11px] text-muted-foreground">
+                                      {note.createdAt
+  ? new Date(note.createdAt).toLocaleString('en-GB', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    })
+  : ''}
+                                    </span>
+                                  </div>
+                                  <pre className="whitespace-pre-wrap break-words font-sans text-xs leading-6 text-muted-foreground">
+                                    {note.body}
+                                  </pre>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="space-y-2 rounded-lg border p-3">
+                            <Label>إضافة تعليق</Label>
+                            <Textarea
+                              rows={3}
+                              value={commentText[ticket.id] ?? ''}
+                              onChange={(e) => setCommentText((old) => ({ ...old, [ticket.id]: e.target.value }))}
+                              placeholder="اكتب تعليق أو إجراء تم على التذكرة..."
+                            />
+                            <div className="flex justify-end">
+                              <Button
+                                size="sm"
+                                disabled={!commentText[ticket.id]?.trim() || addTicketComment.isPending}
+                                onClick={() => addTicketComment.mutate({ ticketId: ticket.id, body: commentText[ticket.id] })}
+                              >
+                                إضافة تعليق
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          {ticket.status !== 'closed' ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => changeTicketStatus.mutate({ ticketId: ticket.id, status: 'closed' })}
+                            >
+                              إغلاق التذكرة
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => changeTicketStatus.mutate({ ticketId: ticket.id, status: 'open' })}
+                            >
+                              إعادة فتح
+                            </Button>
+                          )}
+
+                          {ticket.status !== 'pending' && ticket.status !== 'closed' && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => changeTicketStatus.mutate({ ticketId: ticket.id, status: 'pending' })}
+                            >
+                              متابعة
+                            </Button>
+                          )}
+
+                          {ticket.status !== 'resolved' && ticket.status !== 'closed' && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => changeTicketStatus.mutate({ ticketId: ticket.id, status: 'resolved' })}
+                            >
+                              تم الحل
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function SubscriberFormDialog({
+  open,
+  onOpenChange,
+  form,
+  setForm,
+  editing,
+  onSubmit,
+  loading,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  form: Omit<Subscriber, 'id'>;
+  setForm: (v: Omit<Subscriber, 'id'>) => void;
+  editing: Subscriber | null;
+  onSubmit: () => void;
+  loading: boolean;
+}) {
+  const set = (key: keyof Omit<Subscriber, 'id'>, value: any) => setForm({ ...form, [key]: value });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{editing ? 'تعديل مشترك' : 'إضافة مشترك جديد'}</DialogTitle>
+        </DialogHeader>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="الاسم">
+            <Input value={form.name} onChange={(e) => set('name', e.target.value)} />
+          </Field>
+
+          <Field label="الهاتف">
+            <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} />
+          </Field>
+
+          <Field label="يوزر PPPoE">
+            <Input value={form.pppoeUsername} onChange={(e) => set('pppoeUsername', e.target.value)} />
+          </Field>
+
+          <Field label="الحالة">
+            <Select value={form.status} onValueChange={(v) => set('status', v as SubscriberStatus)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">نشط</SelectItem>
+                <SelectItem value="expired">منتهي</SelectItem>
+                <SelectItem value="suspended">معلق</SelectItem>
+                <SelectItem value="disabled">معطل</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field label="الباقة">
+            <Input value={form.package} onChange={(e) => set('package', e.target.value)} placeholder="مثلاً 40 Mbps" />
+          </Field>
+
+          <Field label="السرعة">
+            <Input value={form.speed} onChange={(e) => set('speed', e.target.value)} placeholder="مثلاً 20 Mbps" />
+          </Field>
+
+          <Field label="تاريخ الانتهاء">
+            <Input type="date" value={form.expiration?.slice(0, 10)} onChange={(e) => set('expiration', e.target.value)} />
+          </Field>
+
+          <Field label="الدين">
+            <Input type="number" value={form.debt} onChange={(e) => set('debt', Number(e.target.value || 0))} />
+          </Field>
+
+          <div className="sm:col-span-2">
+            <Field label="العنوان">
+              <Input value={form.address} onChange={(e) => set('address', e.target.value)} />
+            </Field>
+          </div>
+
+          <div className="sm:col-span-2">
+            <Field label="ملاحظات">
+              <Textarea rows={3} value={form.notes} onChange={(e) => set('notes', e.target.value)} />
+            </Field>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>إلغاء</Button>
+          <Button disabled={loading || !form.name || !form.phone} onClick={onSubmit}>
+            {loading ? 'جارٍ الحفظ...' : 'حفظ'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      {children}
+    </div>
+  );
+}

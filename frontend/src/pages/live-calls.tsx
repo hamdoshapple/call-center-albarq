@@ -1,0 +1,879 @@
+import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
+import {
+  PhoneCall,
+  Phone,
+  PhoneForwarded,
+  Pause,
+  PhoneOff,
+  StickyNote,
+  Wifi,
+  Wallet,
+  Calendar,
+  UserSearch,
+  MoreVertical,
+  TicketPlus,
+} from 'lucide-react';
+import { PageHeader } from '@/components/shared/page-header';
+import { StatCard } from '@/components/shared/stat-card';
+import { StatusBadge } from '@/components/shared/status-badge';
+import { EmptyState } from '@/components/shared/empty-state';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { liveCallsApi, agentsApi, queuesApi, tg400Api, subscribersApi, asteriskApi } from '@/api';
+import type { LiveCall, TransferRecord } from '@/types';
+import { useToast } from '@/components/ui/use-toast';
+import { formatDuration } from '@/lib/utils';
+
+export function LiveCallsPage() {
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+
+  const { data: calls = [] } = useQuery({
+    queryKey: ['live-calls'],
+    queryFn: liveCallsApi.listLiveCalls,
+    refetchInterval: 2000,
+  });
+  const { data: agents = [] } = useQuery({ queryKey: ['agents'], queryFn: agentsApi.listAgents });
+  const { data: agentStatuses = [] } = useQuery({ queryKey: ['agent-statuses'], queryFn: asteriskApi.listAgentStatuses, refetchInterval: 3000 });
+  const { data: heldCalls = [] } = useQuery({ queryKey: ['held-calls'], queryFn: asteriskApi.listHeldCalls, refetchInterval: 3000 });
+  const { data: queues = [] } = useQuery({ queryKey: ['queues'], queryFn: queuesApi.listQueues });
+  const { data: lines = [] } = useQuery({ queryKey: ['lines'], queryFn: tg400Api.listLines });
+
+  const agentName = (id?: string) => agents.find((a) => a.id === id || a.extension === id)?.name ?? id ?? '—';
+  const queueName = (id?: string) => queues.find((q) => q.id === id || q.number === id)?.name ?? id ?? '—';
+  const lineNumber = (id?: string) => lines.find((l) => l.id === id || l.number === id)?.number ?? id ?? '—';
+
+  const refresh = () => qc.invalidateQueries({ queryKey: ['live-calls'] });
+
+  const answer = useMutation({ mutationFn: (id: string) => liveCallsApi.answerCall(id), onSuccess: refresh });
+  const hold = useMutation({ mutationFn: (id: string) => liveCallsApi.holdCall(id), onSuccess: refresh });
+
+  const unhold = useMutation({
+    mutationFn: (id: string) => liveCallsApi.unholdCall(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['live-calls'] }),
+  });
+
+  const resumeHeld = useMutation({
+    mutationFn: (id: string) => liveCallsApi.unholdCall(id),
+    onSuccess: () => {
+      toast({ title: 'تم الاستئناف', description: 'تمت إعادة المكالمة إلى الموظف.' });
+      qc.invalidateQueries({ queryKey: ['held-calls'] });
+      qc.invalidateQueries({ queryKey: ['live-calls'] });
+    },
+    onError: () => toast({ title: 'فشل الاستئناف', description: 'تعذر استئناف المكالمة.', variant: 'destructive' }),
+  });
+
+  const hangup = useMutation({
+    mutationFn: (id: string) => liveCallsApi.hangupCall(id),
+    onSuccess: () => {
+      toast({ title: t('live_calls.hangup'), description: t('status.ended') });
+      setTimeout(refresh, 1600);
+      refresh();
+    },
+  });
+
+  const [noteCall, setNoteCall] = useState<LiveCall | null>(null);
+  const [noteText, setNoteText] = useState('');
+  const addNote = useMutation({
+    mutationFn: ({ id, note }: { id: string; note: string }) => liveCallsApi.addCallNote(id, note),
+    onSuccess: () => {
+      toast({ title: t('live_calls.add_note'), description: t('common.save') });
+      setNoteCall(null);
+      setNoteText('');
+      refresh();
+    },
+  });
+
+  const [transferCall, setTransferCall] = useState<LiveCall | null>(null);
+  const [selectedSubscribers, setSelectedSubscribers] = useState<Record<string, string>>({});
+  const [ticketCall, setTicketCall] = useState<LiveCall | null>(null);
+  const [ticketSubject, setTicketSubject] = useState('');
+  const [ticketPriority, setTicketPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
+
+  const createTicket = useMutation({
+    mutationFn: () => {
+      const subscriberId = selectedSubscriberIdFor(ticketCall);
+      if (!subscriberId) throw new Error('Subscriber not found');
+      return subscribersApi.createSubscriberTicket(subscriberId, {
+        subject: ticketSubject,
+        priority: ticketPriority,
+        call: {
+          callerNumber: ticketCall?.callerNumber,
+          callerName: ticketCall?.callerName,
+          startedAt: ticketCall?.startedAt,
+          agentExtension: ticketCall?.agentId,
+          line: ticketCall?.simLineId,
+          destinationNumber: ticketCall?.callerName,
+          status: ticketCall?.status,
+        },
+      });
+    },
+    onSuccess: () => {
+      toast({ title: 'تم إنشاء التذكرة بنجاح' });
+      setTicketCall(null);
+      setTicketSubject('');
+      setTicketPriority('medium');
+      qc.invalidateQueries({ queryKey: ['subscriber-tickets'] });
+    },
+  });
+
+  const stats = useMemo(
+    () => ({
+      active: calls.filter((c) => c.status === 'active').length,
+      waiting: calls.filter((c) => c.status === 'waiting').length,
+      ringing: calls.filter((c) => c.status === 'ringing').length,
+      onHold: calls.filter((c) => c.onHold).length,
+    }),
+    [calls]
+  );
+
+  const incomingCall = calls.find((c) => c.status === 'ringing' || c.status === 'waiting') ?? calls[0];
+
+  const selectedSubscriberFor = (call?: LiveCall | null) => {
+    if (!call) return null;
+    return call.subscriberMatches?.find((s) => s.id === selectedSubscribers[call.id]) ?? call.subscriber ?? null;
+  };
+
+  const selectedSubscriberIdFor = (call?: LiveCall | null) => {
+    const sub = selectedSubscriberFor(call);
+    return sub?.id ?? call?.subscriberId;
+  };
+
+  const incomingSubscriber = selectedSubscriberFor(incomingCall);
+  const incomingSubscriberId = selectedSubscriberIdFor(incomingCall);
+
+  return (
+    <div className="space-y-6">
+      <PageHeader title={t('live_calls.title')} subtitle={t('live_calls.subtitle')} icon={<PhoneCall className="h-5 w-5" />} />
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard label={t('status.active')} value={stats.active} icon={PhoneCall} tone="success" />
+        <StatCard label={t('status.waiting')} value={stats.waiting} icon={Phone} tone="warning" />
+        <StatCard label={t('status.ringing')} value={stats.ringing} icon={PhoneCall} tone="primary" />
+        <StatCard label={t('live_calls.on_hold')} value={stats.onHold} icon={Pause} tone="muted" />
+      </div>
+
+      {incomingCall && (
+        <Card className="border-primary/40 bg-primary/5 shadow-sm">
+          <CardContent className="p-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-start gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <PhoneCall className="h-6 w-6" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-lg font-bold">
+                      {incomingSubscriber?.name || incomingCall.callerName || incomingCall.callerNumber}
+                    </p>
+                    <StatusBadge status={incomingCall.status} pulse />
+                  </div>
+                  <p className="font-mono text-sm text-muted-foreground">{incomingCall.callerNumber}</p>
+                  <LinkSubscriberModalButton phone={incomingCall.callerNumber} onDone={() => location.reload()} />
+                  {incomingCall.subscriberMatches && incomingCall.subscriberMatches.length > 1 && (
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                        <span>يوجد {incomingCall.subscriberMatches.length} حسابات على نفس الرقم</span>
+                        <span className="text-xs">اختر الحساب المطلوب</span>
+                      </div>
+
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {incomingCall.subscriberMatches.map((s) => {
+                          const active = selectedSubscribers[incomingCall.id]
+                            ? selectedSubscribers[incomingCall.id] === s.id
+                            : incomingCall.subscriber?.id === s.id;
+
+                          return (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => setSelectedSubscribers((prev) => ({ ...prev, [incomingCall.id]: s.id }))}
+                              className={`rounded-xl border bg-background p-3 text-start shadow-sm transition ${
+                                active
+                                  ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
+                                  : 'hover:border-primary/50'
+                              }`}
+                            >
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="truncate text-base font-bold">{s.name || 'بدون اسم'}</p>
+                                  <p className="font-mono text-xs text-muted-foreground">{s.pppoeUsername || 'بدون يوزر'}</p>
+                                </div>
+                                {active && <Badge>مختار</Badge>}
+                              </div>
+
+                              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                                <div className="rounded-lg bg-muted/50 p-2">
+                                  <div className="text-muted-foreground">الباقة</div>
+                                  <div className="mt-1 font-semibold">{s.package || '—'}</div>
+                                </div>
+                                <div className="rounded-lg bg-muted/50 p-2">
+                                  <div className="text-muted-foreground">الدين</div>
+                                  <div className={Number(s.debt || 0) > 0 ? 'mt-1 font-bold text-destructive' : 'mt-1 font-bold'}>
+                                    {Number(s.debt || 0).toLocaleString('en-US')}
+                                  </div>
+                                </div>
+                                <div className="rounded-lg bg-muted/50 p-2">
+                                  <div className="text-muted-foreground">الانتهاء</div>
+                                  <div className="mt-1 font-semibold">
+                                    {s.expiration ? new Date(s.expiration).toLocaleDateString('ar-IQ') : '—'}
+                                  </div>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                                    {incomingSubscriber ? (
+                    <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
+                        <Wifi className="h-4 w-4 text-primary" />
+                        <span>{incomingSubscriber!.pppoeUsername || '—'}</span>
+                      </div>
+                      <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
+                        <Badge variant="secondary">{incomingSubscriber!.package || '—'}</Badge>
+                        <span>{incomingSubscriber!.speed || ''}</span>
+                      </div>
+                      <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
+                        <Wallet className="h-4 w-4 text-destructive" />
+                        <span>{Number(incomingSubscriber!.debt || 0).toLocaleString('en-US')} د.ع</span>
+                      </div>
+                      <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
+                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                        <span>{incomingSubscriber!.expiration ? new Date(incomingSubscriber!.expiration).toLocaleDateString('ar-IQ') : '—'}</span>
+                      </div>
+                      <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
+                        <StickyNote className="h-4 w-4 text-primary" />
+                        <span>التذاكر: {incomingCall.crm?.ticketsCount ?? 0}</span>
+                      </div>
+                      <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2">
+                        <PhoneCall className="h-4 w-4 text-primary" />
+                        <span>المكالمات: {incomingCall.crm?.callsCount ?? 0}</span>
+                      </div>
+                      {incomingCall.crm?.lastTicket && (
+                        <div className="flex items-center gap-2 rounded-lg bg-background/70 px-3 py-2 sm:col-span-2">
+                          <span>آخر تذكرة: {incomingCall.crm.lastTicket.subject}</span>
+                        </div>
+                      )}
+                      {incomingCall.crm?.hasHighDebt && (
+                        <div className="rounded-lg bg-destructive/10 px-3 py-2 text-destructive sm:col-span-2">
+                          تنبيه: هذا المشترك عليه دين عالي
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm text-muted-foreground">اختر حساب المشترك من البطاقات أعلاه</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {incomingSubscriberId && (
+                  <Button onClick={() => navigate(`/subscribers/${incomingSubscriberId}`)}>
+                    <UserSearch className="h-4 w-4" />
+                    فتح المشترك
+                  </Button>
+                )}
+                {incomingSubscriberId && (
+                  <Button variant="outline" onClick={() => { setTicketCall(incomingCall); setTicketSubject(''); }}>
+                    <TicketPlus className="h-4 w-4" />
+                    إنشاء تذكرة
+                  </Button>
+                )}
+                <Button variant="outline" onClick={() => { setNoteCall(incomingCall); setNoteText(incomingCall.note ?? ''); }}>
+                  <StickyNote className="h-4 w-4" />
+                  ملاحظة
+                </Button>
+                <Button variant="outline" onClick={() => setTransferCall(incomingCall)}>
+                  <PhoneForwarded className="h-4 w-4" />
+                  تحويل
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={hold.isPending}
+                  onClick={() => (incomingCall.onHold ? unhold.mutate(incomingCall.id) : hold.mutate(incomingCall.id))}
+                >
+                  <Pause className="h-4 w-4" />
+                  {hold.isPending ? 'جاري التعليق...' : 'تعليق'}
+                </Button>
+                <Button variant="destructive" onClick={() => hangup.mutate(incomingCall.id)}>
+                  <PhoneOff className="h-4 w-4" />
+                  إنهاء
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {heldCalls.length > 0 && (
+        <Card className="border-warning/40 bg-warning/5">
+          <CardHeader>
+            <CardTitle className="text-base">المكالمات المعلقة</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {heldCalls.map((h) => (
+              <div key={h.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background p-3">
+                <div>
+                  <div className="font-medium tabular-nums">{h.customerNumber || 'زبون'}</div>
+                  <div className="text-xs text-muted-foreground">معلقة عند الموظف {h.agentExtension}</div>
+                </div>
+                <Button
+                  variant="success"
+                  size="sm"
+                  disabled={resumeHeld.isPending}
+                  onClick={() => resumeHeld.mutate(h.id)}
+                >
+                  <Phone className="h-4 w-4" />
+                  استئناف
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardContent className="p-0">
+          {calls.length === 0 ? (
+            <EmptyState icon={PhoneOff} title={t('live_calls.no_active')} />
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('live_calls.caller')}</TableHead>
+                    <TableHead>{t('live_calls.sim_line')}</TableHead>
+                    <TableHead>{t('live_calls.queue')}</TableHead>
+                    <TableHead>{t('live_calls.agent')}</TableHead>
+                    <TableHead>{t('common.status')}</TableHead>
+                    <TableHead>{t('common.duration')}</TableHead>
+                    <TableHead className="text-end">{t('common.actions')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {calls.map((call) => (
+                    <TableRow key={call.id}>
+                      <TableCell>
+                        <div className="font-medium tabular-nums">{call.callerNumber}</div>
+                        {call.callerName && <div className="text-xs text-muted-foreground">{call.callerName}</div>}
+                        <LinkSubscriberModalButton phone={call.callerNumber} onDone={() => location.reload()} />
+                      </TableCell>
+                      <TableCell className="tabular-nums text-sm">{lineNumber(call.simLineId)}</TableCell>
+                      <TableCell className="text-sm">{queueName(call.queueId)}</TableCell>
+                      <TableCell className="text-sm">{agentName(call.agentId)}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          <StatusBadge status={call.status} pulse={call.status === 'active' || call.status === 'ringing'} />
+                          {call.onHold && <Badge variant="warning">{t('live_calls.on_hold')}</Badge>}
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono tabular-nums">{formatDuration(call.durationSec)}</TableCell>
+                      <TableCell className="text-end">
+                        <div className="flex items-center justify-end gap-1">
+                          {(call.status === 'ringing' || call.status === 'waiting') && (
+                            <Button size="sm" variant="success" onClick={() => answer.mutate(call.id)}>
+                              <Phone className="h-3.5 w-3.5" />
+                              {t('live_calls.answer')}
+                            </Button>
+                          )}
+                          {call.status === 'active' && (
+                            <Button
+                              size="icon-sm"
+                              variant="outline"
+                              title={call.onHold ? t('live_calls.unhold') : t('live_calls.hold')}
+                              onClick={() => (call.onHold ? unhold.mutate(call.id) : hold.mutate(call.id))}
+                            >
+                              <Pause className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button size="icon-sm" variant="ghost">
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => setTransferCall(call)}>
+                                <PhoneForwarded className="h-4 w-4" />
+                                {t('live_calls.transfer')}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => { setNoteCall(call); setNoteText(call.note ?? ''); }}>
+                                <StickyNote className="h-4 w-4" />
+                                {t('live_calls.add_note')}
+                              </DropdownMenuItem>
+                              {call.subscriberId && (
+                                <>
+                                  <DropdownMenuItem onClick={() => navigate(`/subscribers/${call.subscriberId}`)}>
+                                    <UserSearch className="h-4 w-4" />
+                                    {t('live_calls.open_subscriber')}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => { setTicketCall(call); setTicketSubject(''); }}>
+                                    <TicketPlus className="h-4 w-4" />
+                                    إنشاء تذكرة
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => hangup.mutate(call.id)}>
+                                <PhoneOff className="h-4 w-4" />
+                                {t('live_calls.hangup')}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Note dialog */}
+      <Dialog open={!!noteCall} onOpenChange={(o) => !o && setNoteCall(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('live_calls.add_note')}</DialogTitle>
+            <DialogDescription>{noteCall?.callerNumber}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>{t('common.note')}</Label>
+            <Textarea value={noteText} onChange={(e) => setNoteText(e.target.value)} rows={4} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNoteCall(null)}>{t('common.cancel')}</Button>
+            <Button onClick={() => noteCall && addNote.mutate({ id: noteCall.id, note: noteText })}>{t('common.save')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Ticket dialog */}
+      <Dialog open={!!ticketCall} onOpenChange={(o) => !o && setTicketCall(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>إنشاء تذكرة من المكالمة</DialogTitle>
+            <DialogDescription>
+              {ticketCall?.callerName || ticketCall?.callerNumber}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="rounded-lg border bg-muted/40 p-3 text-sm">
+              <div>الرقم: {ticketCall?.callerNumber}</div>
+              <div>الخط: {ticketCall?.simLineId}</div>
+              <div>الموظف: {ticketCall?.agentId || '—'}</div>
+              <div>وقت الاتصال: {ticketCall?.startedAt ? new Date(ticketCall?.startedAt).toLocaleString('ar-IQ') : '—'}</div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>الأولوية</Label>
+              <Select value={ticketPriority} onValueChange={(v) => setTicketPriority(v as any)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="low">منخفضة</SelectItem>
+                  <SelectItem value="medium">متوسطة</SelectItem>
+                  <SelectItem value="high">عالية</SelectItem>
+                  <SelectItem value="urgent">عاجلة</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>المشكلة</Label>
+              <Textarea
+                rows={5}
+                value={ticketSubject}
+                onChange={(e) => setTicketSubject(e.target.value)}
+                placeholder="اكتب مشكلة المشترك..."
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTicketCall(null)}>إلغاء</Button>
+            <Button disabled={!ticketSubject.trim() || createTicket.isPending} onClick={() => createTicket.mutate()}>
+              {createTicket.isPending ? 'جارٍ الإنشاء...' : 'إنشاء تذكرة'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Transfer dialog */}
+      <TransferDialog
+        call={transferCall}
+        onClose={() => setTransferCall(null)}
+        agents={agents.map((a) => {
+          const live = agentStatuses.find((x) => x.extension === a.extension);
+          const status = live?.inCall ? 'busy' : live?.status || 'offline';
+          return {
+            id: a.extension || a.id,
+            label: `${a.name} (${a.extension})`,
+            status,
+          };
+        })}
+        queues={queues.map((q) => ({ id: q.number || q.id, label: `${q.name} (${q.number})` }))}
+        onDone={() => {
+          toast({ title: t('live_calls.transfer'), description: t('status.completed') });
+          setTransferCall(null);
+          qc.invalidateQueries({ queryKey: ['transfers'] });
+          refresh();
+        }}
+      />
+    </div>
+  );
+}
+
+interface Option { id: string; label: string; status?: 'online' | 'offline' | 'busy' | 'paused'; }
+
+function TransferDialog({
+  call,
+  onClose,
+  agents,
+  queues,
+  onDone,
+}: {
+  call: LiveCall | null;
+  onClose: () => void;
+  agents: Option[];
+  queues: Option[];
+  onDone: () => void;
+}) {
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const [type, setType] = useState<TransferRecord['type']>('blind'); // real implemented mode only
+  const [targetType, setTargetType] = useState<TransferRecord['targetType']>('agent');
+  const [targetId, setTargetId] = useState('');
+  const [external, setExternal] = useState('');
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      const opts = targetType === 'agent' ? agents : queues;
+      const label =
+        targetType === 'external' ? external : opts.find((o) => o.id === targetId)?.label ?? targetId;
+
+      toast({
+        title: 'جاري التحويل',
+        description: `يتم تحويل المكالمة إلى ${label}...`,
+      });
+
+      return liveCallsApi.transferCall(call!.id, {
+        type,
+        targetType,
+        targetId: targetType === 'external' ? external : targetId,
+        targetLabel: label,
+        callerNumber: call?.callerNumber,
+      });
+    },
+    onSuccess: () => {
+      toast({
+        title: 'تم التحويل',
+        description: 'تم تحويل المكالمة بنجاح',
+      });
+      onDone();
+    },
+    onError: (err: any) => {
+      const code = err?.code;
+      let description = 'تعذر تحويل المكالمة. حاول مرة أخرى.';
+
+      if (code === 'TARGET_BUSY') description = 'الموظف مشغول حالياً بمكالمة أخرى.';
+      if (code === 'TARGET_OFFLINE') description = 'الموظف غير متصل حالياً أو غير متوفر.';
+      if (String(err?.message || '').includes('Channel not found')) description = 'المكالمة لم تعد متاحة للتحويل.';
+
+      toast({
+        title: 'فشل التحويل',
+        description,
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const options = targetType === 'agent' ? agents : queues;
+  const selected = options.find((o) => o.id === targetId);
+  const selectedOffline = targetType === 'agent' && selected?.status === 'offline';
+  const valid = targetType === 'external' ? external.length >= 3 : !!targetId && !selectedOffline;
+
+  const statusText = (status?: Option['status']) => {
+    if (status === 'online') return 'متاح';
+    if (status === 'busy') return 'مشغول';
+    if (status === 'paused') return 'متوقف';
+    return 'غير متوفر';
+  };
+
+  const statusDot = (status?: Option['status']) => {
+    if (status === 'online') return '🟢';
+    if (status === 'busy') return '🟠';
+    if (status === 'paused') return '🟡';
+    return '🔴';
+  };
+
+  return (
+    <Dialog open={!!call} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('live_calls.transfer')}</DialogTitle>
+          <DialogDescription>{call?.callerNumber}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>{t('call_transfer.transfer_type')}</Label>
+            <Select value={type} onValueChange={(v) => setType(v as TransferRecord['type'])}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="blind">{t('call_transfer.blind')}</SelectItem>
+                <SelectItem value="attended">{t('call_transfer.attended')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>{t('call_transfer.target')}</Label>
+            <Select value={targetType} onValueChange={(v) => { setTargetType(v as TransferRecord['targetType']); setTargetId(''); }}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="agent">{t('call_transfer.to_agent')}</SelectItem>
+                <SelectItem value="queue">{t('call_transfer.to_queue')}</SelectItem>
+                <SelectItem value="external">{t('call_transfer.to_external')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {targetType === 'external' ? (
+            <div className="space-y-2">
+              <Label>{t('call_transfer.to_external')}</Label>
+              <input
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={external}
+                onChange={(e) => setExternal(e.target.value)}
+                placeholder="07XXXXXXXXX"
+              />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label>{targetType === 'agent' ? t('call_transfer.to_agent') : t('call_transfer.to_queue')}</Label>
+              <Select value={targetId} onValueChange={setTargetId}>
+                <SelectTrigger><SelectValue placeholder={t('common.search')} /></SelectTrigger>
+                <SelectContent>
+                  {options.map((o) => (
+                    <SelectItem key={o.id} value={o.id} disabled={targetType === 'agent' && o.status === 'offline'}>
+                      {targetType === 'agent' ? `${statusDot(o.status)} ${o.label} — ${statusText(o.status)}` : o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {targetType === 'agent' && selected && (
+                <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  الحالة: {statusDot(selected.status)} {statusText(selected.status)}
+                  {selected.status === 'busy' && <span className="ms-2 text-warning">الموظف مشغول، قد لا يستلم التحويل.</span>}
+                  {selected.status === 'offline' && <span className="ms-2 text-destructive">غير متوفر حالياً.</span>}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button disabled={!valid || mutation.isPending} onClick={() => mutation.mutate()}>
+            {mutation.isPending ? 'جاري التحويل...' : t('live_calls.transfer')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+
+
+
+function LinkSubscriberModalButton({ phone, onDone }: { phone?: string; onDone?: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [rows, setRows] = useState<any[]>([]);
+  const [selected, setSelected] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function search() {
+    if (!q.trim()) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/subscriber-identity/search?q=${encodeURIComponent(q.trim())}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}` },
+      });
+      const data = await res.json();
+      setRows(Array.isArray(data) ? data : []);
+      setSelected(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function confirm() {
+    if (!phone || !selected?.pppoeUsername) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch('/api/subscriber-identity/link', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('cc_token') || ''}`,
+        },
+        body: JSON.stringify({
+          phone,
+          pppoeUsername: selected.pppoeUsername,
+          externalId: selected.id || null,
+          label: 'رقم إضافي',
+          verified: false,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || data.message || 'فشل ربط الرقم');
+        return;
+      }
+
+      setOpen(false);
+      setQ('');
+      setRows([]);
+      setSelected(null);
+      alert('تم ربط الرقم بنجاح');
+      setTimeout(() => onDone?.(), 600);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      <button onClick={() => setOpen(true)} className="mt-3 w-full rounded-2xl bg-sky-600 px-4 py-3 text-xs font-black text-white shadow-sm hover:bg-sky-700">
+        ربط / تغيير ربط الرقم
+      </button>
+
+      {open ? (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" dir="rtl">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b p-5">
+              <div>
+                <h2 className="text-xl font-black text-slate-950">ربط الرقم بمشترك</h2>
+                <p className="mt-1 text-xs font-bold text-slate-500">ابحث بالاسم أو الرقم أو PPPoE ثم اختر المشترك</p>
+              </div>
+              <button onClick={() => setOpen(false)} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-black">إغلاق</button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <div className="rounded-2xl border bg-sky-50 p-4 text-sm font-black text-slate-700">
+                الرقم المراد ربطه: <span dir="ltr" className="text-sky-700">{phone || '—'}</span>
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') search(); }}
+                  placeholder="بحث بالاسم أو الرقم أو PPPoE..."
+                  className="h-12 flex-1 rounded-2xl border px-4 text-sm font-bold outline-none focus:ring-2 focus:ring-sky-100"
+                />
+                <button onClick={search} disabled={loading} className="h-12 rounded-2xl bg-slate-950 px-6 text-sm font-black text-white disabled:opacity-50">
+                  {loading ? 'بحث...' : 'بحث'}
+                </button>
+              </div>
+
+              <div className="max-h-[360px] overflow-auto rounded-2xl border">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-slate-50 text-xs text-slate-500">
+                    <tr>
+                      <th className="p-3 text-right">اختيار</th>
+                      <th className="p-3 text-right">الاسم</th>
+                      <th className="p-3 text-right">PPPoE</th>
+                      <th className="p-3 text-right">الهاتف</th>
+                      <th className="p-3 text-right">الباقة</th>
+                      <th className="p-3 text-right">الدين</th>
+                      <th className="p-3 text-right">الحالة</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.length === 0 ? (
+                      <tr><td colSpan={7} className="p-8 text-center text-xs font-bold text-slate-400">ابحث لعرض النتائج</td></tr>
+                    ) : rows.map((x: any, i: number) => (
+                      <tr
+                        key={`${x.id || x.pppoeUsername || i}`}
+                        onClick={() => setSelected(x)}
+                        className={`cursor-pointer border-t hover:bg-sky-50 ${selected?.pppoeUsername === x.pppoeUsername ? 'bg-sky-100' : 'bg-white'}`}
+                      >
+                        <td className="p-3"><input type="radio" checked={selected?.pppoeUsername === x.pppoeUsername} readOnly /></td>
+                        <td className="p-3 font-black">{x.name || '—'}<div className="text-[11px] text-slate-400">ID: {x.id || '—'}</div></td>
+                        <td className="p-3 font-mono font-bold">{x.pppoeUsername || '—'}</td>
+                        <td className="p-3 font-mono">{x.phone || '—'}</td>
+                        <td className="p-3">{x.package || '—'}</td>
+                        <td className="p-3 font-black">{Number(x.debt || 0).toLocaleString('en-US')} د.ع</td>
+                        <td className="p-3"><span className="rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-black text-emerald-700">{x.status || '—'}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="rounded-2xl border bg-slate-50 p-4">
+                <div className="mb-2 text-sm font-black">تفاصيل الربط</div>
+                <div className="grid gap-2 text-xs font-bold text-slate-600 md:grid-cols-3">
+                  <div>الرقم: <span dir="ltr" className="text-sky-700">{phone || '—'}</span></div>
+                  <div>المشترك: {selected?.name || '—'}</div>
+                  <div>PPPoE: <span className="font-mono">{selected?.pppoeUsername || '—'}</span></div>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button onClick={confirm} disabled={saving || !selected} className="h-12 flex-1 rounded-2xl bg-sky-600 text-sm font-black text-white disabled:opacity-50">
+                  {saving ? 'جاري الربط...' : 'تأكيد الربط'}
+                </button>
+                <button onClick={() => setOpen(false)} className="h-12 rounded-2xl border px-6 text-sm font-black">إلغاء</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
